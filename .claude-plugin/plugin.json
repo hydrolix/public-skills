@@ -1,0 +1,19 @@
+{
+  "name": "insight-skills",
+  "version": "1.0.0",
+  "description": "Analytical playbooks for Hydrolix solutions bundle deployments. Teaches AI assistants how to analyze CDN traffic, bot detection, and API gateway data via the Hydrolix MCP server.",
+  "author": {
+    "name": "Hydrolix",
+    "url": "https://hydrolix.io"
+  },
+  "repository": "https://github.com/hydrolix/insight-skills",
+  "license": "Apache-2.0",
+  "keywords": [
+    "hydrolix",
+    "cdn",
+    "bot-detection",
+    "api-gateway",
+    "analytics",
+    "mcp"
+  ]
+}
