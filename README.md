@@ -16,6 +16,15 @@ Each skill is an analytical playbook for a specific solutions bundle — it teac
 - A Hydrolix cluster with a solutions bundle deployed
 - The [Hydrolix MCP server](https://github.com/hydrolix/mcp-hydrolix) connected to your AI assistant
 
+## Download
+
+Each skill is available as a standalone zip file from the [latest release](https://github.com/hydrolix/insight-skills/releases/tag/v1.0.0):
+
+| Skill | Download |
+|-------|----------|
+| bot-insights | [bot-insights.zip](https://github.com/hydrolix/insight-skills/releases/download/v1.0.0/bot-insights.zip) |
+| cdn-insights | [cdn-insights.zip](https://github.com/hydrolix/insight-skills/releases/download/v1.0.0/cdn-insights.zip) |
+
 ## Installation
 
 ### Claude Code (plugin)
@@ -29,7 +38,6 @@ This installs all skills at once. Skills are invoked as:
 ```
 /insight-skills:cdn-insights
 /insight-skills:bot-insights
-/insight-skills:zuplo-api-insights
 ```
 
 To test locally before publishing:
@@ -38,28 +46,26 @@ To test locally before publishing:
 claude --plugin-dir /path/to/insight-skills
 ```
 
-### Claude Code (manual)
+### Manual (any platform)
 
-Copy or symlink individual skill directories:
+Download a skill zip from the table above, then extract it into your platform's skills directory:
+
+**Claude Code:**
 
 ```bash
-# Project-level
-cp -r skills/cdn-insights .claude/skills/cdn-insights
-
-# User-level
-cp -r skills/cdn-insights ~/.claude/skills/cdn-insights
+unzip cdn-insights.zip -d ~/.claude/skills/
 ```
 
-### OpenAI Codex
+**OpenAI Codex:**
 
 ```bash
-cp -r skills/cdn-insights .agents/skills/cdn-insights
+unzip cdn-insights.zip -d .agents/skills/
 ```
 
-### Gemini CLI
+**Gemini CLI:**
 
 ```bash
-cp -r skills/cdn-insights .gemini/skills/cdn-insights
+unzip cdn-insights.zip -d .gemini/skills/
 ```
 
 ## Refreshing Schemas
