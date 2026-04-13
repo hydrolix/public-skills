@@ -83,8 +83,7 @@ for skill_dir in skills/*/; do
     # HTML card
     SKILL_CARDS="$SKILL_CARDS
             <div class=\"skill-card\">
-                <a href=\"$skill_page_url\" class=\"skill-card-link\" aria-label=\"Open $skill_name documentation\"></a>
-                <h2>$skill_name</h2>
+                <h2><a href=\"$skill_page_url\">$skill_name</a></h2>
                 <p class=\"description\">$description_escaped</p>
                 <div class=\"meta\">$ref_count reference file(s)</div>
                 <a href=\"$download_path\" class=\"download-btn\">
@@ -137,7 +136,7 @@ cat > "$SITE_DIR/index.html" << 'HTMLEOF'
 
         .nav-logo img {
             display: block;
-            width: 172px;
+            width: 110px;
             height: auto;
         }
 
@@ -175,7 +174,7 @@ cat > "$SITE_DIR/index.html" << 'HTMLEOF'
 
         .hero h1 {
             font-family: 'Lato', sans-serif;
-            font-weight: 900;
+            font-weight: bold;
             font-size: 2.6rem;
             line-height: 1.15;
             margin-bottom: 1rem;
@@ -279,36 +278,27 @@ cat > "$SITE_DIR/index.html" << 'HTMLEOF'
         }
 
         .skill-card {
-            position: relative;
             background: #FFFFFF;
             border: 1px solid #000000;
             border-radius: 0;
             padding: 1.5rem;
-            cursor: pointer;
-        }
-
-        .skill-card-link {
-            display: block;
-            position: absolute;
-            inset: 0;
-            z-index: 1;
         }
 
         .skill-card h2 {
-            position: relative;
-            z-index: 2;
-            pointer-events: none;
             font-family: 'Lato', sans-serif;
             font-weight: 700;
-            color: #003366;
             font-size: 1.15rem;
             margin-bottom: 0.5rem;
         }
 
+        .skill-card h2 a {
+            color: #003366;
+            text-decoration: none;
+        }
+
+        .skill-card h2 a:hover { text-decoration: underline; }
+
         .skill-card .description {
-            position: relative;
-            z-index: 2;
-            pointer-events: none;
             font-family: 'Lato', sans-serif;
             color: #333333;
             font-size: 0.9rem;
@@ -317,9 +307,6 @@ cat > "$SITE_DIR/index.html" << 'HTMLEOF'
         }
 
         .skill-card .meta {
-            position: relative;
-            z-index: 2;
-            pointer-events: none;
             font-family: 'Inconsolata', monospace;
             font-size: 0.75rem;
             letter-spacing: 0.05em;
@@ -329,8 +316,6 @@ cat > "$SITE_DIR/index.html" << 'HTMLEOF'
         }
 
         .download-btn {
-            position: relative;
-            z-index: 2;
             font-family: 'Inconsolata', monospace;
             font-weight: 500;
             font-size: 0.8rem;
@@ -341,7 +326,7 @@ cat > "$SITE_DIR/index.html" << 'HTMLEOF'
             color: #000000;
             border: 1px solid #000000;
             padding: 0.6rem 1.2rem;
-            border-radius: 9999px;
+            border-radius: 0;
             text-decoration: none;
             transition: background-color 0.2s, color 0.2s;
         }
@@ -356,7 +341,6 @@ cat > "$SITE_DIR/index.html" << 'HTMLEOF'
 
         /* Footer */
         .footer {
-            border-top: 1px solid #000000;
             color: #333333;
             padding: 2rem;
             text-align: center;
