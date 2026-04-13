@@ -5,10 +5,14 @@ on:
     branches: [main]
     paths:
       - 'skills/**'
+      - 'scripts/generate-site.sh'
+      - '.github/workflows/package-skills.yml'
   pull_request:
     branches: [main]
     paths:
       - 'skills/**'
+      - 'scripts/generate-site.sh'
+      - '.github/workflows/package-skills.yml'
   workflow_dispatch:
   release:
     types: [published]
