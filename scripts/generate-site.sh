@@ -18,9 +18,6 @@ TIMESTAMP=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
 REPO_URL="https://github.com/${GITHUB_REPOSITORY:-hydrolix/insight-skills}"
 RELEASE_TAG="${RELEASE_TAG:-latest}"
 
-# Base URL for direct zip downloads from GitHub Releases
-DOWNLOAD_BASE="$REPO_URL/releases/download/$RELEASE_TAG"
-
 # Build skill data
 SKILL_CARDS=""
 SKILL_JSON_ITEMS=""
@@ -62,22 +59,24 @@ for skill_dir in skills/*/; do
     else
         SKILL_JSON_ITEMS="$SKILL_JSON_ITEMS,"
     fi
+    skill_page_url="$REPO_URL/tree/main/skills/$skill_name"
+    download_path="./$skill_name.zip"
     SKILL_JSON_ITEMS="$SKILL_JSON_ITEMS
     {
       \"name\": \"$skill_name\",
       \"description\": \"$description_json\",
       \"filename\": \"$skill_name.zip\",
-      \"downloadUrl\": \"$DOWNLOAD_BASE/$skill_name.zip\",
+      \"downloadUrl\": \"$download_path\",
       \"referenceFiles\": $ref_count
     }"
 
     # HTML card
     SKILL_CARDS="$SKILL_CARDS
             <div class=\"skill-card\">
-                <h2>$skill_name</h2>
+                <h2><a href=\"$skill_page_url\">$skill_name</a></h2>
                 <p class=\"description\">$description_escaped</p>
                 <div class=\"meta\">$ref_count reference file(s)</div>
-                <a href=\"$DOWNLOAD_BASE/$skill_name.zip\" class=\"download-btn\">
+                <a href=\"$download_path\" class=\"download-btn\">
                     Download $skill_name.zip
                 </a>
             </div>"
@@ -102,6 +101,11 @@ cat > "$SITE_DIR/index.html" << 'HTMLEOF'
             background: #FDF5E8;
             color: #000000;
             min-height: 100vh;
+        }
+
+        .site-header {
+            background: #FFFFFF;
+            border-bottom: 1px solid #000000;
         }
 
         /* Nav */
@@ -273,10 +277,16 @@ cat > "$SITE_DIR/index.html" << 'HTMLEOF'
         .skill-card h2 {
             font-family: 'Lato', sans-serif;
             font-weight: 700;
-            color: #003366;
             font-size: 1.15rem;
             margin-bottom: 0.5rem;
         }
+
+        .skill-card h2 a {
+            color: #003366;
+            text-decoration: none;
+        }
+
+        .skill-card h2 a:hover { color: #000000; }
 
         .skill-card .description {
             font-family: 'Lato', sans-serif;
@@ -337,16 +347,17 @@ cat > "$SITE_DIR/index.html" << 'HTMLEOF'
     </style>
 </head>
 <body>
-    <nav class="nav">
-        <a href="https://hydrolix.io" class="nav-logo" aria-label="Hydrolix">
-            <img src="https://hydrolix.io/wp-content/uploads/2023/10/Hydrolix-Logotype.svg" alt="Hydrolix">
-        </a>
-        <ul class="nav-links">
-            <li><a href="https://hydrolix.io/solutions">Solutions</a></li>
-            <li><a href="https://github.com/hydrolix/mcp-hydrolix">MCP Server</a></li>
-            <li><a href="https://docs.hydrolix.io">Docs</a></li>
-        </ul>
-    </nav>
+    <div class="site-header">
+        <nav class="nav">
+            <a href="https://hydrolix.io" class="nav-logo" aria-label="Hydrolix">
+                <img src="https://hydrolix.io/wp-content/uploads/2023/10/Hydrolix-Logotype.svg" alt="Hydrolix">
+            </a>
+            <ul class="nav-links">
+                <li><a href="https://github.com/hydrolix/mcp-hydrolix">MCP Server</a></li>
+                <li><a href="https://docs.hydrolix.io">Docs</a></li>
+            </ul>
+        </nav>
+    </div>
 
     <div class="hero">
         <div class="hero-inner">
@@ -401,7 +412,7 @@ cat >> "$SITE_DIR/index.html" << FOOTEREOF
         <p>Last updated: $TIMESTAMP</p>
         <p>
             <a href="$REPO_URL">GitHub</a> &middot;
-            <a href="$REPO_URL/releases/tag/$RELEASE_TAG">Release $RELEASE_TAG</a> &middot;
+            <a href="$REPO_URL/releases">Releases</a> &middot;
             <a href="https://hydrolix.io">hydrolix.io</a>
         </p>
     </div>
@@ -424,7 +435,7 @@ cat > "$SITE_DIR/skills.json" << JSONEOF
   "lastUpdated": "$TIMESTAMP",
   "repository": "$REPO_URL",
   "release": "$RELEASE_TAG",
-  "downloadBase": "$DOWNLOAD_BASE",
+  "downloadBase": ".",
   "skills": [$SKILL_JSON_ITEMS
   ]
 }
