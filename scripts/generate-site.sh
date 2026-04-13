@@ -284,9 +284,11 @@ cat > "$SITE_DIR/index.html" << 'HTMLEOF'
             border: 1px solid #000000;
             border-radius: 0;
             padding: 1.5rem;
+            cursor: pointer;
         }
 
         .skill-card-link {
+            display: block;
             position: absolute;
             inset: 0;
             z-index: 1;
@@ -295,6 +297,7 @@ cat > "$SITE_DIR/index.html" << 'HTMLEOF'
         .skill-card h2 {
             position: relative;
             z-index: 2;
+            pointer-events: none;
             font-family: 'Lato', sans-serif;
             font-weight: 700;
             color: #003366;
@@ -305,6 +308,7 @@ cat > "$SITE_DIR/index.html" << 'HTMLEOF'
         .skill-card .description {
             position: relative;
             z-index: 2;
+            pointer-events: none;
             font-family: 'Lato', sans-serif;
             color: #333333;
             font-size: 0.9rem;
@@ -315,6 +319,7 @@ cat > "$SITE_DIR/index.html" << 'HTMLEOF'
         .skill-card .meta {
             position: relative;
             z-index: 2;
+            pointer-events: none;
             font-family: 'Inconsolata', monospace;
             font-size: 0.75rem;
             letter-spacing: 0.05em;
