@@ -59,7 +59,17 @@ for skill_dir in skills/*/; do
     else
         SKILL_JSON_ITEMS="$SKILL_JSON_ITEMS,"
     fi
-    skill_page_url="$REPO_URL/tree/main/skills/$skill_name"
+    case "$skill_name" in
+        bot-insights)
+            skill_page_url="https://docs.hydrolix.io/latest/managed/solutions/bot-insights/"
+            ;;
+        cdn-insights)
+            skill_page_url="https://docs.hydrolix.io/latest/managed/solutions/cdn-insights/"
+            ;;
+        *)
+            skill_page_url="$REPO_URL/tree/main/skills/$skill_name"
+            ;;
+    esac
     download_path="./$skill_name.zip"
     SKILL_JSON_ITEMS="$SKILL_JSON_ITEMS
     {
@@ -73,7 +83,8 @@ for skill_dir in skills/*/; do
     # HTML card
     SKILL_CARDS="$SKILL_CARDS
             <div class=\"skill-card\">
-                <h2><a href=\"$skill_page_url\">$skill_name</a></h2>
+                <a href=\"$skill_page_url\" class=\"skill-card-link\" aria-label=\"Open $skill_name documentation\"></a>
+                <h2>$skill_name</h2>
                 <p class=\"description\">$description_escaped</p>
                 <div class=\"meta\">$ref_count reference file(s)</div>
                 <a href=\"$download_path\" class=\"download-btn\">
@@ -268,27 +279,32 @@ cat > "$SITE_DIR/index.html" << 'HTMLEOF'
         }
 
         .skill-card {
+            position: relative;
             background: #FFFFFF;
             border: 1px solid #000000;
             border-radius: 0;
             padding: 1.5rem;
         }
 
+        .skill-card-link {
+            position: absolute;
+            inset: 0;
+            z-index: 1;
+        }
+
         .skill-card h2 {
+            position: relative;
+            z-index: 2;
             font-family: 'Lato', sans-serif;
             font-weight: 700;
+            color: #003366;
             font-size: 1.15rem;
             margin-bottom: 0.5rem;
         }
 
-        .skill-card h2 a {
-            color: #003366;
-            text-decoration: none;
-        }
-
-        .skill-card h2 a:hover { color: #000000; }
-
         .skill-card .description {
+            position: relative;
+            z-index: 2;
             font-family: 'Lato', sans-serif;
             color: #333333;
             font-size: 0.9rem;
@@ -297,6 +313,8 @@ cat > "$SITE_DIR/index.html" << 'HTMLEOF'
         }
 
         .skill-card .meta {
+            position: relative;
+            z-index: 2;
             font-family: 'Inconsolata', monospace;
             font-size: 0.75rem;
             letter-spacing: 0.05em;
@@ -306,6 +324,8 @@ cat > "$SITE_DIR/index.html" << 'HTMLEOF'
         }
 
         .download-btn {
+            position: relative;
+            z-index: 2;
             font-family: 'Inconsolata', monospace;
             font-weight: 500;
             font-size: 0.8rem;
