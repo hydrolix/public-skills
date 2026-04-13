@@ -1,8 +1,8 @@
-# Hydrolix Insight Skills
+# Hydrolix Public Skills
 
-Skills for analyzing data in [Hydrolix](https://hydrolix.io) solutions bundle deployments using the [Hydrolix MCP server](https://github.com/hydrolix/mcp-hydrolix).
+Public skills for AI assistants built by [Hydrolix](https://hydrolix.io).
 
-Each skill is an analytical playbook for a specific solutions bundle — it teaches AI assistants what tables and columns exist, what questions to ask, how to write effective queries, and what pitfalls to avoid.
+This repo is the landing place for Hydrolix-provided public skills. Some skills support Insights and other solutions bundles using the [Hydrolix MCP server](https://github.com/hydrolix/mcp-hydrolix); others can support broader Hydrolix workflows over time.
 
 ## Skills
 
@@ -13,42 +13,39 @@ Each skill is an analytical playbook for a specific solutions bundle — it teac
 
 ## Prerequisites
 
-- A Hydrolix cluster with a solutions bundle deployed
+Current bundled skills assume:
+
+- A Hydrolix cluster with the relevant deployment or solution enabled
 - The [Hydrolix MCP server](https://github.com/hydrolix/mcp-hydrolix) connected to your AI assistant
 
 ## Download
 
-Each skill is available as a standalone zip file from the [latest release](https://github.com/hydrolix/insight-skills/releases/tag/v1.0.0):
-
-| Skill | Download |
-|-------|----------|
-| bot-insights | [bot-insights.zip](https://github.com/hydrolix/insight-skills/releases/download/v1.0.0/bot-insights.zip) |
-| cdn-insights | [cdn-insights.zip](https://github.com/hydrolix/insight-skills/releases/download/v1.0.0/cdn-insights.zip) |
+Standalone skill zip files are published by CI to the repo's GitHub Pages site and are also attached to releases when a release is cut.
 
 ## Installation
 
 ### Claude Code (plugin)
 
 ```bash
-claude plugin install hydrolix/insight-skills
+claude plugin install hydrolix/public-skills
 ```
 
 This installs all skills at once. Skills are invoked as:
 
 ```
-/insight-skills:cdn-insights
-/insight-skills:bot-insights
+/public-skills:cdn-insights
+/public-skills:bot-insights
 ```
 
 To test locally before publishing:
 
 ```bash
-claude --plugin-dir /path/to/insight-skills
+claude --plugin-dir /path/to/public-skills
 ```
 
 ### Manual (any platform)
 
-Download a skill zip from the table above, then extract it into your platform's skills directory:
+Download a skill zip from the GitHub Pages site or a release asset, then extract it into your platform's skills directory:
 
 **Claude Code:**
 

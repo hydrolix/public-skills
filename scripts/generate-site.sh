@@ -7,7 +7,7 @@ set -e
 # - JSON manifest for programmatic access
 #
 # Expected env vars (set by GitHub Actions):
-#   GITHUB_REPOSITORY  - e.g., hydrolix/insight-skills
+#   GITHUB_REPOSITORY  - e.g., hydrolix/public-skills
 #   GITHUB_RUN_ID      - current workflow run
 #   RELEASE_TAG        - git tag for the release (e.g., v1.0.0), empty if not a release
 
@@ -15,7 +15,7 @@ SITE_DIR="site"
 mkdir -p "$SITE_DIR"
 
 TIMESTAMP=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
-REPO_URL="https://github.com/${GITHUB_REPOSITORY:-hydrolix/insight-skills}"
+REPO_URL="https://github.com/${GITHUB_REPOSITORY:-hydrolix/public-skills}"
 RELEASE_TAG="${RELEASE_TAG:-latest}"
 
 # Build skill data
@@ -89,7 +89,7 @@ cat > "$SITE_DIR/index.html" << 'HTMLEOF'
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Hydrolix Insight Skills</title>
+    <title>Hydrolix Public Skills</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inconsolata:wght@400;500;600&family=Lato:wght@400;700;900&display=swap" rel="stylesheet">
@@ -361,11 +361,11 @@ cat > "$SITE_DIR/index.html" << 'HTMLEOF'
 
     <div class="hero">
         <div class="hero-inner">
-            <h1>Insights <span>Skills</span></h1>
-            <p>Each skill is a self-contained analytical playbook for a Hydrolix
-            solutions bundle. Install one and your AI assistant knows what tables
-            exist, what questions to ask, how to write the queries, and what
-            pitfalls to avoid.</p>
+            <h1>Hydrolix <span>Skills</span></h1>
+            <p>Public Hydrolix skills for AI assistants. Some packages support
+            Insights and other solutions bundles; others can capture broader
+            Hydrolix workflows. Install one and your assistant gets the context,
+            questions, and guardrails needed for the job.</p>
         </div>
     </div>
 
@@ -379,7 +379,7 @@ cat > "$SITE_DIR/index.html" << 'HTMLEOF'
                 <button onclick="showTab('gemini')">Gemini CLI</button>
             </div>
             <div id="tab-claude" class="install-content active">
-                <pre><code>claude plugin install hydrolix/insight-skills</code></pre>
+                <pre><code>claude plugin install hydrolix/public-skills</code></pre>
             </div>
             <div id="tab-manual" class="install-content">
                 <pre><code># Download and extract a skill, then copy to your platform's skills directory

@@ -1,4 +1,4 @@
-name: Package Insight Skills
+name: Package Public Skills
 
 on:
   push:
@@ -96,7 +96,7 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: insight-skills
+          name: public-skills
           path: dist/*.zip
           retention-days: 90
 
