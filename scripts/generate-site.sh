@@ -104,19 +104,6 @@ cat > "$SITE_DIR/index.html" << 'HTMLEOF'
             min-height: 100vh;
         }
 
-        /* Top banner */
-        .banner {
-            background: #FFC614;
-            text-align: center;
-            padding: 0.5rem 1rem;
-            font-family: 'Lato', sans-serif;
-            font-size: 0.85rem;
-            font-style: italic;
-            color: #000000;
-        }
-
-        .banner a { color: #003366; text-decoration: underline; }
-
         /* Nav */
         .nav {
             display: flex;
@@ -128,11 +115,15 @@ cat > "$SITE_DIR/index.html" << 'HTMLEOF'
         }
 
         .nav-logo {
-            font-family: 'Lato', sans-serif;
-            font-weight: 900;
-            font-size: 1.4rem;
-            color: #003366;
+            display: inline-flex;
+            align-items: center;
             text-decoration: none;
+        }
+
+        .nav-logo img {
+            display: block;
+            width: 172px;
+            height: auto;
         }
 
         .nav-links {
@@ -171,7 +162,6 @@ cat > "$SITE_DIR/index.html" << 'HTMLEOF'
             font-family: 'Lato', sans-serif;
             font-weight: 900;
             font-size: 2.6rem;
-            text-transform: uppercase;
             line-height: 1.15;
             margin-bottom: 1rem;
         }
@@ -278,11 +268,6 @@ cat > "$SITE_DIR/index.html" << 'HTMLEOF'
             border: 1px solid #000000;
             border-radius: 0;
             padding: 1.5rem;
-            transition: box-shadow 0.2s;
-        }
-
-        .skill-card:hover {
-            box-shadow: 4px 4px 0 #003366;
         }
 
         .skill-card h2 {
@@ -319,42 +304,43 @@ cat > "$SITE_DIR/index.html" << 'HTMLEOF'
             display: inline-block;
             background: #FFC614;
             color: #000000;
+            border: 1px solid #000000;
             padding: 0.6rem 1.2rem;
             border-radius: 9999px;
             text-decoration: none;
-            transition: opacity 0.2s;
+            transition: background-color 0.2s, color 0.2s;
         }
 
-        .download-btn:hover { opacity: 0.85; }
+        .download-btn:hover {
+            background: #000000;
+            color: #FFFFFF;
+        }
 
         a { color: #36BDB1; text-decoration: none; }
         a:hover { color: #3D958D; }
 
         /* Footer */
         .footer {
-            background: #003366;
-            color: rgba(255, 255, 255, 0.6);
+            border-top: 1px solid #000000;
+            color: #333333;
             padding: 2rem;
             text-align: center;
             font-size: 0.85rem;
         }
 
         .footer a {
-            color: rgba(255, 255, 255, 0.8);
+            color: #000000;
             text-decoration: none;
         }
 
-        .footer a:hover { color: #FFC614; }
+        .footer a:hover { color: #3D958D; }
     </style>
 </head>
 <body>
-    <div class="banner">
-        Analytical playbooks for AI assistants &mdash; powered by the
-        <a href="https://github.com/hydrolix/mcp-hydrolix">Hydrolix MCP server</a>
-    </div>
-
     <nav class="nav">
-        <a href="https://hydrolix.io" class="nav-logo">hydrolix</a>
+        <a href="https://hydrolix.io" class="nav-logo" aria-label="Hydrolix">
+            <img src="https://hydrolix.io/wp-content/uploads/2023/10/Hydrolix-Logotype.svg" alt="Hydrolix">
+        </a>
         <ul class="nav-links">
             <li><a href="https://hydrolix.io/solutions">Solutions</a></li>
             <li><a href="https://github.com/hydrolix/mcp-hydrolix">MCP Server</a></li>
@@ -364,7 +350,7 @@ cat > "$SITE_DIR/index.html" << 'HTMLEOF'
 
     <div class="hero">
         <div class="hero-inner">
-            <h1>Insight <span>Skills</span></h1>
+            <h1>Insights <span>Skills</span></h1>
             <p>Each skill is a self-contained analytical playbook for a Hydrolix
             solutions bundle. Install one and your AI assistant knows what tables
             exist, what questions to ask, how to write the queries, and what
