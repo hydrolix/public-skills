@@ -933,13 +933,30 @@ def add_contribution_percentages(rows: list[dict[str, Any]], metadata: dict[str,
         row["contribution_pct"] = abs(delta) / basis * 100.0
 
 
-def build_index(scorecards: list[dict[str, Any]], metadata: dict[str, Any], limit: int = 0) -> dict[str, Any]:
+def limit_metadata(total_count: int, emitted_count: int, limit: int) -> dict[str, Any]:
+    if limit <= 0:
+        return {}
+    return {
+        "producer_limit": limit,
+        "result_row_count": emitted_count,
+        "result_truncated": total_count > emitted_count,
+        "total_ranked_entities": total_count,
+    }
+
+
+def build_index(
+    scorecards: list[dict[str, Any]],
+    metadata: dict[str, Any],
+    limit: int = 0,
+    total_count: int | None = None,
+) -> dict[str, Any]:
     ranked = sorted(
         scorecards,
         key=lambda card: (-int(card["score"]), str(card["entity_type"]), str(card["entity"])),
     )
     if limit > 0:
         ranked = ranked[:limit]
+    total = len(scorecards) if total_count is None else total_count
     index = {
         "schema_version": INDEX_SCHEMA,
         "scope": metadata.get("scope", {}),
@@ -959,6 +976,7 @@ def build_index(scorecards: list[dict[str, Any]], metadata: dict[str, Any], limi
         ],
         "interpretation_constraints": INTERPRETATION_CONSTRAINTS,
     }
+    index.update(limit_metadata(total, len(ranked), limit))
     if "current_window" in metadata:
         index["current_window"] = metadata["current_window"]
     if "baseline_windows" in metadata:
@@ -991,14 +1009,17 @@ def build_artifacts(
         scorecards,
         key=lambda card: (-int(card["score"]), str(card["entity"])),
     )
+    total_scorecards = len(scorecards)
     if limit > 0:
         scorecards = scorecards[:limit]
-    index = build_index(scorecards, metadata, limit=limit)
-    return {
+    index = build_index(scorecards, metadata, limit=limit, total_count=total_scorecards)
+    artifacts = {
         "schema_version": ARTIFACT_SCHEMA,
         "scorecards": scorecards,
         "index": index,
     }
+    artifacts.update(limit_metadata(total_scorecards, len(scorecards), limit))
+    return artifacts
 
 
 def main() -> int:

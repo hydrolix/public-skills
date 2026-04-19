@@ -160,6 +160,10 @@ Do not read every reference at startup. Load the smallest relevant file:
   It accepts MCP query results, saved JSON, or pasted JSON only; it does not
   query Hydrolix. Missing feature inputs must remain `not_evaluated_features`,
   not implicit safe evidence.
+- Use [scripts/render_report.py](scripts/render_report.py) to render saved Bot
+  Insights artifacts into Markdown or self-contained HTML reports. It accepts
+  existing artifact JSON only; it does not query Hydrolix, recompute scores, or
+  infer missing evidence.
 - Local scripts must not contain database clients, connection configuration, or
   credential handling. Use the Hydrolix MCP server or host Hydrolix query tool
   for all database access.
@@ -196,6 +200,9 @@ Do not read every reference at startup. Load the smallest relevant file:
 - [scripts/scorecard.py](scripts/scorecard.py): emit deterministic
   `bot_entity_scorecard.v1` and `bot_scorecard_index.v1` artifacts from
   entity-level aggregate JSON.
+- [scripts/render_report.py](scripts/render_report.py): render existing Bot
+  Insights artifacts or `bot_report_input.v1` wrappers into Markdown or
+  self-contained HTML reports.
 
 ## Script List
 
@@ -204,3 +211,5 @@ Do not read every reference at startup. Load the smallest relevant file:
   control-review packets.
 - `scripts/scorecard.py`: reusable entity scorecards and ranked scorecard
   index from aggregate JSON.
+- `scripts/render_report.py`: dependency-free report renderer for existing
+  Bot Insights artifacts.

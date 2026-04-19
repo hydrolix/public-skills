@@ -157,6 +157,14 @@ Machine-readable reasons:
   "comparison_type": "post_change_vs_expected",
   "change_time": "2026-04-01T00:00:00Z",
   "target": {"policy_id": "policy-123"},
+  "scope": {"request_host": "www.example.com"},
+  "before_window": {"start": "2026-03-25T00:00:00Z", "end": "2026-04-01T00:00:00Z"},
+  "after_window": {"start": "2026-04-01T00:00:00Z", "end": "2026-04-08T00:00:00Z"},
+  "expected_window": {
+    "start": "2026-03-25T00:00:00Z",
+    "end": "2026-04-01T00:00:00Z",
+    "label": "expected_from_before_window"
+  },
   "table_used": "bot_siem_summary_day",
   "target_effects": [
     {

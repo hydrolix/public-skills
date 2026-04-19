@@ -652,17 +652,23 @@ def compare_control(value: Any, min_count: float = 100.0) -> dict[str, Any]:
             }
         )
 
-    return {
+    output = {
         "schema_version": CONTROL_SCHEMA,
         "comparison_type": "post_change_vs_expected",
         "change_time": data.get("change_time", ""),
         "target": data.get("target", {}),
+        "scope": data.get("scope", {}),
+        "expected_basis": data.get("expected_basis", "before_window" if expected is before else "explicit_target"),
         "table_used": metadata.get("table_used", ""),
         "target_effects": target_effects,
         "collateral_checks": data.get("collateral_checks", []),
         "displacement_checks": data.get("displacement_checks", []),
         "interpretation_constraints": CONTROL_CONSTRAINTS,
     }
+    for key in ("before_window", "after_window", "expected_window"):
+        if key in data:
+            output[key] = data[key]
+    return output
 
 
 def compare(value: Any, schema: str = "auto", min_count: float = 100.0) -> dict[str, Any]:

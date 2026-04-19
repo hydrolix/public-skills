@@ -5,6 +5,7 @@ import json
 import sys
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -105,6 +106,24 @@ class BotInsightsScriptTests(unittest.TestCase):
             "scorecard",
             ROOT / "skills/bot-insights/scripts/scorecard.py",
         )
+        cls.render_report = load_module(
+            "render_report",
+            ROOT / "skills/bot-insights/scripts/render_report.py",
+        )
+
+    def render_args(self, **overrides):
+        defaults = {
+            "text": [],
+            "file": None,
+            "format": "markdown",
+            "report_type": None,
+            "output": None,
+            "limit": None,
+            "allow_unknown": False,
+            "title": None,
+        }
+        defaults.update(overrides)
+        return SimpleNamespace(**defaults)
 
     def test_compares_current_baseline_objects(self) -> None:
         result = self.compare_delta.compare(
@@ -211,6 +230,10 @@ class BotInsightsScriptTests(unittest.TestCase):
                 "table_used": "bot_siem_summary_day",
                 "change_time": "2026-04-01T00:00:00Z",
                 "target": {"policy_id": "policy-123"},
+                "scope": {"request_host": "www.example.com"},
+                "before_window": {"start": "2026-03-25", "end": "2026-04-01"},
+                "after_window": {"start": "2026-04-01", "end": "2026-04-08"},
+                "expected_window": {"start": "2026-03-25", "end": "2026-04-01"},
                 "before": {"siem_blocked_requests": 90},
                 "after": {"siem_blocked_requests": 130},
                 "expected": {"siem_blocked_requests": 100},
@@ -220,6 +243,11 @@ class BotInsightsScriptTests(unittest.TestCase):
 
         effect = result["target_effects"][0]
         self.assertEqual(result["schema_version"], "bot_control_review.v1")
+        self.assertEqual(result["scope"]["request_host"], "www.example.com")
+        self.assertEqual(result["expected_basis"], "explicit_target")
+        self.assertEqual(result["before_window"]["start"], "2026-03-25")
+        self.assertEqual(result["after_window"]["end"], "2026-04-08")
+        self.assertEqual(result["expected_window"]["start"], "2026-03-25")
         self.assertEqual(effect["absolute_delta_vs_expected"], 30)
         self.assertEqual(effect["status"], "increased")
 
@@ -508,6 +536,27 @@ class BotInsightsScriptTests(unittest.TestCase):
         self.assertEqual(ranked[0]["entity"], "/high")
         self.assertGreater(ranked[0]["score"], ranked[1]["score"])
 
+    def test_scorecard_limit_metadata_when_truncated(self) -> None:
+        result = self.scorecard.build_artifacts(
+            {
+                "entity_type": "request_host",
+                "table_used": "bot_summary_hour",
+                "rows": [
+                    {"request_host": "a.example.com", "current_requests": 5000, "baseline_requests": 100},
+                    {"request_host": "b.example.com", "current_requests": 4000, "baseline_requests": 100},
+                    {"request_host": "c.example.com", "current_requests": 3000, "baseline_requests": 100},
+                ],
+            },
+            limit=2,
+        )
+
+        self.assertEqual(result["producer_limit"], 2)
+        self.assertEqual(result["result_row_count"], 2)
+        self.assertTrue(result["result_truncated"])
+        self.assertEqual(result["total_ranked_entities"], 3)
+        self.assertEqual(result["index"]["producer_limit"], 2)
+        self.assertTrue(result["index"]["result_truncated"])
+
     def test_scorecard_interpretation_constraints_always_included(self) -> None:
         result = self.scorecard.build_artifacts(
             {
@@ -573,6 +622,246 @@ class BotInsightsScriptTests(unittest.TestCase):
                     ],
                 }
             )
+
+    def test_render_report_wrapper_scorecard_packet_and_child_citation(self) -> None:
+        artifacts = self.scorecard.build_artifacts(
+            {
+                "entity_type": "request_path_norm",
+                "table_used": "bot_agg_path_hour",
+                "scope": {"request_host": "www.example.com"},
+                "current_window": {"start": "2026-04-01", "end": "2026-04-08"},
+                "baseline_windows": [{"start": "2026-03-25", "end": "2026-04-01"}],
+                "rows": [
+                    {
+                        "request_path_norm": "/api/search",
+                        "current_requests": 5000,
+                        "baseline_requests": 1000,
+                        "qs_diversity_ratio": 0.93,
+                        "current_cache_miss_pct": 88,
+                        "baseline_cache_miss_pct": 20,
+                    }
+                ],
+            }
+        )
+        artifacts["artifact_id"] = "scorecard-pack"
+        wrapper = {
+            "schema_version": "bot_report_input.v1",
+            "report_type": "soc_triage",
+            "title": "SOC <Report>",
+            "artifacts": [artifacts],
+            "analyst_notes": [
+                {
+                    "note_id": "note-1",
+                    "author_type": "llm",
+                    "text": "Review <this> path.",
+                    "data_sources": [
+                        {
+                            "artifact_id": "scorecard-pack#scorecard-1",
+                            "json_pointer": "/features/0/name",
+                            "label": "first feature",
+                        }
+                    ],
+                }
+            ],
+        }
+
+        output, warnings = self.render_report.render(wrapper, self.render_args(format="html"))
+
+        self.assertIn("SOC &lt;Report&gt;", output)
+        self.assertIn("Review &lt;this&gt; path.", output)
+        self.assertIn("scorecard-pack#scorecard-1", output)
+        self.assertIn("<svg", output)
+        self.assertEqual(warnings, [])
+
+    def test_render_report_raw_array_requires_report_type(self) -> None:
+        with self.assertRaisesRegex(self.render_report.ReportError, "requires --report-type"):
+            self.render_report.render(
+                [{"schema_version": "bot_scorecard_index.v1", "ranked_entities": []}],
+                self.render_args(),
+            )
+
+    def test_render_report_conflicting_report_type_fails(self) -> None:
+        wrapper = {
+            "schema_version": "bot_report_input.v1",
+            "report_type": "executive_posture",
+            "artifacts": [
+                {
+                    "schema_version": "bot_posture_movement.v1",
+                    "metrics": [],
+                }
+            ],
+        }
+
+        with self.assertRaisesRegex(self.render_report.ReportError, "conflicts"):
+            self.render_report.render(
+                wrapper,
+                self.render_args(report_type="soc_triage"),
+            )
+
+    def test_render_report_timeseries_rejected_even_with_allow_unknown(self) -> None:
+        with self.assertRaisesRegex(self.render_report.ReportError, "unsupported"):
+            self.render_report.render(
+                {"schema_version": "bot_timeseries.v1", "series": []},
+                self.render_args(report_type="executive_posture", allow_unknown=True),
+            )
+
+    def test_render_report_soc_index_only_degraded(self) -> None:
+        output, warnings = self.render_report.render(
+            {
+                "schema_version": "bot_scorecard_index.v1",
+                "ranked_entities": [
+                    {
+                        "rank": 1,
+                        "entity_type": "client_asn",
+                        "entity": "64500",
+                        "score": 80,
+                        "band": "urgent_review",
+                        "primary_domain": "security_evidence",
+                        "confidence": "medium",
+                    }
+                ],
+            },
+            self.render_args(report_type="soc_triage"),
+        )
+
+        self.assertIn("Top Risky Entities", output)
+        self.assertNotIn("Domain Score Matrix", output)
+        self.assertTrue(any("degraded ranking-only" in warning for warning in warnings))
+
+    def test_render_report_rejects_malformed_scorecard_packet_children(self) -> None:
+        packet = {
+            "schema_version": "bot_scorecard_artifacts.v1",
+            "index": {
+                "schema_version": "unexpected_index.v1",
+                "ranked_entities": [{"entity_type": "client_asn", "entity": "64500"}],
+            },
+            "scorecards": [
+                {
+                    "schema_version": "unexpected_scorecard.v1",
+                    "entity_type": "client_asn",
+                    "entity": "64500",
+                    "score": 80,
+                }
+            ],
+        }
+
+        with self.assertRaisesRegex(self.render_report.ReportError, "requires bot_entity_scorecard"):
+            self.render_report.render(packet, self.render_args(report_type="crawler_governance"))
+
+    def test_render_report_rejects_incompatible_standalone_scorecard_pairing(self) -> None:
+        index = {
+            "schema_version": "bot_scorecard_index.v1",
+            "scope": {"request_host": "a.example.com"},
+            "comparison_type": "previous_window",
+            "table_used": "bot_summary_hour",
+            "current_window": {"start": "2026-04-01", "end": "2026-04-08"},
+            "baseline_windows": [{"start": "2026-03-25", "end": "2026-04-01"}],
+            "ranked_entities": [{"entity_type": "client_asn", "entity": "64500", "score": 80}],
+        }
+        scorecard = {
+            "schema_version": "bot_entity_scorecard.v1",
+            "entity_type": "client_asn",
+            "entity": "64500",
+            "scope": {"request_host": "b.example.com"},
+            "comparison_type": "previous_window",
+            "table_used": "bot_summary_hour",
+            "current_window": {"start": "2026-04-01", "end": "2026-04-08"},
+            "baseline_windows": [{"start": "2026-03-25", "end": "2026-04-01"}],
+            "score": 80,
+            "band": "urgent_review",
+            "domain_scores": {},
+            "features": [],
+        }
+
+        with self.assertRaisesRegex(self.render_report.ReportError, "metadata mismatch"):
+            self.render_report.render([index, scorecard], self.render_args(report_type="soc_triage"))
+
+    def test_render_report_unresolved_analyst_citation_fails(self) -> None:
+        wrapper = {
+            "schema_version": "bot_report_input.v1",
+            "report_type": "executive_posture",
+            "artifacts": [{"schema_version": "bot_posture_movement.v1", "metrics": []}],
+            "analyst_notes": [
+                {
+                    "author_type": "llm",
+                    "text": "Review this.",
+                    "data_sources": [{"schema_version": "bot_posture_movement.v1", "json_pointer": "/missing"}],
+                }
+            ],
+        }
+
+        with self.assertRaisesRegex(self.render_report.ReportError, "pointer /missing"):
+            self.render_report.render(wrapper, self.render_args())
+
+    def test_render_report_malformed_analyst_pointer_fails(self) -> None:
+        wrapper = {
+            "schema_version": "bot_report_input.v1",
+            "report_type": "executive_posture",
+            "artifacts": [{"schema_version": "bot_posture_movement.v1", "metrics": []}],
+            "analyst_notes": [
+                {
+                    "author_type": "llm",
+                    "text": "Review this.",
+                    "data_sources": [{"schema_version": "bot_posture_movement.v1", "json_pointer": "/metrics~2bad"}],
+                }
+            ],
+        }
+
+        with self.assertRaisesRegex(self.render_report.ReportError, "pointer /metrics~2bad"):
+            self.render_report.render(wrapper, self.render_args())
+
+    def test_render_report_crawler_generic_rates_require_structured_provenance(self) -> None:
+        base_card = {
+            "schema_version": "bot_entity_scorecard.v1",
+            "entity_type": "request_host",
+            "entity": "www.example.com",
+            "score": 20,
+            "band": "watch",
+            "domain_scores": {"crawler_governance": 12},
+            "features": [
+                {
+                    "domain": "crawler_governance",
+                    "name": "rate_429_delta_high",
+                    "points": 12,
+                    "evidence": "Crawler-like 429 movement mentioned in free-form text.",
+                    "supporting_metrics": {"crawler_hint": "good_bot"},
+                }
+            ],
+            "not_evaluated_features": [],
+        }
+
+        output, warnings = self.render_report.render(
+            base_card,
+            self.render_args(report_type="crawler_governance"),
+        )
+        self.assertIn("No relevant crawler governance evidence available", output)
+        self.assertTrue(any("no eligible evaluated" in warning for warning in warnings))
+
+        with_provenance = dict(base_card)
+        with_provenance["rowset_scope"] = {"population": "good_bot"}
+        output, warnings = self.render_report.render(
+            with_provenance,
+            self.render_args(report_type="crawler_governance"),
+        )
+        self.assertIn("rate_429_delta_high", output)
+
+    def test_render_report_raw_entity_scorecard_requires_report_type(self) -> None:
+        with self.assertRaisesRegex(self.render_report.ReportError, "Missing or ambiguous"):
+            self.render_report.render(
+                {
+                    "schema_version": "bot_entity_scorecard.v1",
+                    "entity_type": "client_asn",
+                    "entity": "64500",
+                    "score": 10,
+                },
+                self.render_args(),
+            )
+
+    def test_render_report_default_limits_match_design(self) -> None:
+        self.assertEqual(self.render_report.default_limit("soc_triage"), 10)
+        self.assertEqual(self.render_report.default_limit("crawler_governance"), 10)
+        self.assertEqual(self.render_report.default_limit("edge_ops_impact"), 10)
+        self.assertEqual(self.render_report.default_limit("scorecard_brief"), 20)
 
 
 if __name__ == "__main__":
