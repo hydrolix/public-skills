@@ -5,13 +5,17 @@ on:
     branches: [main]
     paths:
       - 'skills/**'
+      - 'scripts/validate-skill-examples.py'
       - 'scripts/generate-site.sh'
+      - 'tests/**'
       - '.github/workflows/package-skills.yml'
   pull_request:
     branches: [main]
     paths:
       - 'skills/**'
+      - 'scripts/validate-skill-examples.py'
       - 'scripts/generate-site.sh'
+      - 'tests/**'
       - '.github/workflows/package-skills.yml'
   workflow_dispatch:
   release:
@@ -23,40 +27,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Validate skill structure
-        run: |
-          errors=0
-          for skill_dir in skills/*/; do
-            skill_name=$(basename "$skill_dir")
-            skill_file="$skill_dir/SKILL.md"
+      - name: Validate skills
+        run: python3 scripts/validate-skill-examples.py
 
-            if [ ! -f "$skill_file" ]; then
-              echo "ERROR: $skill_name missing SKILL.md"
-              errors=$((errors + 1))
-              continue
-            fi
-
-            if ! head -20 "$skill_file" | grep -q "^name:"; then
-              echo "ERROR: $skill_name SKILL.md missing 'name' in frontmatter"
-              errors=$((errors + 1))
-            fi
-
-            if ! head -20 "$skill_file" | grep -q "^description:"; then
-              echo "ERROR: $skill_name SKILL.md missing 'description' in frontmatter"
-              errors=$((errors + 1))
-            fi
-
-            if [ ! -d "$skill_dir/references" ]; then
-              echo "WARN: $skill_name has no references/ directory"
-            fi
-
-            echo "OK: $skill_name"
-          done
-
-          if [ $errors -gt 0 ]; then
-            echo "Validation failed with $errors errors"
-            exit 1
-          fi
+      - name: Test skill scripts
+        run: python3 -m unittest discover -s tests
 
   package:
     runs-on: ubuntu-latest

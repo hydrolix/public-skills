@@ -10,6 +10,8 @@ This repo is the landing place for Hydrolix-provided public skills. Some skills 
 |-------|-------------|
 | [bot-insights](skills/bot-insights/) | Bot traffic intelligence — scoring, verified/unverified classification, attack data analysis |
 | [cdn-insights](skills/cdn-insights/) | Multi-CDN traffic analysis — cache efficiency, origin health, error rates, geographic distribution |
+| [hydrolix-query-debugging](skills/hydrolix-query-debugging/) | Debug slow, timing-out, OOM, or circuit-broken Hydrolix SQL queries — enable `hdx_query_debug`, read `hdx.active_queries`, map errors to fixes |
+| [zuplo-api-insights](skills/zuplo-api-insights/) | Zuplo API gateway analysis — auth, rate limiting, consumers, route performance, and edge security correlation |
 
 ## Prerequisites
 
@@ -35,6 +37,7 @@ This installs all skills at once. Skills are invoked as:
 ```
 /public-skills:cdn-insights
 /public-skills:bot-insights
+/public-skills:zuplo-api-insights
 ```
 
 To test locally before publishing:

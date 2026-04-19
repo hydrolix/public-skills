@@ -14,244 +14,115 @@ metadata:
 
 # CDN Insights Analysis
 
-## What This Bundle Contains
+Use this skill to analyze normalized multi-CDN traffic in Hydrolix while keeping
+the initial context small. Start here to identify the task, then load the
+specific reference that contains the detailed schema, summary table, or SQL
+pattern you need.
 
-The CDN Insights bundle ingests access logs from multiple CDN providers into a
-unified `cdn_insights` table. Each CDN source has its own transform that normalizes
-fields into a common schema while preserving provider-specific columns.
+This skill is compatible with Claude-style and Codex-style skill loading: it
+uses standard `SKILL.md` frontmatter, relative markdown references, and no
+agent-specific tool assumptions.
 
-**Supported CDN sources**: Akamai (DS2), CloudFront (Firehose), Fastly, Cloudflare,
-Tencent, BytePlus, CacheFly, Google Media CDN, Imperva, IOriver, Varnish
+## When
 
-**Tables**:
-- `cdn_insights` — primary table (all request-level records)
-- `mcdn_summary_min` — minute-granularity pre-aggregated rollup
-- `mcdn_summary_hour` — hourly pre-aggregated rollup
+Use this skill when the user asks about:
 
-See `references/schema.md` for the full column inventory and
-`references/summary-tables.md` for summary table structure.
+- Request volume, traffic mix, host/path popularity, or CDN source mix.
+- Cache hit ratio, cache misses, cache-key behavior, or origin offload.
+- Origin health, TTFB/TTLB, edge performance, or latency percentiles.
+- 4xx/5xx errors, status-code breakdowns, geographic distribution, or edge POPs.
+- Comparing a current window to a baseline period.
+- Choosing between the primary `cdn_insights` table and summary tables.
 
-## Discovery
+Use `bot-insights` instead when bot classification, crawler governance, spoofing,
+or bot impact is the main question.
 
-Start by identifying what's available in the deployment:
+## Why
 
-```sql
--- List available tables in the project
--- Use list_tables to find the project and table names
--- The primary table is typically named cdn_insights
+The CDN Insights bundle normalizes access logs from multiple CDN providers into
+one query surface while preserving provider-specific fields. It helps an
+analyst compare providers, find cache/origin problems, and explain traffic or
+error changes without writing source-specific queries first.
 
--- Check the time range of available data
-SELECT min(timestamp), max(timestamp), count()
-FROM <project>.<table>
+The safest workflow is to start broad, then narrow by host, path, CDN, country,
+ASN, edge POP, status code, or cache outcome. For large ranges, prefer summary
+tables when their retained dimensions and aggregates fit the question.
 
--- See which CDN sources are present
-SELECT hdx_cdn, count() as requests
-FROM <project>.cdn_insights
-GROUP BY hdx_cdn
-ORDER BY requests DESC
-```
+## What
 
-## Key Normalized Columns
+Primary table:
 
-These columns are present across all CDN sources and are the primary dimensions
-for analysis:
+- `cdn_insights`: request-level normalized CDN traffic.
 
-| Column | Description |
-|--------|-------------|
-| `timestamp` | Request timestamp |
-| `request_host` | Hostname requested |
-| `request_path` | URL path |
-| `request_method` | HTTP method |
-| `response_status_code` | HTTP status code |
-| `response_total_bytes` | Response size in bytes |
-| `cache_was_cached` | Whether the response was served from cache |
-| `client_country_iso_code` | Client country |
-| `client_city` | Client city |
-| `client_asn` | Client autonomous system number |
-| `edge_pop` | Edge point of presence |
-| `user_agent_category` | Classified user agent type |
-| `hdx_cdn` | Which CDN provider served this request |
-| `response_time_to_first_byte_ms` | Time to first byte (ms) |
-| `response_time_to_last_byte_ms` | Time to last byte (ms) |
-| `origin_time_to_first_byte_ms` | Origin TTFB (ms) |
-| `origin_time_to_last_byte_ms` | Origin TTLB (ms) |
+Summary tables:
 
-## Analysis Patterns
+- `mcdn_summary_min`: minute-granularity rollup.
+- `mcdn_summary_hour`: hourly rollup.
 
-### Traffic Overview
+Common normalized fields:
 
-```sql
--- Request volume by CDN over time (use summary tables for large ranges)
-SELECT
-    toStartOfHour(timestamp) as hour,
-    hdx_cdn,
-    sumMerge(cnt_all) as requests
-FROM <project>.mcdn_summary_hour
-WHERE timestamp >= now() - INTERVAL 24 HOUR
-GROUP BY hour, hdx_cdn
-ORDER BY hour
+- Time: `timestamp`
+- Request: `request_host`, `request_path`, `request_method`
+- Response/cache: `response_status_code`, `response_total_bytes`,
+  `cache_was_cached`
+- Client/CDN: `client_country_iso_code`, `client_city`, `client_asn`,
+  `edge_pop`, `hdx_cdn`
+- Latency: `response_time_to_first_byte_ms`,
+  `response_time_to_last_byte_ms`, `origin_time_to_first_byte_ms`,
+  `origin_time_to_last_byte_ms`
 
--- Top hostnames by volume
-SELECT request_host, count() as requests, sum(response_total_bytes) as bytes
-FROM <project>.cdn_insights
-WHERE timestamp >= now() - INTERVAL 1 HOUR
-GROUP BY request_host
-ORDER BY requests DESC
-LIMIT 20
-```
+## Progressive Disclosure
 
-### Cache Efficiency
+Do not read every reference at startup. Load the smallest relevant file:
 
-```sql
--- Cache hit ratio by hostname
-SELECT
-    request_host,
-    count() as total,
-    countIf(cache_was_cached = true) as hits,
-    round(hits / total * 100, 2) as hit_rate_pct
-FROM <project>.cdn_insights
-WHERE timestamp >= now() - INTERVAL 1 HOUR
-GROUP BY request_host
-ORDER BY total DESC
+- For bundle overview, discovery, key normalized columns, and source notes, read
+  [references/data-model.md](references/data-model.md).
+- For full column inventory, flags, suppressed fields, virtual fields, and
+  provider-specific columns, read [references/schema.md](references/schema.md).
+- For traffic, cache, origin, error, geography, and baseline SQL patterns, read
+  [references/analysis-patterns.md](references/analysis-patterns.md).
+- For summary table dimensions, aggregate-state columns, and `-Merge` syntax,
+  read [references/summary-tables.md](references/summary-tables.md).
+- For deployed SQL helper functions, read
+  [references/shared-functions.md](references/shared-functions.md).
+- Before finalizing a query or conclusion, scan
+  [references/pitfalls.md](references/pitfalls.md).
 
--- Cache miss analysis — what paths miss most?
-SELECT request_path, count() as misses
-FROM <project>.cdn_insights
-WHERE timestamp >= now() - INTERVAL 1 HOUR
-  AND cache_was_cached = false
-GROUP BY request_path
-ORDER BY misses DESC
-LIMIT 20
-```
+## Triage Flow
 
-### Origin Health
+1. Identify the user’s decision: traffic overview, cache efficiency, origin
+   health, error investigation, geography/POP, or baseline comparison.
+2. Confirm the project/table names and available time range.
+3. Choose the narrowest useful time window.
+4. Use a summary table for larger ranges when its dimensions and metrics fit.
+5. Fall back to `cdn_insights` when the question needs a dimension or provider
+   field absent from the summary table.
+6. Attribute changes by concrete dimensions such as host, path, CDN, status,
+   country, ASN, POP, or cache state.
 
-```sql
--- Origin latency percentiles
-SELECT
-    quantile(0.5)(origin_time_to_first_byte_ms) as p50_ms,
-    quantile(0.9)(origin_time_to_first_byte_ms) as p90_ms,
-    quantile(0.99)(origin_time_to_first_byte_ms) as p99_ms
-FROM <project>.cdn_insights
-WHERE timestamp >= now() - INTERVAL 1 HOUR
-  AND origin_time_to_first_byte_ms > 0
+## Query Guardrails
 
--- Origin error rates over time
-SELECT
-    toStartOfMinute(timestamp) as minute,
-    count() as total,
-    countIf(response_status_code >= 500) as errors_5xx,
-    round(errors_5xx / total * 100, 2) as error_rate_pct
-FROM <project>.cdn_insights
-WHERE timestamp >= now() - INTERVAL 1 HOUR
-GROUP BY minute
-ORDER BY minute
-```
+- Always filter on `timestamp`.
+- Avoid `SELECT *`; this schema has many provider-specific columns.
+- Use `response_total_bytes` for normalized bytes across CDNs.
+- Filter by `hdx_cdn` before using provider-specific columns such as
+  `akamai_*`, `cloudflare_*`, `cloudfront_*`, or `tencent_*`.
+- Use `-Merge` combiners when querying summary tables, for example
+  `sumMerge(cnt_all)` or `avgMerge(response_ttfb_ms)`.
+- If a needed dimension is not retained in a summary table, query the primary
+  table with a narrower time window.
 
-### Error Investigation
+## Reference Map
 
-```sql
--- Error breakdown by status code and path
-SELECT
-    response_status_code,
-    request_path,
-    count() as errors
-FROM <project>.cdn_insights
-WHERE timestamp >= now() - INTERVAL 1 HOUR
-  AND response_status_code >= 400
-GROUP BY response_status_code, request_path
-ORDER BY errors DESC
-LIMIT 20
-
--- Errors by CDN provider
-SELECT hdx_cdn, response_status_code, count() as cnt
-FROM <project>.cdn_insights
-WHERE timestamp >= now() - INTERVAL 1 HOUR
-  AND response_status_code >= 400
-GROUP BY hdx_cdn, response_status_code
-ORDER BY cnt DESC
-```
-
-### Geographic Analysis
-
-```sql
--- Traffic by country
-SELECT client_country_iso_code, count() as requests,
-       sum(response_total_bytes) as bytes
-FROM <project>.cdn_insights
-WHERE timestamp >= now() - INTERVAL 1 HOUR
-GROUP BY client_country_iso_code
-ORDER BY requests DESC
-LIMIT 20
-
--- Latency by edge POP
-SELECT edge_pop,
-    quantile(0.5)(response_time_to_first_byte_ms) as p50_ms,
-    quantile(0.9)(response_time_to_first_byte_ms) as p90_ms,
-    count() as requests
-FROM <project>.cdn_insights
-WHERE timestamp >= now() - INTERVAL 1 HOUR
-GROUP BY edge_pop
-ORDER BY requests DESC
-LIMIT 20
-```
-
-### Comparative Analysis
-
-When investigating anomalies, compare against a baseline period:
-
-```sql
--- Compare current hour to same hour yesterday
-SELECT
-    'current' as period,
-    count() as requests,
-    countIf(response_status_code >= 500) as errors,
-    avg(response_time_to_first_byte_ms) as avg_ttfb_ms
-FROM <project>.cdn_insights
-WHERE timestamp >= now() - INTERVAL 1 HOUR
-
-UNION ALL
-
-SELECT
-    'yesterday' as period,
-    count() as requests,
-    countIf(response_status_code >= 500) as errors,
-    avg(response_time_to_first_byte_ms) as avg_ttfb_ms
-FROM <project>.cdn_insights
-WHERE timestamp >= now() - INTERVAL 25 HOUR
-  AND timestamp < now() - INTERVAL 24 HOUR
-```
-
-## Working With Summary Tables
-
-Use summary tables (`mcdn_summary_min`, `mcdn_summary_hour`) for queries spanning
-more than a few hours. They are pre-aggregated and much faster.
-
-Summary tables use ClickHouse aggregate combiners. When re-aggregating pre-computed
-values, use the `-Merge` suffix:
-
-| Primary table | Summary table equivalent |
-|---------------|------------------------|
-| `count()` | `sumMerge(cnt_all)` |
-| `sum(response_total_bytes)` | `sumMerge(response_total_bytes)` |
-| `avg(response_time_to_first_byte_ms)` | `avgMerge(response_ttfb_ms)` |
-| `quantile(0.5)(response_time_to_first_byte_ms)` | `quantilesMerge(0.5)(quantiles_response_ttfb_ms)` |
-
-**Dimensions available in summary tables**: `timestamp`, `cache_was_cached`,
-`response_status_code`, `request_host`, `client_country_iso_code`, `client_city`,
-`client_asn`, `edge_pop`, `user_agent_category`, `hdx_cdn`
-
-If you need a dimension not in the summary table, fall back to the primary table
-with a narrower time window.
-
-## Pitfalls
-
-- **CDN-specific columns**: Many columns only exist for one CDN source (prefixed
-  with `akamai_`, `cloudflare_`, etc.). Filter by `hdx_cdn` when using these.
-- **Suppressed columns**: Columns marked `suppressed` in the schema are stored but
-  excluded from default queries. They are typically raw/unnormalized variants of
-  normalized fields. Use the normalized versions instead.
-- **Large time ranges**: Always use summary tables for queries spanning more than a
-  few hours. The primary table can have billions of rows.
-- **response_total_bytes**: This is the normalized bytes field across all CDNs. Use
-  this instead of CDN-specific byte fields.
+- [references/data-model.md](references/data-model.md): overview, discovery,
+  and key normalized fields.
+- [references/schema.md](references/schema.md): full schema with column type,
+  flags, and sources.
+- [references/analysis-patterns.md](references/analysis-patterns.md): detailed
+  SQL patterns for common investigations.
+- [references/summary-tables.md](references/summary-tables.md): rollup
+  dimensions, aggregate columns, and merge syntax.
+- [references/shared-functions.md](references/shared-functions.md): deployed
+  helper SQL functions.
+- [references/pitfalls.md](references/pitfalls.md): common mistakes and
+  source-specific caveats.
