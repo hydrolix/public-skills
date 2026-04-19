@@ -2,59 +2,51 @@
 
 ## Analysis Patterns
 
-### What Changed — Delta Analysis [SOC, Director+]
+SOC analysis remains available for short-window investigation, but the first
+Bot Insights pass should still ask what posture moved and which retained
+summary dimensions explain it. Use hour summaries for same-hour-yesterday or
+same-weekday-hour-last-week comparisons, and minute summaries for detailed
+policy-change timelines.
 
-The core investigation pattern: compare the current window to a baseline to detect
-meaningful changes. This is the first thing a SOC operator or executive checks.
+### What Moved — Summary Delta [SOC, Director+]
 
 ```sql
--- L0 posture check: volume, error rates, cache, origin latency vs. baseline
--- Compare last 6 hours to the 6 hours before that
 SELECT
-    'current' as period,
-    count() as requests,
-    round(countIf(response_status_code = '429') / count() * 100, 2) as rate_429_pct,
-    round(countIf(response_status_code >= '500') / count() * 100, 2) as rate_5xx_pct,
-    round(countIf(cache_was_cached = false) / count() * 100, 2) as cache_miss_pct,
-    quantile(0.95)(origin_time_to_first_byte_ms) as origin_p95_ms
-FROM <project>.bot_detection
-WHERE timestamp >= now() - INTERVAL 6 HOUR
-
-UNION ALL
-
-SELECT
-    'baseline' as period,
-    count() as requests,
-    round(countIf(response_status_code = '429') / count() * 100, 2) as rate_429_pct,
-    round(countIf(response_status_code >= '500') / count() * 100, 2) as rate_5xx_pct,
-    round(countIf(cache_was_cached = false) / count() * 100, 2) as cache_miss_pct,
-    quantile(0.95)(origin_time_to_first_byte_ms) as origin_p95_ms
-FROM <project>.bot_detection
-WHERE timestamp >= now() - INTERVAL 12 HOUR
-  AND timestamp < now() - INTERVAL 6 HOUR
-
--- Automation share: what percentage of traffic is bots?
-SELECT
-    round(countIf(is_bot_traffic = true) / count() * 100, 2) as bot_share_pct,
-    count() as total_requests
-FROM <project>.bot_detection
-WHERE timestamp >= now() - INTERVAL 6 HOUR
+  period,
+  sum(cnt_all) AS requests,
+  round(sumIf(cnt_all, is_bot_traffic = true) / greatest(sum(cnt_all), 1) * 100, 2) AS bot_share_pct,
+  round(sumIf(cnt_all, bot_class = 'bad') / greatest(sum(cnt_all), 1) * 100, 2) AS bad_bot_share_pct,
+  round(sum(cnt_429) / greatest(sum(cnt_all), 1) * 100, 2) AS rate_429_pct,
+  round(sum(cnt_5xx) / greatest(sum(cnt_all), 1) * 100, 2) AS rate_5xx_pct,
+  round(sum(cnt_cache_miss) / greatest(sum(cnt_all), 1) * 100, 2) AS cache_miss_pct
+FROM (
+  SELECT 'current' AS period, *
+  FROM <project>.bot_summary_hour
+  WHERE timestamp >= now() - INTERVAL 6 HOUR
+  UNION ALL
+  SELECT 'baseline' AS period, *
+  FROM <project>.bot_summary_hour
+  WHERE timestamp >= now() - INTERVAL 12 HOUR
+    AND timestamp < now() - INTERVAL 6 HOUR
+)
+GROUP BY period
 ```
 
 ### Mover Attribution [SOC]
 
 After confirming something changed, identify *who* is driving the change. Rank by
 absolute delta (not total volume) to surface the entities that changed the most.
+Use summaries first for retained dimensions such as ASN, bot class, path, host,
+resource category, AI category, action, and policy.
 
 ```sql
--- Top ASNs by absolute volume delta (current vs. baseline)
 SELECT
-    client_asn,
-    countIf(timestamp >= now() - INTERVAL 6 HOUR) as current_requests,
-    countIf(timestamp >= now() - INTERVAL 12 HOUR AND timestamp < now() - INTERVAL 6 HOUR) as baseline_requests,
-    current_requests - baseline_requests as absolute_delta,
-    round(absolute_delta / greatest(baseline_requests, 1) * 100, 2) as pct_change
-FROM <project>.bot_detection
+    client_asn AS value,
+    sumIf(cnt_all, timestamp >= now() - INTERVAL 6 HOUR) AS current,
+    sumIf(cnt_all, timestamp >= now() - INTERVAL 12 HOUR AND timestamp < now() - INTERVAL 6 HOUR) AS baseline,
+    current - baseline AS absolute_delta,
+    round(absolute_delta / greatest(baseline, 1) * 100, 2) AS pct_change
+FROM <project>.bot_summary_hour
 WHERE timestamp >= now() - INTERVAL 12 HOUR
 GROUP BY client_asn
 ORDER BY abs(absolute_delta) DESC
@@ -62,15 +54,26 @@ LIMIT 20
 
 -- Top paths by absolute volume delta
 SELECT
-    request_path,
-    countIf(timestamp >= now() - INTERVAL 6 HOUR) as current_requests,
-    countIf(timestamp >= now() - INTERVAL 12 HOUR AND timestamp < now() - INTERVAL 6 HOUR) as baseline_requests,
-    current_requests - baseline_requests as absolute_delta
-FROM <project>.bot_detection
+    request_path_norm AS value,
+    sumIf(cnt_all, timestamp >= now() - INTERVAL 6 HOUR) AS current,
+    sumIf(cnt_all, timestamp >= now() - INTERVAL 12 HOUR AND timestamp < now() - INTERVAL 6 HOUR) AS baseline,
+    current - baseline AS absolute_delta
+FROM <project>.bot_agg_path_hour
 WHERE timestamp >= now() - INTERVAL 12 HOUR
-GROUP BY request_path
+GROUP BY request_path_norm
 ORDER BY abs(absolute_delta) DESC
 LIMIT 20
+```
+
+Use `scripts/compare_posture.py` to add contribution percentages and
+`bot_mover_attribution.v1` interpretation constraints.
+
+### Raw Fallback — Newly Seen Entities [SOC]
+
+Newly seen exact IPs, user agents, and unretained dimensions require
+request-level fallback with narrow windows.
+
+```sql
 
 -- Newly seen ASNs (absent from 7-day lookback, present now)
 SELECT
@@ -94,7 +97,9 @@ LIMIT 20
 ### SOC Evidence — Behavioral Fingerprint [SOC]
 
 Once a mover is identified (e.g., a specific ASN), build a behavioral profile
-to confirm whether it is a targeted campaign.
+to understand behavior. Prefer summaries for retained fields, then fall back to
+request-level records for method mix, exact user agent, headers, or attack
+payload detail.
 
 ```sql
 -- Status code mix for a specific ASN
@@ -135,16 +140,14 @@ LIMIT 10
 ### Bot Classification Deep Dive [SOC]
 
 ```sql
--- Bot traffic by class and intent
+-- Summary-backed class movement. Use raw fallback for bot_intent.
 SELECT
     bot_class,
-    bot_intent,
-    count() as requests,
+    sum(cnt_all) as requests,
     round(requests / sum(requests) OVER () * 100, 2) as pct
-FROM <project>.bot_detection
-WHERE timestamp >= now() - INTERVAL 1 HOUR
-  AND is_bot_traffic = true
-GROUP BY bot_class, bot_intent
+FROM <project>.bot_agg_ua_hour
+WHERE timestamp >= now() - INTERVAL 24 HOUR
+GROUP BY bot_class
 ORDER BY requests DESC
 
 -- Bot score distribution
@@ -169,6 +172,8 @@ ORDER BY score_bucket
 Uses `bot_confidence` to identify bots claiming to be legitimate crawlers but
 originating from suspicious networks. The three signals are: UA pattern match,
 vendor-published IP ranges, and ASN type.
+`bot_confidence`, exact `user_agent`, and verification details are not retained
+in current summaries, so these are request-level fallback queries.
 
 ```sql
 -- Suspicious bots: UA claims bot, but source IP is residential
@@ -331,4 +336,3 @@ GROUP BY request_path
 ORDER BY requests DESC
 LIMIT 20
 ```
-

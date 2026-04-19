@@ -1,6 +1,15 @@
 # bot-insights — SEO Analysis Patterns
 
+SEO analysis should start with crawler health and posture movement over time.
+Use summaries for AI crawler share, bot class, error rates, cache miss rates,
+resource categories, and paths. Fall back to request-level data for
+`verified_bot_owner`, `bot_verification_tier`, exact `user_agent`, and
+governance-surface inspection when those dimensions are required.
+
 ### Verified vs. Unverified Bots [SOC, SEO]
+
+Verified owner and verification tier are not retained in the current summary
+tables. Use this raw fallback with explicit time filters.
 
 ```sql
 -- Verified bot owners
@@ -35,6 +44,9 @@ LIMIT 20
 
 ### Attack Data Analysis [SOC]
 
+Attack payload details are not retained in the summary catalog. Use raw fallback
+for payload inspection; use SIEM summaries for policy/action posture.
+
 ```sql
 -- Requests with attack data by CDN
 SELECT
@@ -68,47 +80,58 @@ Monitor legitimate crawlers and partner bots to ensure they can operate without
 disruption — especially during security incidents or policy changes.
 
 ```sql
--- Good bot health dashboard: volume, errors, and latency
+-- Summary-backed good bot health by day. Use raw fallback for verified owner.
+SELECT
+    timestamp,
+    request_host,
+    sum(cnt_all) AS requests,
+    round(sum(cnt_4xx + cnt_5xx) / greatest(sum(cnt_all), 1) * 100, 2) AS error_rate_pct,
+    round(sum(cnt_429) / greatest(sum(cnt_all), 1) * 100, 2) AS rate_limited_pct,
+    max(p95_origin_ttfb) AS origin_p95_ms
+FROM <project>.bot_summary_day
+WHERE timestamp >= now() - INTERVAL 30 DAY
+  AND bot_class = 'good'
+GROUP BY timestamp, request_host
+ORDER BY timestamp, request_host
+
+-- Owner-specific health requires raw fallback.
 SELECT
     verified_bot_owner,
     bot_category,
-    count() as requests,
-    countIf(response_status_code >= '400') as errors,
-    round(errors / requests * 100, 2) as error_rate_pct,
-    avg(response_time_to_first_byte_ms) as avg_ttfb_ms
+    count() AS requests,
+    countIf(response_status_code >= '400') AS errors,
+    round(errors / greatest(requests, 1) * 100, 2) AS error_rate_pct
 FROM <project>.bot_detection
 WHERE timestamp >= now() - INTERVAL 24 HOUR
   AND bot_class = 'good'
+  AND verified_bot_owner != ''
 GROUP BY verified_bot_owner, bot_category
 ORDER BY requests DESC
 
--- Good bot access patterns by path (SEO visibility check)
+-- Summary-backed good bot access patterns by normalized path.
 SELECT
     request_host,
-    request_path,
-    verified_bot_owner,
-    count() as crawl_hits,
-    countIf(response_status_code = '200') as ok_200,
-    countIf(response_status_code = '404') as not_found_404,
-    countIf(response_status_code = '429') as rate_limited_429,
-    countIf(response_status_code >= '500') as server_errors_5xx
-FROM <project>.bot_detection
+    request_path_norm,
+    sum(cnt_all) as crawl_hits,
+    sum(cnt_2xx) as ok_2xx,
+    sum(cnt_429) as rate_limited_429,
+    sum(cnt_5xx) as server_errors_5xx
+FROM <project>.bot_agg_path_day
 WHERE timestamp >= now() - INTERVAL 24 HOUR
   AND bot_class = 'good'
-GROUP BY request_host, request_path, verified_bot_owner
+GROUP BY request_host, request_path_norm
 ORDER BY crawl_hits DESC
 LIMIT 30
 
 -- Good bot volume trending (detect drops that signal blocking or misconfiguration)
 SELECT
-    toStartOfHour(timestamp) as hour,
-    verified_bot_owner,
-    count() as requests
-FROM <project>.bot_detection
+    timestamp as hour,
+    request_host,
+    sum(cnt_all) as requests
+FROM <project>.bot_agg_ua_hour
 WHERE timestamp >= now() - INTERVAL 7 DAY
   AND bot_class = 'good'
-  AND verified_bot_owner != ''
-GROUP BY hour, verified_bot_owner
+GROUP BY hour, request_host
 ORDER BY hour
 
 -- Good bots being rate-limited or blocked (governance incident detection)
@@ -134,26 +157,25 @@ split into three categories: scrapers (training data), assistants (answering
 queries), and search (AI-powered search engines).
 
 ```sql
--- AI crawler volume by category
+-- AI crawler movement by category from summaries.
 SELECT
     ai_category,
-    verified_bot_owner,
-    count() as requests,
-    countIf(response_status_code = '200') as ok_200,
-    countIf(response_status_code = '429') as rate_limited_429,
-    sum(response_total_bytes) as total_bytes
-FROM <project>.bot_detection
+    sum(cnt_all) as requests,
+    sum(cnt_2xx) as ok_2xx,
+    sum(cnt_429) as rate_limited_429,
+    round(sum(cnt_cache_miss) / greatest(sum(cnt_all), 1) * 100, 2) AS cache_miss_pct
+FROM <project>.bot_summary_day
 WHERE timestamp >= now() - INTERVAL 24 HOUR
   AND ai_category != ''
-GROUP BY ai_category, verified_bot_owner
+GROUP BY ai_category
 ORDER BY requests DESC
 
 -- AI crawler volume trending over time
 SELECT
-    toStartOfHour(timestamp) as hour,
+    timestamp as hour,
     ai_category,
-    count() as requests
-FROM <project>.bot_detection
+    sum(cnt_all) as requests
+FROM <project>.bot_agg_traffic_hour
 WHERE timestamp >= now() - INTERVAL 7 DAY
   AND ai_category != ''
 GROUP BY hour, ai_category
@@ -173,4 +195,3 @@ WHERE timestamp >= now() - INTERVAL 24 HOUR
 GROUP BY ai_category, verified_bot_owner, request_path
 ORDER BY requests DESC
 ```
-

@@ -16,7 +16,7 @@ metadata:
 Use this skill to investigate bot behavior in the Hydrolix `bot-insights`
 bundle without loading every query pattern up front. Start here to decide what
 kind of question the user is asking, then load only the reference that contains
-the relevant SQL and caveats.
+the relevant summary table, SQL pattern, or caveat.
 
 This skill is compatible with Claude-style and Codex-style skill loading: it
 uses standard `SKILL.md` frontmatter, relative markdown references, and no
@@ -32,8 +32,8 @@ Use this skill when the user asks about:
   Akamai SIEM bot/security enrichment.
 - Bot-driven cache misses, query-string churn, origin load, latency, bandwidth,
   or rate-limiting impact.
-- Before/after mitigation checks for blocks, cache-key changes, rate limits, or
-  security policy changes.
+- Before/after checks for blocks, cache-key changes, rate limits, bot-control
+  policies, or security policy changes.
 - Bot posture across domains, hosts, ASNs, paths, countries, or CDN sources.
 
 Do not use this skill for generic CDN traffic analysis unless bot fields are
@@ -53,11 +53,21 @@ over raw top-N volume.
 
 ## What
 
-Primary table:
+Primary request-level tables:
 
 - `bot_detection`: request-level records with normalized CDN fields and bot
-  intelligence. It has no summary tables, so use narrow time windows for heavy
-  aggregations.
+  intelligence.
+- `bot_detection_siem`: SIEM-focused request-level records used by Akamai SIEM
+  summaries.
+
+Summary families:
+
+- `bot_summary_*`: minute/hour/day posture summaries by host, CDN, bot class,
+  AI category, bot flag, ASN, ASN type, resource category, and method.
+- `bot_agg_*`: focused hourly and selected daily/minute summaries for host,
+  ASN, path, resource, traffic, and bot class drilldowns.
+- `bot_siem_*`: minute/hour/day summaries for action, policy, SIEM outcome,
+  Akamai canonical class, and filter-aware views.
 
 Key field groups:
 
@@ -79,6 +89,11 @@ Do not read every reference at startup. Load the smallest relevant file:
 
 - For table shape, sources, key fields, and personas, read
   [references/data-model.md](references/data-model.md).
+- For summary inventory, retained dimensions, and summary-first table
+  selection, read [references/summary-tables.md](references/summary-tables.md).
+- For quarter-over-quarter, month-over-month, week-over-week, year-over-year,
+  seasonal, previous-window, and control-review baselines, read
+  [references/baseline-comparison.md](references/baseline-comparison.md).
 - For full column inventory, flags, suppressed fields, and source coverage, read
   [references/schema.md](references/schema.md).
 - For SOC/security investigations, deltas, movers, spoofing, attack evidence,
@@ -98,17 +113,22 @@ Do not read every reference at startup. Load the smallest relevant file:
 1. Identify the persona and decision: SOC, SEO, Edge/Ops, or executive posture.
 2. Preserve the requested time window, host/domain, path, ASN, owner, crawler, or
    mitigation time if supplied.
-3. Start with a posture or delta query, not a raw top-N query, unless the user
-   explicitly asks for inventory.
-4. Attribute the change to concrete movers: ASN, path, host, bot owner, crawler,
+3. Start with the summary table whose retained dimensions fit the question.
+4. For posture movement, prefer day summaries for QoQ/MoM/YoY, hour summaries
+   for weekday/hour seasonality, and minute summaries for short policy-change
+   detail.
+5. Attribute the change to concrete movers: ASN, path, host, bot owner, crawler,
    bot class, country, CDN, or status code.
-5. Build evidence with at least two supporting dimensions before recommending
+6. Build evidence with at least two supporting dimensions before recommending
    action.
-6. Keep time filters on every query; this bundle has no summary tables.
+7. Fall back to request-level tables only when a required dimension is absent
+   from summaries, and state the fallback reason.
 
 ## Query Guardrails
 
 - Always filter on `timestamp`.
+- Prefer summary tables when retained dimensions fit. Do not assume QoQ queries
+  need monthly or quarterly summaries; benchmark daily summaries first.
 - Use string comparisons for `response_status_code`, or cast explicitly with
   `toUInt32OrZero()` when numeric operations are needed.
 - Prefer normalized fields over suppressed raw variants.
@@ -121,11 +141,23 @@ Do not read every reference at startup. Load the smallest relevant file:
 - Optionally use [scripts/compare_delta.py](scripts/compare_delta.py) to compute
   that formula from pasted current/baseline metric JSON. Use it only for numeric
   deltas; do not use it to classify bot intent or recommend action.
+- Use [scripts/compare_posture.py](scripts/compare_posture.py) for structured
+  posture movement, mover attribution, and control-review JSON. It accepts MCP
+  query results, saved JSON, or pasted aggregate JSON only; it does not query
+  Hydrolix.
+- Local scripts must not contain database clients, connection configuration, or
+  credential handling. Use the Hydrolix MCP server or host Hydrolix query tool
+  for all database access.
 
 ## Reference Map
 
 - [references/data-model.md](references/data-model.md): bundle overview, key
   fields, and personas.
+- [references/summary-tables.md](references/summary-tables.md): summary table
+  inventory, retained dimensions, metrics, and raw fallback guidance.
+- [references/baseline-comparison.md](references/baseline-comparison.md):
+  comparison methods, granularity selection, confidence reasons, output schemas,
+  and SQL templates.
 - [references/schema.md](references/schema.md): full schema with type, flags,
   and source coverage.
 - [references/soc-analysis.md](references/soc-analysis.md): SOC and security
@@ -140,3 +172,6 @@ Do not read every reference at startup. Load the smallest relevant file:
   footguns.
 - [scripts/compare_delta.py](scripts/compare_delta.py): compute current versus
   baseline absolute and percentage deltas from simple metric JSON.
+- [scripts/compare_posture.py](scripts/compare_posture.py): emit structured
+  Bot Insights posture movement, mover attribution, and control-review JSON
+  from aggregate JSON.

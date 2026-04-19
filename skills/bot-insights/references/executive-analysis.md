@@ -1,105 +1,90 @@
 # bot-insights — Executive Analysis Patterns
 
-### What Changed — Delta Analysis [SOC, Director+]
+Executive analysis should emphasize posture movement, health, and team routing.
+Use summary tables first, especially daily summaries for quarter-over-quarter,
+month-over-month, week-over-week, and year-over-year comparisons.
 
-The core investigation pattern: compare the current window to a baseline to detect
-meaningful changes. This is the first thing a SOC operator or executive checks.
+## Posture Movement [Director+]
 
 ```sql
--- L0 posture check: volume, error rates, cache, origin latency vs. baseline
--- Compare last 6 hours to the 6 hours before that
+-- Example: month-over-month posture by host from the daily summary.
 SELECT
-    'current' as period,
-    count() as requests,
-    round(countIf(response_status_code = '429') / count() * 100, 2) as rate_429_pct,
-    round(countIf(response_status_code >= '500') / count() * 100, 2) as rate_5xx_pct,
-    round(countIf(cache_was_cached = false) / count() * 100, 2) as cache_miss_pct,
-    quantile(0.95)(origin_time_to_first_byte_ms) as origin_p95_ms
-FROM <project>.bot_detection
-WHERE timestamp >= now() - INTERVAL 6 HOUR
-
-UNION ALL
-
-SELECT
-    'baseline' as period,
-    count() as requests,
-    round(countIf(response_status_code = '429') / count() * 100, 2) as rate_429_pct,
-    round(countIf(response_status_code >= '500') / count() * 100, 2) as rate_5xx_pct,
-    round(countIf(cache_was_cached = false) / count() * 100, 2) as cache_miss_pct,
-    quantile(0.95)(origin_time_to_first_byte_ms) as origin_p95_ms
-FROM <project>.bot_detection
-WHERE timestamp >= now() - INTERVAL 12 HOUR
-  AND timestamp < now() - INTERVAL 6 HOUR
-
--- Automation share: what percentage of traffic is bots?
-SELECT
-    round(countIf(is_bot_traffic = true) / count() * 100, 2) as bot_share_pct,
-    count() as total_requests
-FROM <project>.bot_detection
-WHERE timestamp >= now() - INTERVAL 6 HOUR
+  period,
+  request_host,
+  sum(cnt_all) AS requests,
+  round(sumIf(cnt_all, is_bot_traffic = true) / greatest(sum(cnt_all), 1) * 100, 2) AS bot_share_pct,
+  round(sumIf(cnt_all, bot_class = 'bad') / greatest(sum(cnt_all), 1) * 100, 2) AS bad_bot_share_pct,
+  round(sumIf(cnt_all, ai_category != '') / greatest(sum(cnt_all), 1) * 100, 2) AS ai_crawler_share_pct,
+  round(sum(cnt_429) / greatest(sum(cnt_all), 1) * 100, 2) AS rate_429_pct,
+  round(sum(cnt_cache_miss) / greatest(sum(cnt_all), 1) * 100, 2) AS cache_miss_pct
+FROM (
+  SELECT 'current' AS period, *
+  FROM <project>.bot_summary_day
+  WHERE timestamp >= toDateTime('<current_start>')
+    AND timestamp < toDateTime('<current_end>')
+  UNION ALL
+  SELECT 'baseline' AS period, *
+  FROM <project>.bot_summary_day
+  WHERE timestamp >= toDateTime('<baseline_start>')
+    AND timestamp < toDateTime('<baseline_end>')
+)
+GROUP BY period, request_host
+ORDER BY request_host, period
 ```
 
+Feed the aggregate rows into `scripts/compare_posture.py` to produce
+`bot_posture_movement.v1` output.
 
-### Multi-Domain Triage [Director+]
+## Multi-Domain Triage [Director+]
 
 For environments with multiple sites, compare posture across domains to route
 investigation to the right team.
 
 ```sql
--- Posture by domain: bot share, error rate, cache miss rate
 SELECT
-    request_host,
-    count() as requests,
-    round(countIf(is_bot_traffic) / count() * 100, 2) as bot_share_pct,
-    round(countIf(response_status_code = '429') / count() * 100, 2) as rate_429_pct,
-    round(countIf(response_status_code >= '500') / count() * 100, 2) as rate_5xx_pct,
-    round(countIf(cache_was_cached = false) / count() * 100, 2) as cache_miss_pct
-FROM <project>.bot_detection
-WHERE timestamp >= now() - INTERVAL 6 HOUR
+  request_host,
+  sum(cnt_all) AS requests,
+  round(sumIf(cnt_all, is_bot_traffic = true) / greatest(sum(cnt_all), 1) * 100, 2) AS bot_share_pct,
+  round(sum(cnt_429) / greatest(sum(cnt_all), 1) * 100, 2) AS rate_429_pct,
+  round(sum(cnt_5xx) / greatest(sum(cnt_all), 1) * 100, 2) AS rate_5xx_pct,
+  round(sum(cnt_cache_miss) / greatest(sum(cnt_all), 1) * 100, 2) AS cache_miss_pct
+FROM <project>.bot_summary_day
+WHERE timestamp >= toDateTime('<start>')
+  AND timestamp < toDateTime('<end>')
 GROUP BY request_host
 ORDER BY requests DESC
 ```
 
-### Post-Mitigation Verification [Director+, SOC]
+## Control Review [Director+, SOC]
 
-After deploying a mitigation (rate limiting, cache key normalization, ASN block),
-verify that conditions improved using the same baseline logic.
+After deploying a policy or control change, review target effects and collateral
+movement. Keep this framed as control effectiveness unless external change
+evidence supports stronger causal claims.
 
 ```sql
--- Before vs. after mitigation: compare two 6-hour windows
--- Adjust the INTERVAL values to match your mitigation deployment time
 SELECT
-    'after_mitigation' as period,
-    count() as requests,
-    round(countIf(response_status_code = '429') / count() * 100, 2) as rate_429_pct,
-    round(countIf(cache_was_cached = false) / count() * 100, 2) as cache_miss_pct,
-    quantile(0.95)(origin_time_to_first_byte_ms) as origin_p95_ms,
-    round(countIf(is_bot_traffic) / count() * 100, 2) as bot_share_pct
-FROM <project>.bot_detection
-WHERE timestamp >= now() - INTERVAL 6 HOUR
-
-UNION ALL
-
-SELECT
-    'before_mitigation' as period,
-    count() as requests,
-    round(countIf(response_status_code = '429') / count() * 100, 2) as rate_429_pct,
-    round(countIf(cache_was_cached = false) / count() * 100, 2) as cache_miss_pct,
-    quantile(0.95)(origin_time_to_first_byte_ms) as origin_p95_ms,
-    round(countIf(is_bot_traffic) / count() * 100, 2) as bot_share_pct
-FROM <project>.bot_detection
-WHERE timestamp >= now() - INTERVAL 12 HOUR
-  AND timestamp < now() - INTERVAL 6 HOUR
-
--- Verify specific ASN was effectively mitigated
-SELECT
-    client_asn,
-    countIf(timestamp >= now() - INTERVAL 6 HOUR) as after_requests,
-    countIf(timestamp >= now() - INTERVAL 12 HOUR AND timestamp < now() - INTERVAL 6 HOUR) as before_requests,
-    round((after_requests - before_requests) / greatest(before_requests, 1) * 100, 2) as change_pct
-FROM <project>.bot_detection
-WHERE timestamp >= now() - INTERVAL 12 HOUR
-  AND client_asn = '<mitigated_asn>'
-GROUP BY client_asn
+  period,
+  sum(cnt_all) AS requests,
+  sum(cnt_blocked) AS siem_blocked_requests,
+  sum(cnt_auth_fail) AS siem_auth_fail_requests,
+  round(sum(cnt_5xx) / greatest(sum(cnt_all), 1) * 100, 2) AS rate_5xx_pct,
+  round(sum(cnt_cache_miss) / greatest(sum(cnt_all), 1) * 100, 2) AS cache_miss_pct
+FROM (
+  SELECT 'before' AS period, *
+  FROM <project>.bot_siem_summary_day
+  WHERE timestamp >= toDateTime('<before_start>')
+    AND timestamp < toDateTime('<change_time>')
+    AND policy_id = '<policy_id>'
+  UNION ALL
+  SELECT 'after' AS period, *
+  FROM <project>.bot_siem_summary_day
+  WHERE timestamp >= toDateTime('<change_time>')
+    AND timestamp < toDateTime('<after_end>')
+    AND policy_id = '<policy_id>'
+)
+GROUP BY period
+ORDER BY period
 ```
 
+Use `post_change_vs_expected` in `references/baseline-comparison.md` when the
+user provides an expected value or an expected baseline window.

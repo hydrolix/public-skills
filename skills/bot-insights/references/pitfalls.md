@@ -21,9 +21,21 @@
 - **Suppressed columns**: `attack_data_raw`, `request_headers_raw`,
   `request_query_string`, and several others are suppressed. Use the normalized
   equivalents.
-- **High volume**: This table can be very large. Always apply time filters.
-  There are no summary tables in this bundle, so narrow your time windows for
-  aggregations.
+- **Summary-first selection**: This bundle has minute/hour/day summaries. Prefer
+  them when retained dimensions fit the question, especially for posture
+  movement and executive trends.
+- **Raw fallback is explicit**: Use request-level tables only when a required
+  dimension is missing from summaries. State the fallback reason and keep tight
+  time filters.
+- **QoQ performance**: Do not assume quarter-over-quarter queries need monthly
+  or quarterly summaries. Query or benchmark daily summaries first, then propose
+  coarser summaries only with measured evidence.
+- **Summary metadata**: Summary tables may expose aggregate-state columns in
+  some deployments. Inspect table metadata with Hydrolix MCP or the host query
+  tool before querying and use reported merge functions when required.
+- **Local scripts**: Scripts must accept MCP query results or pasted aggregate
+  JSON. Do not add database clients, connection settings, credential handling,
+  or direct query execution.
 - **Delta baselines**: The demo and dashboards use `(current - baseline) / greatest(baseline, 1) * 100`
   as the standard delta formula. Use the same approach for consistency when writing
   custom queries.
