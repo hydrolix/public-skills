@@ -35,6 +35,8 @@ Use this skill when the user asks about:
 - Before/after checks for blocks, cache-key changes, rate limits, bot-control
   policies, or security policy changes.
 - Bot posture across domains, hosts, ASNs, paths, countries, or CDN sources.
+- Entity prioritization, deterministic scorecards, ranked investigation
+  packets, or requests to rank risky/suspicious bot-related entities.
 
 Do not use this skill for generic CDN traffic analysis unless bot fields are
 central to the question; use `cdn-insights` for general cache, origin, traffic,
@@ -103,6 +105,10 @@ Do not read every reference at startup. Load the smallest relevant file:
   [references/seo-analysis.md](references/seo-analysis.md).
 - For cache busting, query-string churn, origin impact, and bandwidth cost, read
   [references/edge-ops-analysis.md](references/edge-ops-analysis.md).
+- For deterministic entity scorecards that synthesize posture movement, mover
+  attribution, SEO governance, Edge/Ops impact, and SIEM/security evidence into
+  reusable investigation packets, read
+  [references/scorecard-analysis.md](references/scorecard-analysis.md).
 - For executive posture, multi-domain triage, and post-mitigation verification,
   read [references/executive-analysis.md](references/executive-analysis.md).
 - Before finalizing a query or conclusion, scan
@@ -121,7 +127,11 @@ Do not read every reference at startup. Load the smallest relevant file:
    bot class, country, CDN, or status code.
 6. Build evidence with at least two supporting dimensions before recommending
    action.
-7. Fall back to request-level tables only when a required dimension is absent
+7. When the decision requires entity prioritization rather than another panel,
+   produce scorecard-ready aggregate rows and run
+   [scripts/scorecard.py](scripts/scorecard.py) to emit
+   `bot_entity_scorecard.v1` packets plus a `bot_scorecard_index.v1`.
+8. Fall back to request-level tables only when a required dimension is absent
    from summaries, and state the fallback reason.
 
 ## Query Guardrails
@@ -145,6 +155,11 @@ Do not read every reference at startup. Load the smallest relevant file:
   posture movement, mover attribution, and control-review JSON. It accepts MCP
   query results, saved JSON, or pasted aggregate JSON only; it does not query
   Hydrolix.
+- Use [scripts/scorecard.py](scripts/scorecard.py) for deterministic
+  scorecard artifacts after Hydrolix has produced entity-level aggregate rows.
+  It accepts MCP query results, saved JSON, or pasted JSON only; it does not
+  query Hydrolix. Missing feature inputs must remain `not_evaluated_features`,
+  not implicit safe evidence.
 - Local scripts must not contain database clients, connection configuration, or
   credential handling. Use the Hydrolix MCP server or host Hydrolix query tool
   for all database access.
@@ -166,6 +181,9 @@ Do not read every reference at startup. Load the smallest relevant file:
   and AI crawler query patterns.
 - [references/edge-ops-analysis.md](references/edge-ops-analysis.md): cache,
   origin, and bandwidth query patterns.
+- [references/scorecard-analysis.md](references/scorecard-analysis.md):
+  deterministic entity scorecards, summary-first aggregate templates, SIEM
+  enrichment, and reusable investigation packets.
 - [references/executive-analysis.md](references/executive-analysis.md):
   posture, multi-domain triage, and mitigation verification.
 - [references/pitfalls.md](references/pitfalls.md): known schema and analysis
@@ -175,3 +193,14 @@ Do not read every reference at startup. Load the smallest relevant file:
 - [scripts/compare_posture.py](scripts/compare_posture.py): emit structured
   Bot Insights posture movement, mover attribution, and control-review JSON
   from aggregate JSON.
+- [scripts/scorecard.py](scripts/scorecard.py): emit deterministic
+  `bot_entity_scorecard.v1` and `bot_scorecard_index.v1` artifacts from
+  entity-level aggregate JSON.
+
+## Script List
+
+- `scripts/compare_delta.py`: simple current/baseline numeric deltas.
+- `scripts/compare_posture.py`: posture movement, mover attribution, and
+  control-review packets.
+- `scripts/scorecard.py`: reusable entity scorecards and ranked scorecard
+  index from aggregate JSON.

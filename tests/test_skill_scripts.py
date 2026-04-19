@@ -101,6 +101,10 @@ class BotInsightsScriptTests(unittest.TestCase):
             "compare_posture",
             ROOT / "skills/bot-insights/scripts/compare_posture.py",
         )
+        cls.scorecard = load_module(
+            "scorecard",
+            ROOT / "skills/bot-insights/scripts/scorecard.py",
+        )
 
     def test_compares_current_baseline_objects(self) -> None:
         result = self.compare_delta.compare(
@@ -233,6 +237,342 @@ class BotInsightsScriptTests(unittest.TestCase):
             "llm_may_summarize_structured_evidence_only",
             result["interpretation_constraints"],
         )
+
+    def test_scorecard_basic_entity_from_object_rows(self) -> None:
+        result = self.scorecard.build_artifacts(
+            {
+                "entity_type": "client_asn",
+                "comparison_type": "week_over_week",
+                "granularity": "hour",
+                "table_used": "bot_summary_hour",
+                "rows": [
+                    {
+                        "client_asn": "64500",
+                        "current_requests": 1500,
+                        "baseline_requests": 500,
+                        "current_bot_share_pct": 80,
+                        "baseline_bot_share_pct": 40,
+                    }
+                ],
+            }
+        )
+
+        card = result["scorecards"][0]
+        self.assertEqual(card["schema_version"], "bot_entity_scorecard.v1")
+        self.assertEqual(card["entity_type"], "client_asn")
+        self.assertEqual(card["entity"], "64500")
+        self.assertGreater(card["score"], 0)
+        self.assertIn("movement", card["domain_scores"])
+
+    def test_scorecard_mcp_columns_rows_conversion(self) -> None:
+        result = self.scorecard.build_artifacts(
+            {
+                "entity_type": "request_host",
+                "comparison_type": "month_over_month",
+                "granularity": "day",
+                "table_used": "bot_summary_day",
+                "columns": [
+                    "request_host",
+                    "current_requests",
+                    "baseline_requests",
+                    "bad_bot_share_pct",
+                ],
+                "rows": [
+                    ["www.example.com", 1000, 900, 60],
+                    ["api.example.com", 800, 700, 10],
+                ],
+            }
+        )
+
+        entities = {card["entity"] for card in result["scorecards"]}
+        self.assertEqual(entities, {"www.example.com", "api.example.com"})
+        self.assertEqual(result["index"]["schema_version"], "bot_scorecard_index.v1")
+
+    def test_scorecard_high_cache_busting_score(self) -> None:
+        result = self.scorecard.build_artifacts(
+            {
+                "entity_type": "request_path_norm",
+                "table_used": "bot_agg_path_hour",
+                "rows": [
+                    {
+                        "request_path_norm": "/api/search",
+                        "current_requests": 5000,
+                        "baseline_requests": 1000,
+                        "qs_diversity_ratio": 0.93,
+                        "current_cache_miss_pct": 88,
+                        "baseline_cache_miss_pct": 20,
+                    }
+                ],
+            }
+        )
+
+        card = result["scorecards"][0]
+        feature_names = {feature["name"] for feature in card["features"]}
+        self.assertIn("querystring_diversity_high", feature_names)
+        self.assertIn("querystring_diversity_with_high_miss_rate", feature_names)
+        self.assertGreaterEqual(card["domain_scores"]["cache_busting"], 40)
+
+    def test_scorecard_high_origin_impact_score(self) -> None:
+        result = self.scorecard.build_artifacts(
+            {
+                "entity_type": "request_path_norm",
+                "table_used": "bot_agg_path_hour",
+                "rows": [
+                    {
+                        "request_path_norm": "/checkout",
+                        "current_requests": 4000,
+                        "baseline_requests": 3000,
+                        "origin_cost_contribution_pct": 45,
+                    }
+                ],
+            }
+        )
+
+        card = result["scorecards"][0]
+        feature_names = {feature["name"] for feature in card["features"]}
+        self.assertIn("origin_cost_contribution_high", feature_names)
+        self.assertEqual(card["domain_scores"]["origin_impact"], 18)
+
+    def test_scorecard_new_entity_zero_baseline_guard(self) -> None:
+        result = self.scorecard.build_artifacts(
+            {
+                "entity_type": "client_asn",
+                "table_used": "bot_summary_hour",
+                "rows": [
+                    {
+                        "client_asn": "64501",
+                        "current_requests": 250,
+                        "baseline_requests": 0,
+                    }
+                ],
+            }
+        )
+
+        card = result["scorecards"][0]
+        feature_names = {feature["name"] for feature in card["features"]}
+        self.assertIn("new_entity", feature_names)
+        self.assertIn("zero_baseline_guard", card["confidence_reasons"])
+
+    def test_scorecard_does_not_synthesize_contribution_for_limited_rowset(self) -> None:
+        result = self.scorecard.build_artifacts(
+            {
+                "entity_type": "client_asn",
+                "table_used": "bot_summary_hour",
+                "rows": [
+                    {
+                        "client_asn": "64500",
+                        "current_requests": 5000,
+                        "baseline_requests": 1000,
+                    }
+                ],
+            }
+        )
+
+        card = result["scorecards"][0]
+        feature_names = {feature["name"] for feature in card["features"]}
+        missing = {
+            feature["name"]: feature["missing_inputs"]
+            for feature in card["not_evaluated_features"]
+        }
+        self.assertNotIn("contribution_to_total_delta_high", feature_names)
+        self.assertEqual(missing["contribution_to_total_delta_high"], ["contribution_pct"])
+
+    def test_scorecard_synthesizes_contribution_for_explicit_complete_rowset(self) -> None:
+        result = self.scorecard.build_artifacts(
+            {
+                "entity_type": "client_asn",
+                "table_used": "bot_summary_hour",
+                "rowset_complete": True,
+                "rows": [
+                    {
+                        "client_asn": "64500",
+                        "current_requests": 5000,
+                        "baseline_requests": 1000,
+                    },
+                    {
+                        "client_asn": "64501",
+                        "current_requests": 2000,
+                        "baseline_requests": 1000,
+                    },
+                ],
+            }
+        )
+
+        by_entity = {card["entity"]: card for card in result["scorecards"]}
+        features = {
+            feature["name"]: feature
+            for feature in by_entity["64500"]["features"]
+        }
+        self.assertEqual(features["contribution_to_total_delta_high"]["current"], 80)
+
+    def test_scorecard_sparse_counts_lower_confidence(self) -> None:
+        result = self.scorecard.build_artifacts(
+            {
+                "entity_type": "bot_class",
+                "table_used": "bot_summary_hour",
+                "rows": [
+                    {
+                        "bot_class": "bad",
+                        "current_requests": 10,
+                        "baseline_requests": 5,
+                        "bad_bot_share_pct": 100,
+                    }
+                ],
+            }
+        )
+
+        card = result["scorecards"][0]
+        self.assertEqual(card["confidence"], "low")
+        self.assertIn("sparse_counts", card["confidence_reasons"])
+
+    def test_scorecard_prefixed_siem_inputs_count_as_available(self) -> None:
+        result = self.scorecard.build_artifacts(
+            {
+                "entity_type": "request_host",
+                "table_used": "bot_siem_summary_hour",
+                "rows": [
+                    {
+                        "request_host": "www.example.com",
+                        "current_requests": 1000,
+                        "baseline_requests": 900,
+                        "current_siem_blocked_requests": 25,
+                        "current_siem_auth_fail_requests": 5,
+                    }
+                ],
+            }
+        )
+
+        card = result["scorecards"][0]
+        feature_names = {feature["name"] for feature in card["features"]}
+        self.assertIn("siem_blocked_present", feature_names)
+        self.assertIn("siem_auth_fail_present", feature_names)
+        self.assertNotIn("siem_unavailable", card["confidence_reasons"])
+
+    def test_scorecard_absent_siem_inputs_mark_unavailable(self) -> None:
+        result = self.scorecard.build_artifacts(
+            {
+                "entity_type": "request_host",
+                "table_used": "bot_summary_day",
+                "rows": [
+                    {
+                        "request_host": "www.example.com",
+                        "current_requests": 1000,
+                        "baseline_requests": 900,
+                    }
+                ],
+            }
+        )
+
+        card = result["scorecards"][0]
+        self.assertIn("siem_unavailable", card["confidence_reasons"])
+
+    def test_scorecard_missing_feature_inputs_are_not_evaluated(self) -> None:
+        result = self.scorecard.build_artifacts(
+            {
+                "entity_type": "request_host",
+                "table_used": "bot_summary_day",
+                "rows": [{"request_host": "www.example.com", "current_requests": 1000, "baseline_requests": 900}],
+            }
+        )
+
+        card = result["scorecards"][0]
+        missing = {feature["name"] for feature in card["not_evaluated_features"]}
+        self.assertIn("querystring_diversity_high", missing)
+        self.assertIn("feature_input_missing", card["confidence_reasons"])
+
+    def test_scorecard_index_ranks_entities_by_score(self) -> None:
+        result = self.scorecard.build_artifacts(
+            {
+                "entity_type": "request_path_norm",
+                "table_used": "bot_agg_path_hour",
+                "rows": [
+                    {
+                        "request_path_norm": "/low",
+                        "current_requests": 1000,
+                        "baseline_requests": 900,
+                    },
+                    {
+                        "request_path_norm": "/high",
+                        "current_requests": 6000,
+                        "baseline_requests": 500,
+                        "qs_diversity_ratio": 0.95,
+                        "current_cache_miss_pct": 90,
+                        "baseline_cache_miss_pct": 10,
+                        "bad_bot_share_pct": 90,
+                    },
+                ],
+            }
+        )
+
+        ranked = result["index"]["ranked_entities"]
+        self.assertEqual(ranked[0]["entity"], "/high")
+        self.assertGreater(ranked[0]["score"], ranked[1]["score"])
+
+    def test_scorecard_interpretation_constraints_always_included(self) -> None:
+        result = self.scorecard.build_artifacts(
+            {
+                "entity_type": "ai_category",
+                "table_used": "bot_summary_day",
+                "rows": [
+                    {
+                        "ai_category": "crawler",
+                        "current_requests": 1000,
+                        "baseline_requests": 100,
+                        "current_ai_crawler_requests": 1000,
+                        "baseline_ai_crawler_requests": 100,
+                    }
+                ],
+            }
+        )
+
+        card = result["scorecards"][0]
+        self.assertIn("interpretation_constraints", card)
+        self.assertIn("interpretation_constraints", result["index"])
+        self.assertIn("rule_based_scorecard", card["interpretation_constraints"])
+
+    def test_scorecard_includes_window_metadata(self) -> None:
+        result = self.scorecard.build_artifacts(
+            {
+                "entity_type": "client_asn",
+                "comparison_type": "week_over_week",
+                "table_used": "bot_summary_hour",
+                "current_window": {"start": "2026-04-01", "end": "2026-04-08"},
+                "baseline_windows": [
+                    {"start": "2026-03-25", "end": "2026-04-01", "label": "previous_week"}
+                ],
+                "rows": [
+                    {
+                        "client_asn": "64500",
+                        "current_requests": 1500,
+                        "baseline_requests": 500,
+                    }
+                ],
+            }
+        )
+
+        card = result["scorecards"][0]
+        self.assertEqual(card["current_window"]["start"], "2026-04-01")
+        self.assertEqual(card["baseline_windows"][0]["label"], "previous_week")
+        self.assertEqual(result["index"]["current_window"]["end"], "2026-04-08")
+        self.assertEqual(result["index"]["baseline_windows"][0]["start"], "2026-03-25")
+
+    def test_scorecard_rejects_mixed_period_and_combined_rows(self) -> None:
+        with self.assertRaisesRegex(ValueError, "must not mix period-split rows"):
+            self.scorecard.build_artifacts(
+                {
+                    "entity_type": "client_asn",
+                    "table_used": "bot_summary_hour",
+                    "rows": [
+                        {"period": "current", "client_asn": "64500", "requests": 1000},
+                        {"period": "baseline", "client_asn": "64500", "requests": 500},
+                        {
+                            "client_asn": "64501",
+                            "current_requests": 1200,
+                            "baseline_requests": 600,
+                        },
+                    ],
+                }
+            )
 
 
 if __name__ == "__main__":
