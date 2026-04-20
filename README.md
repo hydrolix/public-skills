@@ -73,11 +73,17 @@ unzip cdn-insights.zip -d .gemini/skills/
 The `references/` files in each skill are generated from bundle definitions. To regenerate:
 
 ```bash
-python scripts/generate-schema.py \
+uv run python scripts/generate-schema.py \
   --bundles-dir /path/to/solution-bundles/bundles \
   --schemas-dir /path/to/catalog-content-live-dashboard-validation/bundles \
   --output-dir skills
 ```
+
+## Contributor Workflows
+
+- [Workflow index](docs/workflows/index.md)
+- [Validation contracts](docs/reference/validation-contracts.md)
+- [Ralph plan template](docs/workflows/templates/ralph-plan/)
 
 ## License
 

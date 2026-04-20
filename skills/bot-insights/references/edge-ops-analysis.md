@@ -5,6 +5,13 @@ proxy, path, resource, bot class, and ASN movement. Use request-level fallback
 only for exact query-string values, exact status codes, headers, or fields not
 retained in summaries.
 
+For structured cache-busting, query-string churn, cache-miss movement, or
+origin-impact detector output, use
+[cache-origin-impact.md](cache-origin-impact.md) first. That reference defines
+the path-grain-only `cache_origin_impact_report.v1` boundary, confidence rules,
+and metadata-aware SQL template requirements. This page remains a broader
+Edge/Ops pattern reference.
+
 ### Cache-Busting and Querystring Churn Detection [Edge/Ops]
 
 Bots that append unique query strings to every request defeat cache key matching,

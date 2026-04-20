@@ -44,13 +44,13 @@ credential handling.
 This file is the single source of truth for Ralph execution. The installed
 Ralph runner parses executable tasks from this checklist.
 
-- [ ] **Task 01**: Add Bot Insights cache-origin reference documentation `tasks/01-cache-origin-reference.md`
-- [ ] **Task 02**: Add normalizer input parsing and validation foundation `tasks/02-normalizer-input-validation.md`
-- [ ] **Task 03**: Implement metric derivation and baseline normalization `tasks/03-metric-derivation.md`
-- [ ] **Task 04**: Implement detector scoring and report assembly `tasks/04-detector-scoring-report.md`
-- [ ] **Task 05**: Implement confidence, limitations, and optional context handling `tasks/05-confidence-limitations-context.md`
-- [ ] **Task 06**: Wire CLI behavior and end-to-end tests `tasks/06-cli-and-e2e-tests.md`
-- [ ] **Task 07**: Finalize skill docs and examples `tasks/07-docs-examples.md`
+- [x] **Task 01**: Add Bot Insights cache-origin reference documentation `tasks/01-cache-origin-reference.md`
+- [x] **Task 02**: Add normalizer input parsing and validation foundation `tasks/02-normalizer-input-validation.md`
+- [x] **Task 03**: Implement metric derivation and baseline normalization `tasks/03-metric-derivation.md`
+- [x] **Task 04**: Implement detector scoring and report assembly `tasks/04-detector-scoring-report.md`
+- [x] **Task 05**: Implement confidence, limitations, and optional context handling `tasks/05-confidence-limitations-context.md`
+- [x] **Task 06**: Wire CLI behavior and end-to-end tests `tasks/06-cli-and-e2e-tests.md`
+- [x] **Task 07**: Finalize skill docs and examples `tasks/07-docs-examples.md`
 
 ## Validation Strategy
 

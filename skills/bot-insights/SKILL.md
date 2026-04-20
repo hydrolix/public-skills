@@ -103,7 +103,10 @@ Do not read every reference at startup. Load the smallest relevant file:
   [references/soc-analysis.md](references/soc-analysis.md).
 - For SEO, good bot governance, verified crawlers, and AI crawlers, read
   [references/seo-analysis.md](references/seo-analysis.md).
-- For cache busting, query-string churn, origin impact, and bandwidth cost, read
+- For structured cache-busting, query-string churn, cache-miss movement, or
+  origin-impact detector output, read
+  [references/cache-origin-impact.md](references/cache-origin-impact.md) first.
+  For broader Edge/Ops cache, origin, and bandwidth query patterns, read
   [references/edge-ops-analysis.md](references/edge-ops-analysis.md).
 - For deterministic entity scorecards that synthesize posture movement, mover
   attribution, SEO governance, Edge/Ops impact, and SIEM/security evidence into
@@ -160,6 +163,11 @@ Do not read every reference at startup. Load the smallest relevant file:
   It accepts MCP query results, saved JSON, or pasted JSON only; it does not
   query Hydrolix. Missing feature inputs must remain `not_evaluated_features`,
   not implicit safe evidence.
+- Use [scripts/cache_origin_impact.py](scripts/cache_origin_impact.py) for
+  deterministic `cache_origin_impact_report.v1` artifacts after Hydrolix has
+  produced path-grain aggregate rows. It accepts MCP query results, saved JSON,
+  or pasted JSON only; it does not query Hydrolix, prove causality, or
+  recommend mitigations.
 - Local scripts must not contain database clients, connection configuration, or
   credential handling. Use the Hydrolix MCP server or host Hydrolix query tool
   for all database access.
@@ -179,6 +187,9 @@ Do not read every reference at startup. Load the smallest relevant file:
   query patterns.
 - [references/seo-analysis.md](references/seo-analysis.md): crawler governance
   and AI crawler query patterns.
+- [references/cache-origin-impact.md](references/cache-origin-impact.md):
+  structured `cache_origin_impact_report.v1` scope, SQL template guidance,
+  standalone input/output examples, and detector boundaries.
 - [references/edge-ops-analysis.md](references/edge-ops-analysis.md): cache,
   origin, and bandwidth query patterns.
 - [references/scorecard-analysis.md](references/scorecard-analysis.md):
@@ -196,6 +207,9 @@ Do not read every reference at startup. Load the smallest relevant file:
 - [scripts/scorecard.py](scripts/scorecard.py): emit deterministic
   `bot_entity_scorecard.v1` and `bot_scorecard_index.v1` artifacts from
   entity-level aggregate JSON.
+- [scripts/cache_origin_impact.py](scripts/cache_origin_impact.py): emit
+  deterministic `cache_origin_impact_report.v1` artifacts from path-grain
+  aggregate JSON.
 
 ## Script List
 
@@ -204,3 +218,5 @@ Do not read every reference at startup. Load the smallest relevant file:
   control-review packets.
 - `scripts/scorecard.py`: reusable entity scorecards and ranked scorecard
   index from aggregate JSON.
+- `scripts/cache_origin_impact.py`: cache-busting and origin-impact candidate
+  reports from already-aggregated path rows.
