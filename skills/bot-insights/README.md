@@ -31,6 +31,7 @@ same kind of aggregate evidence and documented calculation rules.
 | SOC and security | [SOC And Security Analysis](#soc-and-security-analysis) | Summary-backed movement, SIEM metrics, raw fallback rules for exact evidence | Suspicious automation, spoofing, attack evidence, and incident follow-up. |
 | SEO and crawler governance | [SEO And Crawler Governance](#seo-and-crawler-governance) | Crawler health formulas, good bot and AI crawler summary patterns, raw fallback rules for owner verification | Good crawler availability, AI crawler monitoring, and governance surfaces. |
 | Edge and operations | [Edge And Operations Analysis](#edge-and-operations-analysis) | Cache, query-string diversity, origin latency, and origin cost proxy formulas | Cache busting, origin pressure, latency, and byte/cost investigations. |
+| Cache-origin impact detector | [Cache-Origin Impact Detector](#cache-origin-impact-detector) | Path-grain candidate scoring, `cache_origin_impact_report.v1`, explicit confidence and limitations | Structured cache-busting, cache-miss movement, origin-pressure, and bot-attributable cache impact reports. |
 | Executive posture and team routing | [Executive Posture And Team Routing](#executive-posture-and-team-routing) | Day-summary posture formulas and comparable-window guidance | Cross-domain posture, prioritization, and routing to SOC, SEO, or Edge/Ops. |
 | Entity scorecards | [Scorecards](#scorecards) | Rule-based feature thresholds, score bands, `bot_entity_scorecard.v1`, `bot_scorecard_index.v1` | Reusable entity prioritization and handoff packets. |
 
@@ -294,6 +295,77 @@ busting or cache-key mismatch. High origin cost proxy identifies where volume
 and origin latency combine into operational pressure; it is not a billing
 measure unless separately tied to cost data.
 
+Script support:
+
+- `scripts/cache_origin_impact.py` emits deterministic
+  `cache_origin_impact_report.v1` reports from already-aggregated path-grain
+  rows when a structured cache-busting or origin-impact packet is needed.
+
+### Cache-Origin Impact Detector
+
+The cache-origin impact detector is the structured Edge/Ops path for
+cache-busting, query-string churn, cache-miss movement, origin-pressure, and
+bot-attributable cache impact questions.
+
+Supported v1 surfaces:
+
+- `bot_agg_path_day`
+- `bot_agg_path_hour`
+- `bot_agg_path_minute`
+
+Supported v1 dimensions:
+
+- `request_host + request_path_norm`
+- `request_host + request_path_norm + bot_class`
+- `request_host + request_path_norm + asn_type`
+- `request_host + request_path_norm + bot_class + asn_type`
+
+The detector normalizes aggregate rows into canonical current, baseline, and
+delta fields, then emits one ranked candidate list. Common finding types are:
+
+- `cache_busting_candidate`
+- `cache_miss_movement_candidate`
+- `origin_impact_candidate`
+- `bot_attributable_cache_misses`
+- `bot_attributable_origin_pressure`
+
+Key metrics include:
+
+```text
+miss_rate_pct = cache_misses / greatest(requests, 1) * 100
+qs_diversity_ratio = unique_query_strings / greatest(requests, 1)
+origin_pressure_score = cache_misses * max(origin_p95_ms, 1) / 1000
+cache_miss_contribution_pct = candidate_cache_misses / complete_scope_current_cache_misses * 100
+```
+
+The detector can duration-normalize additive baseline metrics when current and
+baseline windows have unequal durations. It does not duration-normalize
+tail-latency values or period-level unique query-string counts.
+
+Inputs must be aggregate JSON from Hydrolix MCP results, saved JSON, pasted
+JSON, or a reviewed wrapper. The local script does not query Hydrolix, read
+credentials, prove causality, classify traffic with opaque models, or recommend
+mitigations.
+
+Confidence is capped at `medium` for file, stdin, pasted, saved MCP-shaped, or
+ordinary caller-supplied JSON. `high` confidence is reserved for a reviewed
+in-process wrapper that passes direct query provenance, table metadata,
+retained-dimension proof, comparable-window evidence, support counts, and
+complete-scope contribution evidence.
+
+Missing optional metric inputs are reported in `not_evaluated`, not treated as
+zero or safe evidence. Contribution percentages require complete-scope
+denominators computed before row limits, or trusted precomputed percentages
+with basis metadata. Source-limited contribution fields are withheld and
+reported explicitly.
+
+Script support:
+
+- `scripts/cache_origin_impact.py --file cache-origin-input.json` emits
+  `cache_origin_impact_report.v1`.
+- `references/cache-origin-impact.md` contains the full input contract, output
+  shape, confidence boundary, SQL template guidance, and examples.
+
 ### Executive Posture And Team Routing
 
 Executive analysis condenses bot posture into cross-domain health and routing
@@ -336,6 +408,10 @@ confirm the evidence.
 | `avg_origin_ttfb` | Summary average origin TTFB | Average origin latency for the selected grouping. |
 | `origin_p95_ms` | `max(p95_origin_ttfb)` in current templates | Tail origin latency proxy for the selected grouping. |
 | `qs_diversity_ratio` | `uniq_qs / greatest(requests, 1)` | How many distinct query strings are seen per request. Values near 1 indicate high churn. |
+| `origin_pressure_score` | `cache_misses * max(origin_p95_ms, 1) / 1000` | Cache-origin detector proxy combining miss volume and tail origin latency. Not a billing or capacity unit. |
+| `cache_miss_contribution_pct` | Candidate misses divided by complete-scope current misses * 100 | Whole-scope contribution only when denominator evidence was computed before row limits. |
+| `bot_miss_share_pct` | Selected bot-class misses for a path divided by all misses for that path * 100 | Bot-attributable cache-miss share for retained path-grain bot-class evidence. |
+| `bot_origin_pressure_share_pct` | Selected bot-class origin pressure for a path divided by total origin pressure for that path * 100 | Bot-attributable share of the detector's proxy origin pressure score. |
 | `origin_cost_score` | `requests * origin_p95_ms` | Operational pressure proxy combining volume and tail origin latency. |
 | `total_bytes` | `sum(response_total_bytes)` from request-level fallback | Byte volume. Not available in current summaries. |
 
@@ -465,12 +541,19 @@ Script support:
 - Keep raw fallback windows tight and state why fallback was required.
 - Do not treat missing feature inputs or unavailable SIEM enrichment as safe
   evidence.
+- Treat `cache_origin_impact_report.v1` as a mechanical candidate report. It can
+  identify cache-busting or origin-impact candidates, but it must not claim
+  causality or recommend mitigations without external evidence.
+- Treat `origin_pressure_score` as an investigative proxy, not a billing,
+  capacity, or real cost unit.
 
 ## Where To Go Next
 
 - Query patterns and SQL templates: `references/soc-analysis.md`,
   `references/seo-analysis.md`, `references/edge-ops-analysis.md`, and
   `references/executive-analysis.md`.
+- Structured cache-busting and origin-impact detector contract:
+  `references/cache-origin-impact.md`.
 - Baseline packet schemas and comparison rules:
   `references/baseline-comparison.md`.
 - Scorecard input/output schemas and templates:
