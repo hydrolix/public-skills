@@ -111,6 +111,8 @@ Do not read every reference at startup. Load the smallest relevant file:
   [references/scorecard-analysis.md](references/scorecard-analysis.md).
 - For executive posture, multi-domain triage, and post-mitigation verification,
   read [references/executive-analysis.md](references/executive-analysis.md).
+- For rendering saved Bot Insights artifacts into Markdown or self-contained
+  HTML reports, read [references/reporting.md](references/reporting.md).
 - Before finalizing a query or conclusion, scan
   [references/pitfalls.md](references/pitfalls.md).
 
@@ -190,6 +192,9 @@ Do not read every reference at startup. Load the smallest relevant file:
   enrichment, and reusable investigation packets.
 - [references/executive-analysis.md](references/executive-analysis.md):
   posture, multi-domain triage, and mitigation verification.
+- [references/reporting.md](references/reporting.md): renderer input grammar,
+  supported report types, warning and evidence-limit expectations, and the
+  artifact-only boundary.
 - [references/pitfalls.md](references/pitfalls.md): known schema and analysis
   footguns.
 - [scripts/compare_delta.py](scripts/compare_delta.py): compute current versus

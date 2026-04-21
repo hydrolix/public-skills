@@ -283,16 +283,16 @@ raw known artifact objects, not a second nested `data` envelope.
 Wrapper validation rules:
 
 - `schema_version` must be `bot_report_input.v1`.
-- `report_type`, when present, must be one of the supported report types. For
-  reusable fixtures, wrappers should include `report_type` rather than relying
-  on CLI flags.
+- `report_type`, when present, must be a string and one of the supported report
+  types. For reusable fixtures, wrappers should include `report_type` rather
+  than relying on CLI flags.
 - `limit`, when present, must be a positive integer display limit. It limits
   rendered rows or cards only; it does not select source artifacts, trim the
   normalized collection, or affect required-artifact validation.
 - `artifacts` must be a non-empty array of known artifact objects unless
   `--allow-unknown` is set.
-- Each artifact may include `artifact_id`. If provided, it must be unique in the
-  wrapper.
+- Each artifact may include `artifact_id`. If provided, it must be a non-empty
+  string and unique in the wrapper.
 - If `artifact_id` is omitted, the renderer assigns a stable internal ID from
   input order, such as `artifact-1`. Generated IDs are valid only for the
   current render and should not be used in reusable analyst-note fixtures.
@@ -362,7 +362,9 @@ Analyst-note validation rules:
   non-string `json_pointer` is a hard failure.
 - `json_pointer` must be syntactically valid RFC 6901. Malformed pointer syntax
   is a hard failure. The empty pointer `""` is valid and cites the whole
-  normalized artifact.
+  normalized artifact. Array reference tokens must use the RFC 6901 array-index
+  form `0` or `[1-9][0-9]*`; negative indexes, `-`, and leading-zero indexes
+  fail rather than being normalized.
 - `artifact_id`, `schema_version`, and `label`, when present, must be strings.
   Non-string selector or label values are hard failures.
 - A structurally valid but unresolved citation is a hard failure. Analyst notes
@@ -405,6 +407,8 @@ working collection:
 
 - retain every raw artifact for metadata, citation, duplicate detection, and
   evidence-limit rendering;
+- validate explicit raw artifact IDs as non-empty strings before assigning or
+  checking normalized IDs;
 - assign each raw artifact a stable render-time `artifact_id`;
 - automatically decompose `bot_scorecard_artifacts.v1` into its nested
   `index` and `scorecards`;
@@ -1499,6 +1503,7 @@ Hard failures:
 - known schema with incompatible top-level shape;
 - raw array input without CLI `--report-type`;
 - wrapper `report_type` conflicts with CLI `--report-type`;
+- wrapper `report_type` is present but is not a string;
 - CLI `--limit` is zero, negative, or not an integer;
 - requested report type has no usable required artifact after resolving report
   type and normalizing artifacts; for SOC triage, a standalone
@@ -1516,6 +1521,7 @@ Hard failures:
   with `bot_entity_scorecard.v1` artifacts whose `entity_type`, entity key, or
   compatibility metadata does not match;
 - duplicate wrapper `artifact_id` values;
+- explicit artifact IDs are empty or not strings;
 - explicit artifact IDs using reserved generated child suffixes such as
   `#index` or `#scorecard-N`;
 - duplicate artifact IDs in the normalized collection after scorecard-packet
@@ -1527,6 +1533,7 @@ Hard failures:
 - structurally invalid `analyst_notes`, including missing or non-string `text`,
   unsupported `author_type`, malformed `data_sources`, non-object data-source
   entries, missing/non-string `json_pointer`, malformed JSON Pointer syntax, or
+  invalid RFC 6901 array indexes such as negative or leading-zero indexes, or
   unresolved citation targets;
 - output path cannot be written.
 
@@ -1577,6 +1584,8 @@ Core tests:
 - wrapper and CLI matching `report_type` values render successfully;
 - wrapper and CLI conflicting `report_type` values fail closed before required
   artifact validation;
+- wrapper `report_type` values that are not strings fail closed with a
+  validation error;
 - required-artifact validation uses the resolved report type after
   normalization;
 - CLI `--title` overrides wrapper `title` with a visible diagnostic warning;
@@ -1618,7 +1627,8 @@ Core tests:
 - analyst-note validation fails closed for missing `text`, non-string `text`,
   missing or unsupported `author_type`, malformed `data_sources`, non-object
   data-source entries, missing or non-string `json_pointer`, malformed JSON
-  Pointer syntax, and unresolved citation targets;
+  Pointer syntax, invalid RFC 6901 array indexes, and unresolved citation
+  targets;
 - analyst notes without data sources produce warnings;
 - analyst-note citations resolve by `artifact_id`, verify optional
   `schema_version` consistency, fail on mismatch, and fail rather than resolving
@@ -1651,6 +1661,7 @@ Core tests:
 - warnings are written to stderr as well as rendered in the report;
 - unwritable output paths fail with a non-zero exit and stderr error;
 - duplicate `artifact_id` values fail closed;
+- explicit `artifact_id` values that are empty or not strings fail closed;
 - reserved explicit artifact ID suffixes such as `#index` and `#scorecard-N`
   fail closed;
 - normalized artifact ID collisions, including collisions between generated
