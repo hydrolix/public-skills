@@ -1,0 +1,76 @@
+{
+  "artifacts": [
+    {
+      "after_window": {
+        "end": "2026-04-08",
+        "start": "2026-04-01"
+      },
+      "artifact_id": "control-review-1",
+      "before_window": {
+        "end": "2026-04-01",
+        "start": "2026-03-25"
+      },
+      "change_time": "2026-04-01T00:00:00Z",
+      "collateral_checks": [
+        {
+          "after": 2.1,
+          "before": 0.4,
+          "metric": "rate_429_pct",
+          "status": "increased"
+        }
+      ],
+      "comparison_type": "post_change_vs_expected",
+      "displacement_checks": [
+        {
+          "after": 1100000,
+          "before": 1200000,
+          "metric": "requests",
+          "status": "decreased"
+        }
+      ],
+      "expected_basis": "explicit_target",
+      "expected_window": {
+        "end": "2026-04-01",
+        "start": "2026-03-25"
+      },
+      "interpretation_constraints": [
+        "control_effectiveness_review",
+        "no_causal_claim_without_external_change_evidence",
+        "llm_may_summarize_structured_evidence_only"
+      ],
+      "schema_version": "bot_control_review.v1",
+      "scope": {
+        "request_host": "www.example.com"
+      },
+      "table_used": "bot_siem_summary_day",
+      "target": {
+        "policy_id": "policy-bot-block-1"
+      },
+      "target_effects": [
+        {
+          "absolute_delta_vs_expected": 180,
+          "after": 280,
+          "before": 90,
+          "confidence": "high",
+          "confidence_reasons": [
+            "summary_table_used",
+            "retained_dimensions_fit",
+            "comparable_windows_available",
+            "granularity_matches_comparison",
+            "current_count_sufficient",
+            "baseline_count_sufficient"
+          ],
+          "direction": "increase",
+          "expected": 100,
+          "metric": "siem_blocked_requests",
+          "pct_change_vs_expected": 180,
+          "status": "increased"
+        }
+      ]
+    }
+  ],
+  "report_type": "control_review",
+  "schema_version": "bot_report_input.v1",
+  "scope_label": "www.example.com",
+  "title": "Control Review - policy-bot-block-1"
+}

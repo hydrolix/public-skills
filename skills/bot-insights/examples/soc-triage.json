@@ -1,0 +1,464 @@
+{
+  "analyst_notes": [
+    {
+      "author_type": "llm",
+      "data_sources": [
+        {
+          "artifact_id": "scorecard-pack-1#scorecard-1",
+          "json_pointer": "/score",
+          "label": "top entity score"
+        },
+        {
+          "artifact_id": "scorecard-pack-1#index",
+          "json_pointer": "/ranked_entities/0/entity",
+          "label": "top-ranked entity"
+        }
+      ],
+      "note_id": "note-1",
+      "text": "ASN 64500 shows bad-bot share above 50 percent with SIEM-blocked evidence; start triage here."
+    }
+  ],
+  "artifacts": [
+    {
+      "artifact_id": "scorecard-pack-1",
+      "index": {
+        "baseline_windows": [
+          {
+            "end": "2026-04-07T00:00:00Z",
+            "start": "2026-03-31T00:00:00Z"
+          }
+        ],
+        "comparison_type": "week_over_week",
+        "current_window": {
+          "end": "2026-04-14T00:00:00Z",
+          "start": "2026-04-07T00:00:00Z"
+        },
+        "interpretation_constraints": [
+          "rule_based_scorecard",
+          "mechanical_features_only",
+          "no_causal_claim",
+          "llm_may_summarize_structured_evidence_only"
+        ],
+        "producer_limit": 5,
+        "ranked_entities": [
+          {
+            "band": "medium_review",
+            "confidence": "medium",
+            "entity": "64500",
+            "entity_type": "client_asn",
+            "primary_domain": "security_evidence",
+            "rank": 1,
+            "score": 58
+          },
+          {
+            "band": "observe",
+            "confidence": "medium",
+            "entity": "64600",
+            "entity_type": "client_asn",
+            "primary_domain": "security_evidence",
+            "rank": 2,
+            "score": 12
+          }
+        ],
+        "result_row_count": 2,
+        "result_truncated": false,
+        "schema_version": "bot_scorecard_index.v1",
+        "scope": {
+          "request_host": "www.example.com"
+        },
+        "table_used": "bot_summary_hour",
+        "total_ranked_entities": 2
+      },
+      "producer_limit": 5,
+      "result_row_count": 2,
+      "result_truncated": false,
+      "schema_version": "bot_scorecard_artifacts.v1",
+      "scorecards": [
+        {
+          "band": "medium_review",
+          "baseline_windows": [
+            {
+              "end": "2026-04-07T00:00:00Z",
+              "start": "2026-03-31T00:00:00Z"
+            }
+          ],
+          "comparison_type": "week_over_week",
+          "confidence": "medium",
+          "confidence_reasons": [
+            "summary_table_used",
+            "retained_dimensions_fit",
+            "current_count_sufficient",
+            "baseline_count_sufficient",
+            "feature_input_missing"
+          ],
+          "current_window": {
+            "end": "2026-04-14T00:00:00Z",
+            "start": "2026-04-07T00:00:00Z"
+          },
+          "domain_scores": {
+            "cache_busting": 0,
+            "crawler_governance": 0,
+            "movement": 20,
+            "origin_impact": 0,
+            "policy_collateral": 0,
+            "security_evidence": 38,
+            "signal_alignment": 0
+          },
+          "entity": "64500",
+          "entity_type": "client_asn",
+          "evidence_summary": [
+            "Bad bot share is 65%.",
+            "SIEM summary reports 200 auth failures.",
+            "SIEM summary reports 1200 blocked requests.",
+            "Request volume increased by 340000 (425%).",
+            "Bot share increased by 44.1 percentage points.",
+            "11 feature inputs were missing and were not scored as safe."
+          ],
+          "features": [
+            {
+              "baseline": 38,
+              "current": 82.1,
+              "domain": "movement",
+              "evidence": "Bot share increased by 44.1 percentage points.",
+              "name": "bot_share_delta_high",
+              "points": 8,
+              "supporting_metrics": {
+                "absolute_delta_points": 44.1
+              },
+              "threshold": 10
+            },
+            {
+              "baseline": 80000,
+              "current": 420000,
+              "domain": "movement",
+              "evidence": "Request volume increased by 340000 (425%).",
+              "name": "volume_delta_high",
+              "points": 12,
+              "supporting_metrics": {
+                "absolute_delta": 340000,
+                "pct_change": 425
+              },
+              "threshold": 100
+            },
+            {
+              "current": 65,
+              "domain": "security_evidence",
+              "evidence": "Bad bot share is 65%.",
+              "name": "bad_bot_share_high",
+              "points": 14,
+              "threshold": 50
+            },
+            {
+              "current": 200,
+              "domain": "security_evidence",
+              "evidence": "SIEM summary reports 200 auth failures.",
+              "name": "siem_auth_fail_present",
+              "points": 12,
+              "threshold": 0
+            },
+            {
+              "current": 1200,
+              "domain": "security_evidence",
+              "evidence": "SIEM summary reports 1200 blocked requests.",
+              "name": "siem_blocked_present",
+              "points": 12,
+              "threshold": 0
+            }
+          ],
+          "granularity": "",
+          "interpretation_constraints": [
+            "rule_based_scorecard",
+            "mechanical_features_only",
+            "no_causal_claim",
+            "llm_may_summarize_structured_evidence_only"
+          ],
+          "not_evaluated_features": [
+            {
+              "domain": "cache_busting",
+              "missing_inputs": [
+                "baseline_cache_miss_pct",
+                "current_cache_miss_pct"
+              ],
+              "name": "cache_miss_delta_high",
+              "reason": "feature_input_missing"
+            },
+            {
+              "domain": "cache_busting",
+              "missing_inputs": [
+                "cache_miss_pct"
+              ],
+              "name": "cache_miss_rate_high",
+              "reason": "feature_input_missing"
+            },
+            {
+              "domain": "cache_busting",
+              "missing_inputs": [
+                "qs_diversity_ratio"
+              ],
+              "name": "querystring_diversity_high",
+              "reason": "feature_input_missing"
+            },
+            {
+              "domain": "cache_busting",
+              "missing_inputs": [
+                "cache_miss_pct",
+                "qs_diversity_ratio"
+              ],
+              "name": "querystring_diversity_with_high_miss_rate",
+              "reason": "feature_input_missing"
+            },
+            {
+              "domain": "crawler_governance",
+              "missing_inputs": [
+                "baseline_ai_crawler_requests",
+                "current_ai_crawler_requests"
+              ],
+              "name": "ai_crawler_growth_high",
+              "reason": "feature_input_missing"
+            },
+            {
+              "domain": "crawler_governance",
+              "missing_inputs": [
+                "good_bot_429_requests"
+              ],
+              "name": "good_bot_429_present",
+              "reason": "feature_input_missing"
+            },
+            {
+              "domain": "crawler_governance",
+              "missing_inputs": [
+                "good_bot_error_rate_pct"
+              ],
+              "name": "good_bot_error_rate_high",
+              "reason": "feature_input_missing"
+            },
+            {
+              "domain": "crawler_governance",
+              "missing_inputs": [
+                "policy_surface_failures"
+              ],
+              "name": "policy_surface_failure_present",
+              "reason": "feature_input_missing"
+            },
+            {
+              "domain": "movement",
+              "missing_inputs": [
+                "contribution_pct"
+              ],
+              "name": "contribution_to_total_delta_high",
+              "reason": "feature_input_missing"
+            },
+            {
+              "domain": "origin_impact",
+              "missing_inputs": [
+                "origin_cost_contribution_pct"
+              ],
+              "name": "origin_cost_contribution_high",
+              "reason": "feature_input_missing"
+            },
+            {
+              "domain": "origin_impact",
+              "missing_inputs": [
+                "baseline_origin_p95_ms",
+                "current_origin_p95_ms"
+              ],
+              "name": "origin_p95_delta_high",
+              "reason": "feature_input_missing"
+            }
+          ],
+          "primary_domain": "security_evidence",
+          "recommended_next_steps": [
+            "Review mover attribution for the same scope and confirm comparable current/baseline windows.",
+            "Enrich with SIEM action, policy, auth-failure, and blocked-request summaries for the same entity."
+          ],
+          "schema_version": "bot_entity_scorecard.v1",
+          "scope": {
+            "request_host": "www.example.com"
+          },
+          "score": 58,
+          "table_used": "bot_summary_hour"
+        },
+        {
+          "band": "observe",
+          "baseline_windows": [
+            {
+              "end": "2026-04-07T00:00:00Z",
+              "start": "2026-03-31T00:00:00Z"
+            }
+          ],
+          "comparison_type": "week_over_week",
+          "confidence": "medium",
+          "confidence_reasons": [
+            "summary_table_used",
+            "retained_dimensions_fit",
+            "current_count_sufficient",
+            "baseline_count_sufficient",
+            "feature_input_missing"
+          ],
+          "current_window": {
+            "end": "2026-04-14T00:00:00Z",
+            "start": "2026-04-07T00:00:00Z"
+          },
+          "domain_scores": {
+            "cache_busting": 0,
+            "crawler_governance": 0,
+            "movement": 0,
+            "origin_impact": 0,
+            "policy_collateral": 0,
+            "security_evidence": 12,
+            "signal_alignment": 0
+          },
+          "entity": "64600",
+          "entity_type": "client_asn",
+          "evidence_summary": [
+            "SIEM summary reports 40 blocked requests.",
+            "13 feature inputs were missing and were not scored as safe."
+          ],
+          "features": [
+            {
+              "current": 40,
+              "domain": "security_evidence",
+              "evidence": "SIEM summary reports 40 blocked requests.",
+              "name": "siem_blocked_present",
+              "points": 12,
+              "threshold": 0
+            }
+          ],
+          "granularity": "",
+          "interpretation_constraints": [
+            "rule_based_scorecard",
+            "mechanical_features_only",
+            "no_causal_claim",
+            "llm_may_summarize_structured_evidence_only"
+          ],
+          "not_evaluated_features": [
+            {
+              "domain": "cache_busting",
+              "missing_inputs": [
+                "baseline_cache_miss_pct",
+                "current_cache_miss_pct"
+              ],
+              "name": "cache_miss_delta_high",
+              "reason": "feature_input_missing"
+            },
+            {
+              "domain": "cache_busting",
+              "missing_inputs": [
+                "cache_miss_pct"
+              ],
+              "name": "cache_miss_rate_high",
+              "reason": "feature_input_missing"
+            },
+            {
+              "domain": "cache_busting",
+              "missing_inputs": [
+                "qs_diversity_ratio"
+              ],
+              "name": "querystring_diversity_high",
+              "reason": "feature_input_missing"
+            },
+            {
+              "domain": "cache_busting",
+              "missing_inputs": [
+                "cache_miss_pct",
+                "qs_diversity_ratio"
+              ],
+              "name": "querystring_diversity_with_high_miss_rate",
+              "reason": "feature_input_missing"
+            },
+            {
+              "domain": "crawler_governance",
+              "missing_inputs": [
+                "baseline_ai_crawler_requests",
+                "current_ai_crawler_requests"
+              ],
+              "name": "ai_crawler_growth_high",
+              "reason": "feature_input_missing"
+            },
+            {
+              "domain": "crawler_governance",
+              "missing_inputs": [
+                "good_bot_429_requests"
+              ],
+              "name": "good_bot_429_present",
+              "reason": "feature_input_missing"
+            },
+            {
+              "domain": "crawler_governance",
+              "missing_inputs": [
+                "good_bot_error_rate_pct"
+              ],
+              "name": "good_bot_error_rate_high",
+              "reason": "feature_input_missing"
+            },
+            {
+              "domain": "crawler_governance",
+              "missing_inputs": [
+                "policy_surface_failures"
+              ],
+              "name": "policy_surface_failure_present",
+              "reason": "feature_input_missing"
+            },
+            {
+              "domain": "crawler_governance",
+              "missing_inputs": [
+                "baseline_rate_5xx_pct",
+                "current_rate_5xx_pct"
+              ],
+              "name": "rate_5xx_delta_high",
+              "reason": "feature_input_missing"
+            },
+            {
+              "domain": "movement",
+              "missing_inputs": [
+                "contribution_pct"
+              ],
+              "name": "contribution_to_total_delta_high",
+              "reason": "feature_input_missing"
+            },
+            {
+              "domain": "origin_impact",
+              "missing_inputs": [
+                "origin_cost_contribution_pct"
+              ],
+              "name": "origin_cost_contribution_high",
+              "reason": "feature_input_missing"
+            },
+            {
+              "domain": "origin_impact",
+              "missing_inputs": [
+                "baseline_origin_p95_ms",
+                "current_origin_p95_ms"
+              ],
+              "name": "origin_p95_delta_high",
+              "reason": "feature_input_missing"
+            },
+            {
+              "domain": "security_evidence",
+              "missing_inputs": [
+                "siem_auth_fail_requests"
+              ],
+              "name": "siem_auth_fail_present",
+              "reason": "feature_input_missing"
+            }
+          ],
+          "primary_domain": "security_evidence",
+          "recommended_next_steps": [
+            "Enrich with SIEM action, policy, auth-failure, and blocked-request summaries for the same entity."
+          ],
+          "schema_version": "bot_entity_scorecard.v1",
+          "scope": {
+            "request_host": "www.example.com"
+          },
+          "score": 12,
+          "table_used": "bot_summary_hour"
+        }
+      ],
+      "total_ranked_entities": 2
+    }
+  ],
+  "report_type": "soc_triage",
+  "schema_version": "bot_report_input.v1",
+  "scope_label": "www.example.com",
+  "title": "SOC Triage - www.example.com - 2026-04-14"
+}

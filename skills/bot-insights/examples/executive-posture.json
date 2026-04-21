@@ -1,0 +1,177 @@
+{
+  "analyst_notes": [
+    {
+      "author_type": "llm",
+      "data_sources": [
+        {
+          "artifact_id": "posture-week-1",
+          "json_pointer": "/metrics/1/absolute_delta",
+          "label": "bot_share_pct delta"
+        },
+        {
+          "artifact_id": "mover-asn-1",
+          "json_pointer": "/movers/0/contribution_pct",
+          "label": "top ASN contribution"
+        }
+      ],
+      "note_id": "note-1",
+      "text": "Bot share and request volume both increased week-over-week; mover table attributes most of the growth to ASN 64500."
+    }
+  ],
+  "artifacts": [
+    {
+      "artifact_id": "posture-week-1",
+      "baseline_windows": [
+        {
+          "end": "2026-04-07",
+          "start": "2026-03-31"
+        }
+      ],
+      "comparison_type": "week_over_week",
+      "current_window": {
+        "end": "2026-04-14",
+        "start": "2026-04-07"
+      },
+      "granularity": "day",
+      "interpretation_constraints": [
+        "movement_only",
+        "no_causal_claim",
+        "llm_may_summarize_structured_evidence_only"
+      ],
+      "metrics": [
+        {
+          "absolute_delta": 5.5,
+          "baseline": 29,
+          "confidence": "high",
+          "confidence_reasons": [
+            "summary_table_used",
+            "retained_dimensions_fit",
+            "comparable_windows_available",
+            "granularity_matches_comparison",
+            "current_count_sufficient",
+            "baseline_count_sufficient"
+          ],
+          "current": 34.5,
+          "direction": "increase",
+          "name": "bot_share_pct",
+          "pct_change": 18.965517
+        },
+        {
+          "absolute_delta": 1.2,
+          "baseline": 0.9,
+          "confidence": "high",
+          "confidence_reasons": [
+            "summary_table_used",
+            "retained_dimensions_fit",
+            "comparable_windows_available",
+            "granularity_matches_comparison",
+            "current_count_sufficient",
+            "baseline_count_sufficient",
+            "zero_baseline_guard"
+          ],
+          "current": 2.1,
+          "direction": "increase",
+          "name": "rate_429_pct",
+          "pct_change": 120
+        },
+        {
+          "absolute_delta": 250000,
+          "baseline": 1250000,
+          "confidence": "high",
+          "confidence_reasons": [
+            "summary_table_used",
+            "retained_dimensions_fit",
+            "comparable_windows_available",
+            "granularity_matches_comparison",
+            "current_count_sufficient",
+            "baseline_count_sufficient"
+          ],
+          "current": 1500000,
+          "direction": "increase",
+          "name": "requests",
+          "pct_change": 20
+        }
+      ],
+      "schema_version": "bot_posture_movement.v1",
+      "scope": {
+        "request_host": "www.example.com"
+      },
+      "table_used": "bot_summary_day"
+    },
+    {
+      "artifact_id": "mover-asn-1",
+      "baseline_windows": [
+        {
+          "end": "2026-04-07",
+          "start": "2026-03-31"
+        }
+      ],
+      "comparison_type": "week_over_week",
+      "current_window": {
+        "end": "2026-04-14",
+        "start": "2026-04-07"
+      },
+      "dimension": "client_asn",
+      "granularity": "day",
+      "interpretation_constraints": [
+        "attribution_from_aggregate_deltas",
+        "no_causal_claim",
+        "llm_may_summarize_structured_evidence_only"
+      ],
+      "metric": "requests",
+      "movers": [
+        {
+          "absolute_delta": 340000,
+          "baseline": 80000,
+          "confidence": "high",
+          "confidence_reasons": [
+            "summary_table_used",
+            "retained_dimensions_fit",
+            "comparable_windows_available",
+            "granularity_matches_comparison",
+            "current_count_sufficient",
+            "baseline_count_sufficient"
+          ],
+          "contribution_pct": 136,
+          "current": 420000,
+          "dimension": "client_asn",
+          "direction": "increase",
+          "metric": "requests",
+          "pct_change": 425,
+          "value": "64500"
+        },
+        {
+          "absolute_delta": 50000,
+          "baseline": 210000,
+          "confidence": "high",
+          "confidence_reasons": [
+            "summary_table_used",
+            "retained_dimensions_fit",
+            "comparable_windows_available",
+            "granularity_matches_comparison",
+            "current_count_sufficient",
+            "baseline_count_sufficient"
+          ],
+          "contribution_pct": 20,
+          "current": 260000,
+          "dimension": "client_asn",
+          "direction": "increase",
+          "metric": "requests",
+          "pct_change": 23.809524,
+          "value": "64600"
+        }
+      ],
+      "schema_version": "bot_mover_attribution.v1",
+      "scope": {
+        "request_host": "www.example.com"
+      },
+      "table_used": "bot_summary_day",
+      "total_delta": 250000,
+      "total_delta_basis": "provided_total_delta"
+    }
+  ],
+  "report_type": "executive_posture",
+  "schema_version": "bot_report_input.v1",
+  "scope_label": "www.example.com",
+  "title": "Weekly Bot Posture Review - www.example.com"
+}

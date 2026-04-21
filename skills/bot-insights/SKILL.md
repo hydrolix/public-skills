@@ -103,7 +103,10 @@ Do not read every reference at startup. Load the smallest relevant file:
   [references/soc-analysis.md](references/soc-analysis.md).
 - For SEO, good bot governance, verified crawlers, and AI crawlers, read
   [references/seo-analysis.md](references/seo-analysis.md).
-- For cache busting, query-string churn, origin impact, and bandwidth cost, read
+- For structured cache-busting, query-string churn, cache-miss movement, or
+  origin-impact detector output, read
+  [references/cache-origin-impact.md](references/cache-origin-impact.md) first.
+  For broader Edge/Ops cache, origin, and bandwidth query patterns, read
   [references/edge-ops-analysis.md](references/edge-ops-analysis.md).
 - For deterministic entity scorecards that synthesize posture movement, mover
   attribution, SEO governance, Edge/Ops impact, and SIEM/security evidence into
@@ -115,6 +118,8 @@ Do not read every reference at startup. Load the smallest relevant file:
   [references/advanced-attribution.md](references/advanced-attribution.md).
 - For executive posture, multi-domain triage, and post-mitigation verification,
   read [references/executive-analysis.md](references/executive-analysis.md).
+- For rendering saved Bot Insights artifacts into Markdown or self-contained
+  HTML reports, read [references/reporting.md](references/reporting.md).
 - Before finalizing a query or conclusion, scan
   [references/pitfalls.md](references/pitfalls.md).
 
@@ -177,6 +182,15 @@ Do not read every reference at startup. Load the smallest relevant file:
   It accepts MCP query results, saved JSON, or pasted JSON only; it does not
   query Hydrolix. Missing feature inputs must remain `not_evaluated_features`,
   not implicit safe evidence.
+- Use [scripts/cache_origin_impact.py](scripts/cache_origin_impact.py) for
+  deterministic `cache_origin_impact_report.v1` artifacts after Hydrolix has
+  produced path-grain aggregate rows. It accepts MCP query results, saved JSON,
+  or pasted JSON only; it does not query Hydrolix, prove causality, or
+  recommend mitigations.
+- Use [scripts/render_report.py](scripts/render_report.py) to render saved Bot
+  Insights artifacts into Markdown or self-contained HTML reports. It accepts
+  existing artifact JSON only; it does not query Hydrolix, recompute scores, or
+  infer missing evidence.
 - Local scripts must not contain database clients, connection configuration, or
   credential handling. Use the Hydrolix MCP server or host Hydrolix query tool
   for all database access.
@@ -196,6 +210,9 @@ Do not read every reference at startup. Load the smallest relevant file:
   query patterns.
 - [references/seo-analysis.md](references/seo-analysis.md): crawler governance
   and AI crawler query patterns.
+- [references/cache-origin-impact.md](references/cache-origin-impact.md):
+  structured `cache_origin_impact_report.v1` scope, SQL template guidance,
+  standalone input/output examples, and detector boundaries.
 - [references/edge-ops-analysis.md](references/edge-ops-analysis.md): cache,
   origin, and bandwidth query patterns.
 - [references/scorecard-analysis.md](references/scorecard-analysis.md):
@@ -206,6 +223,9 @@ Do not read every reference at startup. Load the smallest relevant file:
   confidence caps, and the legacy/simple mover boundary.
 - [references/executive-analysis.md](references/executive-analysis.md):
   posture, multi-domain triage, and mitigation verification.
+- [references/reporting.md](references/reporting.md): renderer input grammar,
+  supported report types, warning and evidence-limit expectations, and the
+  artifact-only boundary.
 - [references/pitfalls.md](references/pitfalls.md): known schema and analysis
   footguns.
 - [scripts/compare_delta.py](scripts/compare_delta.py): compute current versus
@@ -219,6 +239,12 @@ Do not read every reference at startup. Load the smallest relevant file:
 - [scripts/scorecard.py](scripts/scorecard.py): emit deterministic
   `bot_entity_scorecard.v1` and `bot_scorecard_index.v1` artifacts from
   entity-level aggregate JSON.
+- [scripts/cache_origin_impact.py](scripts/cache_origin_impact.py): emit
+  deterministic `cache_origin_impact_report.v1` artifacts from path-grain
+  aggregate JSON.
+- [scripts/render_report.py](scripts/render_report.py): render existing Bot
+  Insights artifacts or `bot_report_input.v1` wrappers into Markdown or
+  self-contained HTML reports.
 
 ## Script List
 
@@ -228,3 +254,7 @@ Do not read every reference at startup. Load the smallest relevant file:
 - `scripts/attribution.py`: advanced aggregate-delta attribution reports.
 - `scripts/scorecard.py`: reusable entity scorecards and ranked scorecard
   index from aggregate JSON.
+- `scripts/cache_origin_impact.py`: cache-busting and origin-impact candidate
+  reports from already-aggregated path rows.
+- `scripts/render_report.py`: dependency-free report renderer for existing
+  Bot Insights artifacts.

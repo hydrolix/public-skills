@@ -35,6 +35,12 @@ CONTROL_CONSTRAINTS = [
     "no_causal_claim_without_external_change_evidence",
     "llm_may_summarize_structured_evidence_only",
 ]
+VALID_EXPECTED_BASIS = {
+    "before_window",
+    "explicit_target",
+    "external_model",
+    "unknown",
+}
 
 COUNT_METRICS = {
     "requests",
@@ -468,6 +474,9 @@ def compare_movers(value: Any, min_count: float = 100.0) -> dict[str, Any]:
     table_used = str(data.get("table_used", "")) if isinstance(data, dict) else ""
     comparison_type = str(data.get("comparison_type", "previous_window")) if isinstance(data, dict) else "previous_window"
     granularity = str(data.get("granularity", "")) if isinstance(data, dict) else ""
+    for key in ("scope", "current_window", "baseline_windows"):
+        if isinstance(data, dict) and key in data:
+            metadata[key] = data[key]
     metadata.update(
         {
             "table_used": table_used,
@@ -531,6 +540,9 @@ def compare_movers(value: Any, min_count: float = 100.0) -> dict[str, Any]:
         "comparison_type": comparison_type,
         "granularity": granularity,
         "table_used": table_used,
+        "scope": metadata.get("scope", {}),
+        "current_window": metadata.get("current_window", {}),
+        "baseline_windows": metadata.get("baseline_windows", []),
         "dimension": dimension,
         "metric": metric,
         "total_delta": clean_number(total_delta or 0.0),
@@ -591,8 +603,10 @@ def compare_control(value: Any, min_count: float = 100.0) -> dict[str, Any]:
         before = {}
     if not isinstance(after, dict):
         raise ValueError("Control review input must contain after metrics.")
-    if not isinstance(expected, dict):
+    expected_supplied = isinstance(expected, dict)
+    if not expected_supplied:
         expected = before
+    expected_fell_back_to_before = not expected_supplied and bool(before)
 
     metadata = dict(data.get("confidence_context", {}) if isinstance(data.get("confidence_context"), dict) else {})
     for key in ("comparison_type", "granularity", "table_used", "counts"):
@@ -652,17 +666,39 @@ def compare_control(value: Any, min_count: float = 100.0) -> dict[str, Any]:
             }
         )
 
-    return {
+    raw_basis = data.get("expected_basis")
+    if isinstance(raw_basis, str) and raw_basis in VALID_EXPECTED_BASIS:
+        expected_basis = raw_basis
+    elif expected_fell_back_to_before:
+        expected_basis = "before_window"
+    elif expected_supplied:
+        expected_basis = "explicit_target"
+    else:
+        expected_basis = "unknown"
+
+    output = {
         "schema_version": CONTROL_SCHEMA,
         "comparison_type": "post_change_vs_expected",
         "change_time": data.get("change_time", ""),
         "target": data.get("target", {}),
+        "scope": data.get("scope", {}),
+        "expected_basis": expected_basis,
         "table_used": metadata.get("table_used", ""),
         "target_effects": target_effects,
         "collateral_checks": data.get("collateral_checks", []),
         "displacement_checks": data.get("displacement_checks", []),
         "interpretation_constraints": CONTROL_CONSTRAINTS,
     }
+    for key in ("before_window", "after_window", "expected_window"):
+        if key in data:
+            output[key] = data[key]
+    if (
+        "expected_window" not in output
+        and expected_basis == "before_window"
+        and "before_window" in output
+    ):
+        output["expected_window"] = output["before_window"]
+    return output
 
 
 def compare(value: Any, schema: str = "auto", min_count: float = 100.0) -> dict[str, Any]:
