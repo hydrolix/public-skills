@@ -109,6 +109,10 @@ Do not read every reference at startup. Load the smallest relevant file:
   attribution, SEO governance, Edge/Ops impact, and SIEM/security evidence into
   reusable investigation packets, read
   [references/scorecard-analysis.md](references/scorecard-analysis.md).
+- For the advanced aggregate-delta attribution CLI, accepted public JSON row
+  shapes, conservative confidence caps, and the boundary between legacy simple
+  movers and `bot_attribution_report.v1`, read
+  [references/advanced-attribution.md](references/advanced-attribution.md).
 - For executive posture, multi-domain triage, and post-mitigation verification,
   read [references/executive-analysis.md](references/executive-analysis.md).
 - Before finalizing a query or conclusion, scan
@@ -124,7 +128,10 @@ Do not read every reference at startup. Load the smallest relevant file:
    for weekday/hour seasonality, and minute summaries for short policy-change
    detail.
 5. Attribute the change to concrete movers: ASN, path, host, bot owner, crawler,
-   bot class, country, CDN, or status code.
+   bot class, country, CDN, or status code. Keep existing simple mover packets
+   on [scripts/compare_posture.py](scripts/compare_posture.py); use
+   [scripts/attribution.py](scripts/attribution.py) only when the user needs the
+   advanced `bot_attribution_report.v1` aggregate-delta report.
 6. Build evidence with at least two supporting dimensions before recommending
    action.
 7. When the decision requires entity prioritization rather than another panel,
@@ -152,9 +159,19 @@ Do not read every reference at startup. Load the smallest relevant file:
   that formula from pasted current/baseline metric JSON. Use it only for numeric
   deltas; do not use it to classify bot intent or recommend action.
 - Use [scripts/compare_posture.py](scripts/compare_posture.py) for structured
-  posture movement, mover attribution, and control-review JSON. It accepts MCP
-  query results, saved JSON, or pasted aggregate JSON only; it does not query
-  Hydrolix.
+  posture movement, legacy/simple mover attribution, and control-review JSON.
+  It emits the existing `bot_posture_movement.v1`,
+  `bot_mover_attribution.v1`, and `bot_control_review.v1` packet shapes. Keep
+  simple posture and mover workflows here unless the user explicitly needs the
+  advanced attribution report; the script accepts MCP query results, saved JSON,
+  or pasted aggregate JSON only and does not query Hydrolix.
+- Use [scripts/attribution.py](scripts/attribution.py) for advanced
+  aggregate-delta attribution reports in `bot_attribution_report.v1`. The v1a
+  standalone CLI accepts file, stdin, saved MCP result JSON, pasted JSON,
+  wrapper objects, and list-of-dict aggregate rows; it does not query Hydrolix.
+  Public JSON from this path is capped below high confidence, treats
+  completeness and scorecard-safety fields as caller assertions, and exposes no
+  scorecard export mode.
 - Use [scripts/scorecard.py](scripts/scorecard.py) for deterministic
   scorecard artifacts after Hydrolix has produced entity-level aggregate rows.
   It accepts MCP query results, saved JSON, or pasted JSON only; it does not
@@ -184,6 +201,9 @@ Do not read every reference at startup. Load the smallest relevant file:
 - [references/scorecard-analysis.md](references/scorecard-analysis.md):
   deterministic entity scorecards, summary-first aggregate templates, SIEM
   enrichment, and reusable investigation packets.
+- [references/advanced-attribution.md](references/advanced-attribution.md):
+  advanced aggregate-delta attribution CLI, accepted v1a public input shapes,
+  confidence caps, and the legacy/simple mover boundary.
 - [references/executive-analysis.md](references/executive-analysis.md):
   posture, multi-domain triage, and mitigation verification.
 - [references/pitfalls.md](references/pitfalls.md): known schema and analysis
@@ -191,8 +211,11 @@ Do not read every reference at startup. Load the smallest relevant file:
 - [scripts/compare_delta.py](scripts/compare_delta.py): compute current versus
   baseline absolute and percentage deltas from simple metric JSON.
 - [scripts/compare_posture.py](scripts/compare_posture.py): emit structured
-  Bot Insights posture movement, mover attribution, and control-review JSON
-  from aggregate JSON.
+  Bot Insights posture movement, legacy/simple mover attribution, and
+  control-review JSON from aggregate JSON.
+- [scripts/attribution.py](scripts/attribution.py): emit conservative
+  `bot_attribution_report.v1` aggregate-delta attribution reports from public
+  aggregate JSON.
 - [scripts/scorecard.py](scripts/scorecard.py): emit deterministic
   `bot_entity_scorecard.v1` and `bot_scorecard_index.v1` artifacts from
   entity-level aggregate JSON.
@@ -200,7 +223,8 @@ Do not read every reference at startup. Load the smallest relevant file:
 ## Script List
 
 - `scripts/compare_delta.py`: simple current/baseline numeric deltas.
-- `scripts/compare_posture.py`: posture movement, mover attribution, and
-  control-review packets.
+- `scripts/compare_posture.py`: posture movement, legacy/simple mover
+  attribution, and control-review packets.
+- `scripts/attribution.py`: advanced aggregate-delta attribution reports.
 - `scripts/scorecard.py`: reusable entity scorecards and ranked scorecard
   index from aggregate JSON.

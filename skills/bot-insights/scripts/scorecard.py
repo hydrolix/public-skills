@@ -20,6 +20,9 @@ from typing import Any, Callable
 SCORECARD_SCHEMA = "bot_entity_scorecard.v1"
 INDEX_SCHEMA = "bot_scorecard_index.v1"
 ARTIFACT_SCHEMA = "bot_scorecard_artifacts.v1"
+SCORECARD_ERROR_SCHEMA = "bot_scorecard_error.v1"
+ADVANCED_ATTRIBUTION_SCHEMA = "bot_attribution_report.v1"
+ADVANCED_SCORECARD_INPUT_SCHEMA = "bot_scorecard_input.v1"
 
 SUPPORTED_ENTITY_TYPES = (
     "client_asn",
@@ -65,6 +68,34 @@ SIEM_INPUTS = {
     "cnt_auth_fail",
     "auth_fail_requests",
 }
+
+
+class InvalidScorecardInputError(ValueError):
+    """Typed invalid-input error for scorecard library callers."""
+
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        *,
+        path: str = "$",
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(message)
+        error = {
+            "code": code,
+            "message": message,
+            "path": path,
+        }
+        if details:
+            error["details"] = details
+        self.document = {
+            "schema_version": SCORECARD_ERROR_SCHEMA,
+            "error_type": "invalid_input",
+            "fatal": True,
+            "errors": [error],
+            "limitations": [],
+        }
 
 
 def parse_args() -> argparse.Namespace:
@@ -966,13 +997,54 @@ def build_index(scorecards: list[dict[str, Any]], metadata: dict[str, Any], limi
     return index
 
 
+def validate_advanced_scorecard_input_boundary(
+    value: Any,
+    *,
+    scorecard_trusted_context: Any = None,
+) -> None:
+    if not isinstance(value, dict):
+        return
+
+    schema_version = value.get("schema_version")
+    if schema_version == ADVANCED_ATTRIBUTION_SCHEMA:
+        raise InvalidScorecardInputError(
+            "advanced_attribution_report_not_scorecard_input",
+            "Direct bot_attribution_report.v1 input is not accepted by scorecard.py.",
+            details={"schema_version": schema_version},
+        )
+
+    if schema_version != ADVANCED_SCORECARD_INPUT_SCHEMA:
+        return
+
+    if scorecard_trusted_context is None:
+        raise InvalidScorecardInputError(
+            "scorecard_trusted_context_missing",
+            "bot_scorecard_input.v1 requires an in-process trusted scorecard context.",
+            details={
+                "schema_version": schema_version,
+                "scorecard_export_safe": value.get("scorecard_export_safe"),
+            },
+        )
+
+    raise InvalidScorecardInputError(
+        "scorecard_trusted_context_invalid",
+        "bot_scorecard_input.v1 trusted handoff validation is not implemented in this package.",
+        details={"schema_version": schema_version},
+    )
+
+
 def build_artifacts(
     value: Any,
     *,
     entity_type: str | None = None,
     min_count: float = 100.0,
     limit: int = 0,
+    scorecard_trusted_context: Any = None,
 ) -> dict[str, Any]:
+    validate_advanced_scorecard_input_boundary(
+        value,
+        scorecard_trusted_context=scorecard_trusted_context,
+    )
     metadata = metadata_from(value)
     rows, inferred_entity_type = prepared_rows(value, entity_type)
     if inferred_entity_type not in SUPPORTED_ENTITY_TYPES:
@@ -1011,6 +1083,9 @@ def main() -> int:
             min_count=args.min_count,
             limit=args.limit,
         )
+    except InvalidScorecardInputError as exc:
+        print(json.dumps(exc.document, indent=2, sort_keys=True))
+        return 2
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1

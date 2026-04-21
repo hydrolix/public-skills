@@ -10,6 +10,41 @@ the Hydrolix MCP server or the host agent's Hydrolix query tool. If a metric is
 stored as an aggregate state, query it with the merge function reported by the
 tool. Do not add database clients or credentials to local scripts.
 
+## Attribution SQL Template Rendering
+
+The local attribution script exposes a reviewed template renderer for future
+direct-MCP wrappers. Example wrapper fragment:
+
+```python
+render_attribution_sql_template(
+    table_metadata=hydrolix_table_metadata,
+    metric="requests",
+    dimensions=["client_asn"],
+    scope={"request_host": "www.example.com"},
+    current_window={"start": "2026-04-01T00:00:00Z", "end": "2026-04-02T00:00:00Z"},
+    baseline_windows=[
+        {"start": "2026-03-01T00:00:00Z", "end": "2026-03-02T00:00:00Z"}
+    ],
+    baseline_method="single_previous_window",
+    output_limit=50,
+)
+```
+
+The renderer returns SQL plus provenance and assertion evidence payloads. It
+does not execute SQL, read credentials, compute `result_digest`, emit scorecard
+artifacts, or make any output high-confidence by itself. A future reviewed
+direct-MCP wrapper must run the SQL, receive the tool result in memory, compute
+the result digest, and carry matching evidence into the normalizer.
+
+For aggregate-state columns, the renderer uses the exact `merge_function`
+reported in table metadata. For example a metadata column named
+`sum(cnt_all)` with `merge_function: sumMerge` renders
+``sumMerge(`sum(cnt_all)`)``; it does not infer merge functions from column
+names. Current and baseline metrics are computed in separate period-scoped CTEs
+with explicit current and baseline predicates, so non-adjacent baseline windows
+do not scan the gap between baseline and current periods. Contribution
+denominators are computed in the `scored` CTE before the final output `LIMIT`.
+
 ## Selection Rules
 
 - Use day summaries for quarter-over-quarter, month-over-month, year-over-year,
