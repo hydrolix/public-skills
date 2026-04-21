@@ -57,6 +57,10 @@ METADATA_KEYS = {
     "value",
 }
 
+ALLOWED_POPULATIONS = ("crawler", "good_bot", "ai_crawler", "all_traffic", "unknown")
+
+PROVENANCE_KEYS = ("rowset_scope", "feature_provenance")
+
 SIEM_INPUTS = {
     "siem_blocked_requests",
     "cnt_blocked",
@@ -114,6 +118,43 @@ def read_input(args: argparse.Namespace) -> str:
     if args.text:
         return " ".join(args.text)
     return sys.stdin.read()
+
+
+def validate_rowset_scope(scope: Any, context: str) -> dict[str, Any]:
+    if not isinstance(scope, dict):
+        raise ValueError(f"{context} must be a JSON object")
+    if "population" in scope:
+        population = scope["population"]
+        if not isinstance(population, str) or population not in ALLOWED_POPULATIONS:
+            raise ValueError(
+                f"{context}.population must be one of "
+                + ", ".join(ALLOWED_POPULATIONS)
+            )
+    return scope
+
+
+def validate_feature_provenance(provenance: Any, context: str) -> dict[str, Any]:
+    if not isinstance(provenance, dict):
+        raise ValueError(
+            f"{context} must be a JSON object keyed by feature name"
+        )
+    for feature_name, entry in provenance.items():
+        if not isinstance(feature_name, str) or not feature_name:
+            raise ValueError(f"{context} keys must be non-empty feature name strings")
+        entry_context = f"{context}.{feature_name}"
+        if not isinstance(entry, dict):
+            raise ValueError(f"{entry_context} must be a JSON object")
+        if "rowset_scope" in entry:
+            validate_rowset_scope(entry["rowset_scope"], f"{entry_context}.rowset_scope")
+        if "metric_inputs" in entry:
+            metric_inputs = entry["metric_inputs"]
+            if not isinstance(metric_inputs, list) or not all(
+                isinstance(item, str) for item in metric_inputs
+            ):
+                raise ValueError(
+                    f"{entry_context}.metric_inputs must be an array of strings"
+                )
+    return provenance
 
 
 def to_number(value: Any) -> float | None:
@@ -228,6 +269,24 @@ def first_number(row: dict[str, Any], keys: tuple[str, ...]) -> float | None:
     return None
 
 
+def merge_period_metadata(
+    combined: dict[str, Any],
+    field: str,
+    value: Any,
+    *,
+    entity_type: str,
+    entity: str,
+) -> None:
+    if field not in combined:
+        combined[field] = value
+        return
+    if combined[field] != value:
+        raise ValueError(
+            "Period-split rows for "
+            f"{entity_type}={entity} must not disagree on {field}"
+        )
+
+
 def current_number(row: dict[str, Any], *names: str) -> float | None:
     return first_number(row, prefixed_keys("current", names) + names)
 
@@ -285,6 +344,15 @@ def combine_period_rows(rows: list[dict[str, Any]], entity_type: str) -> list[di
         for field, value in row.items():
             if field in METADATA_KEYS or field in SUPPORTED_ENTITY_TYPES:
                 continue
+            if field in PROVENANCE_KEYS:
+                merge_period_metadata(
+                    combined,
+                    field,
+                    value,
+                    entity_type=row_entity_type,
+                    entity=entity,
+                )
+                continue
             combined[f"{normalized_period}_{field}"] = value
 
     if not saw_period:
@@ -313,6 +381,8 @@ def metadata_from(value: Any) -> dict[str, Any]:
         "source_caveats",
         "rowset_complete",
         "contribution_basis",
+        "rowset_scope",
+        "feature_provenance",
     ):
         if key in value:
             metadata[key] = value[key]
@@ -905,6 +975,23 @@ def score_entity(
         scorecard["current_window"] = metadata["current_window"]
     if "baseline_windows" in metadata:
         scorecard["baseline_windows"] = metadata["baseline_windows"]
+
+    row_rowset_scope = row.get("rowset_scope")
+    if row_rowset_scope is not None:
+        scorecard["rowset_scope"] = validate_rowset_scope(
+            row_rowset_scope, "row.rowset_scope"
+        )
+    elif "rowset_scope" in metadata:
+        scorecard["rowset_scope"] = metadata["rowset_scope"]
+
+    row_feature_provenance = row.get("feature_provenance")
+    if row_feature_provenance is not None:
+        scorecard["feature_provenance"] = validate_feature_provenance(
+            row_feature_provenance, "row.feature_provenance"
+        )
+    elif "feature_provenance" in metadata:
+        scorecard["feature_provenance"] = metadata["feature_provenance"]
+
     return scorecard
 
 
@@ -933,13 +1020,30 @@ def add_contribution_percentages(rows: list[dict[str, Any]], metadata: dict[str,
         row["contribution_pct"] = abs(delta) / basis * 100.0
 
 
-def build_index(scorecards: list[dict[str, Any]], metadata: dict[str, Any], limit: int = 0) -> dict[str, Any]:
+def limit_metadata(total_count: int, emitted_count: int, limit: int) -> dict[str, Any]:
+    if limit <= 0:
+        return {}
+    return {
+        "producer_limit": limit,
+        "result_row_count": emitted_count,
+        "result_truncated": total_count > emitted_count,
+        "total_ranked_entities": total_count,
+    }
+
+
+def build_index(
+    scorecards: list[dict[str, Any]],
+    metadata: dict[str, Any],
+    limit: int = 0,
+    total_count: int | None = None,
+) -> dict[str, Any]:
     ranked = sorted(
         scorecards,
         key=lambda card: (-int(card["score"]), str(card["entity_type"]), str(card["entity"])),
     )
     if limit > 0:
         ranked = ranked[:limit]
+    total = len(scorecards) if total_count is None else total_count
     index = {
         "schema_version": INDEX_SCHEMA,
         "scope": metadata.get("scope", {}),
@@ -959,6 +1063,7 @@ def build_index(scorecards: list[dict[str, Any]], metadata: dict[str, Any], limi
         ],
         "interpretation_constraints": INTERPRETATION_CONSTRAINTS,
     }
+    index.update(limit_metadata(total, len(ranked), limit))
     if "current_window" in metadata:
         index["current_window"] = metadata["current_window"]
     if "baseline_windows" in metadata:
@@ -974,6 +1079,10 @@ def build_artifacts(
     limit: int = 0,
 ) -> dict[str, Any]:
     metadata = metadata_from(value)
+    if "rowset_scope" in metadata:
+        validate_rowset_scope(metadata["rowset_scope"], "rowset_scope")
+    if "feature_provenance" in metadata:
+        validate_feature_provenance(metadata["feature_provenance"], "feature_provenance")
     rows, inferred_entity_type = prepared_rows(value, entity_type)
     if inferred_entity_type not in SUPPORTED_ENTITY_TYPES:
         raise ValueError(
@@ -991,14 +1100,17 @@ def build_artifacts(
         scorecards,
         key=lambda card: (-int(card["score"]), str(card["entity"])),
     )
+    total_scorecards = len(scorecards)
     if limit > 0:
         scorecards = scorecards[:limit]
-    index = build_index(scorecards, metadata, limit=limit)
-    return {
+    index = build_index(scorecards, metadata, limit=limit, total_count=total_scorecards)
+    artifacts = {
         "schema_version": ARTIFACT_SCHEMA,
         "scorecards": scorecards,
         "index": index,
     }
+    artifacts.update(limit_metadata(total_scorecards, len(scorecards), limit))
+    return artifacts
 
 
 def main() -> int:

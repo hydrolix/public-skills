@@ -27,12 +27,16 @@ The maintained validation contract is
 [`docs/reference/validation-contracts.md`](../reference/validation-contracts.md).
 Use that file for canonical command forms and warning policy.
 
-Current common commands:
+Current canonical commands:
 
 ```bash
-uv run python scripts/validate-skill-examples.py
-uv run python tests/test_skill_scripts.py -q
+uv run python -m unittest discover -s tests
+uv run python scripts/validate-skill-examples.py .
 ```
+
+Avoid raw `python` or `python3` in committed workflow docs and Ralph task
+`test_command` values unless a task is documenting a host that does not provide
+`uv`.
 
 ## Ralph Loop Plans
 
@@ -52,12 +56,37 @@ runner-visible checklist. Task files live under `tasks/`; do not add a mirrored
 `tasks/IMPLEMENTATION_PLAN.md`.
 
 Each task file must include YAML frontmatter with a runnable `test_command`.
-Use the scaffold in
-[`docs/workflows/templates/ralph-plan/`](templates/ralph-plan/) for new plans.
+Use [`docs/templates/ralph-task.md`](../templates/ralph-task.md) for new task
+files.
 
 Keep tasks small and linear. Split a task when it would modify more than three
 files, combine unrelated work, or require a broad final validation before any
 targeted check can catch the intended behavior.
+
+When creating or reviewing a Ralph Loop package:
+
+1. Run the baseline repository validation commands above.
+2. Confirm every checklist entry in `plan.md` points to an existing numbered
+   task file under `tasks/`.
+3. Confirm every numbered task file starts with YAML frontmatter and includes a
+   `test_command`.
+4. Confirm `depends_on` values refer to earlier task files or are empty.
+5. Run each distinct task `test_command` pattern when feasible, or explain why a
+   command was not run.
+
+## Existing Validator Warnings
+
+If a validator reports pre-existing warnings outside the touched files, report
+them in the final handoff instead of fixing them opportunistically. Fix warning
+noise only when it is in scope for the requested work, affects files you
+changed, or blocks the requested validation.
+
+## Review-To-Fix Iteration
+
+When turning review findings into fixes, keep a small remaining-concerns list
+and update it after each finding class is resolved. Run the targeted regression
+check for that finding before moving on, then run the canonical validation when
+the batch is complete.
 
 ## Reviewing Untracked Files
 

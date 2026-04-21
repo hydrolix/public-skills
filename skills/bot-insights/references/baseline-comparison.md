@@ -119,12 +119,21 @@ Machine-readable reasons:
 
 ### `bot_mover_attribution.v1`
 
+Mover artifacts preserve supplied `scope`, `current_window`, and
+`baseline_windows` metadata so renderers can safely pair them with posture,
+scorecard, or control-review artifacts from the same comparison context.
+
 ```json
 {
   "schema_version": "bot_mover_attribution.v1",
   "comparison_type": "month_over_month",
   "granularity": "day",
   "table_used": "bot_summary_day",
+  "scope": {"request_host": "www.example.com"},
+  "current_window": {"start": "2026-04-01", "end": "2026-04-08"},
+  "baseline_windows": [
+    {"start": "2026-03-25", "end": "2026-04-01"}
+  ],
   "dimension": "client_asn",
   "metric": "requests",
   "total_delta": 120000,
@@ -151,12 +160,43 @@ Machine-readable reasons:
 
 ### `bot_control_review.v1`
 
+Control-review artifacts preserve the windows the caller supplied so the report
+can show what "before", "after", and "expected" mean without inferring them
+from `change_time`:
+
+- `before_window` and `after_window` are preserved when supplied; they remain
+  absent otherwise (never inferred).
+- `expected_window` is preserved when the expected values came from a time
+  window. When the producer uses `before_window` as the expected baseline, it
+  copies that supplied window directly into `expected_window`; omit it when
+  expected values did not come from a window.
+- `scope` is preserved when supplied.
+- `expected_basis` records where the expected values came from. Valid values:
+  - `before_window`: the producer used the before period as the expected
+    baseline (emitted automatically when `expected` is not supplied and
+    `before` is present);
+  - `explicit_target`: the caller supplied literal expected values;
+  - `external_model`: the caller supplied expected values from another model
+    or forecast (only emitted when the input explicitly states this basis);
+  - `unknown`: the producer could not determine the basis.
+
+An explicitly supplied valid `expected_basis` on the input is always
+preserved verbatim.
+
 ```json
 {
   "schema_version": "bot_control_review.v1",
   "comparison_type": "post_change_vs_expected",
   "change_time": "2026-04-01T00:00:00Z",
   "target": {"policy_id": "policy-123"},
+  "scope": {"request_host": "www.example.com"},
+  "before_window": {"start": "2026-03-25T00:00:00Z", "end": "2026-04-01T00:00:00Z"},
+  "after_window": {"start": "2026-04-01T00:00:00Z", "end": "2026-04-08T00:00:00Z"},
+  "expected_basis": "before_window",
+  "expected_window": {
+    "start": "2026-03-25T00:00:00Z",
+    "end": "2026-04-01T00:00:00Z"
+  },
   "table_used": "bot_siem_summary_day",
   "target_effects": [
     {

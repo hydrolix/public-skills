@@ -47,6 +47,53 @@ of `"current"`/`"baseline"` that the script combines. Do not mix those row
 shapes in one payload; normalize or join enrichment before running
 `scorecard.py`.
 
+## Rowset And Feature Provenance
+
+Callers may supply structured provenance on the payload or on individual rows so
+that downstream report renderers can prove that generic rate features such as
+`rate_429_delta_high` or `rate_5xx_delta_high` came from a crawler-specific
+rowset. The script preserves these fields on emitted
+`bot_entity_scorecard.v1` artifacts but does not synthesize them.
+
+Supported fields:
+
+- `rowset_scope.population`, when present, must be one of `crawler`,
+  `good_bot`, `ai_crawler`, `all_traffic`, or `unknown`. Other
+  `rowset_scope` fields (such as `filters`, `entity_type`, and `table_used`)
+  are passed through unchanged.
+- `feature_provenance` must be a JSON object keyed by scorecard feature name.
+  Each entry may carry its own `rowset_scope`, a `metric_inputs` array of
+  strings naming the aggregate inputs, and free-form `notes`.
+- `feature_provenance.<feature>.metric_inputs`, when present, must be an array
+  of strings.
+
+Row-level `rowset_scope` and `feature_provenance` override payload-level
+values on the emitted scorecard. Feature-level provenance is preserved so a
+renderer can resolve feature-specific populations over artifact-level ones.
+Invalid provenance shapes fail closed with an explicit error so artifacts stay
+deterministic.
+For period-split rows that the script combines into one entity row, matching
+row-level provenance is preserved; conflicting per-period provenance is a hard
+failure instead of last-row-wins merge behavior.
+
+## Producer Limit Metadata
+
+`scripts/scorecard.py --limit <n>` truncates scorecards and ranked index
+entries before they reach a renderer. Producer-limit metadata is emitted only
+on metadata-capable outputs:
+
+- Default `bot_scorecard_artifacts.v1` output carries `producer_limit`,
+  `result_row_count`, `result_truncated`, and `total_ranked_entities` at the
+  packet level, and the embedded `bot_scorecard_index.v1` carries the same
+  fields.
+- `--output index` emits `bot_scorecard_index.v1` with `producer_limit`,
+  `result_row_count`, `result_truncated`, and `total_ranked_entities`.
+- `--output scorecards` intentionally emits a bare JSON list of
+  `bot_entity_scorecard.v1` artifacts. A bare list has no packet-level
+  location for `producer_limit`, `result_row_count`, or `result_truncated`;
+  downstream renderers must treat the list as the emitted known collection
+  rather than as proof of the upstream population.
+
 ## Rule Domains
 
 The MVP actively scores these domains:
@@ -168,7 +215,19 @@ WITH
     GROUP BY client_asn
   )
 SELECT
-  *,
+  client_asn,
+  current_requests,
+  baseline_requests,
+  current_bot_share_pct,
+  baseline_bot_share_pct,
+  current_cache_miss_pct,
+  baseline_cache_miss_pct,
+  current_origin_p95_ms,
+  baseline_origin_p95_ms,
+  current_rate_429_pct,
+  baseline_rate_429_pct,
+  current_rate_5xx_pct,
+  baseline_rate_5xx_pct,
   abs(current_requests - baseline_requests)
     / greatest(sum(abs(current_requests - baseline_requests)) OVER (), 1) * 100 AS contribution_pct,
   current_requests * current_origin_p95_ms
