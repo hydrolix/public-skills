@@ -187,6 +187,12 @@ Policy displacement fields should be provided as current/baseline pairs:
 
 - `current_displacement_requests`, `baseline_displacement_requests`
 
+When no policy-change context is available, generate the protected-population
+collateral inputs that can be derived from posture summaries and omit
+displacement fields. The scorecard evaluates the protected-population inputs
+and does not treat absent displacement fields as missing evidence unless a
+caller provides displacement inputs.
+
 ## SQL Templates
 
 These templates intentionally omit clients, credentials, and execution logic.
@@ -409,6 +415,57 @@ and `countIfMergeIf(\`countIf(...500...)\`, ...)`. The fields emitted to
 `scorecard.py` stay canonical: `current_ai_crawler_requests`,
 `baseline_ai_crawler_requests`, `good_bot_429_requests`,
 `good_bot_error_rate_pct`, and `policy_surface_failures`.
+
+### Policy Collateral Protected-Population Enrichment
+
+Run this over `akamai.bi_summary_hour` / `bi_summary_*` when the available data
+can support protected-population collateral checks but no external policy
+change record is available. Join the returned fields into the scorecard row by
+entity and run `scorecard.py` with `analysis_domains: ["policy_collateral"]` or
+`--domains policy_collateral`.
+
+```sql
+WITH
+  toDateTime('<current_start>') AS current_start,
+  toDateTime('<current_end>') AS current_end
+SELECT
+  request_host,
+  countMergeIf(
+    `count()`,
+    timestamp >= current_start
+      AND timestamp < current_end
+      AND bot_class IN ('good', 'crawler')
+  ) AS protected_population_requests,
+  countIfMergeIf(
+    `countIf(equals(toUInt16(response_status_code), 429))`,
+    timestamp >= current_start
+      AND timestamp < current_end
+      AND bot_class IN ('good', 'crawler')
+  ) AS good_bot_collateral_429_requests,
+  round(
+    countIfMergeIf(
+      `countIf(greaterOrEquals(toUInt16(response_status_code), 500))`,
+      timestamp >= current_start
+        AND timestamp < current_end
+        AND bot_class IN ('good', 'crawler')
+    )
+    / greatest(protected_population_requests, 1) * 100, 2
+  ) AS policy_collateral_error_rate_pct
+FROM <project>.<posture_summary_hour>
+WHERE timestamp >= current_start
+  AND timestamp < current_end
+GROUP BY request_host
+HAVING protected_population_requests > 0
+ORDER BY good_bot_collateral_429_requests DESC,
+  policy_collateral_error_rate_pct DESC,
+  protected_population_requests DESC
+LIMIT 50
+```
+
+Do not synthesize `current_displacement_requests` or
+`baseline_displacement_requests` without a defined policy-change or control
+review scope. Add those fields only when a caller supplies the displacement
+population and comparison window.
 
 ### SOC Security Evidence Scorecards
 

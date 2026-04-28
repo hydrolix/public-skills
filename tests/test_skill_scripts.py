@@ -4687,6 +4687,34 @@ class BotInsightsScriptTests(unittest.TestCase):
             card["recommended_next_steps"],
         )
 
+    def test_scorecard_policy_collateral_uses_available_protected_population_fields(self) -> None:
+        result = self.scorecard.build_artifacts(
+            {
+                "entity_type": "request_host",
+                "analysis_domains": ["policy_collateral"],
+                "table_used": "akamai.bi_summary_hour",
+                "rows": [
+                    {
+                        "request_host": "docs.hydrolix.io",
+                        "current_requests": 1243,
+                        "baseline_requests": 1307,
+                        "good_bot_429_requests": 0,
+                        "good_bot_error_rate_pct": 0,
+                    }
+                ],
+            }
+        )
+
+        card = result["scorecards"][0]
+        self.assertEqual(card["analysis_domains"], ["policy_collateral"])
+        self.assertEqual(card["domain_scores"]["policy_collateral"], 0)
+        self.assertFalse(card["features"])
+        missing_names = {feature["name"] for feature in card["not_evaluated_features"]}
+        self.assertNotIn("good_bot_policy_collateral_present", missing_names)
+        self.assertNotIn("policy_collateral_error_rate_high", missing_names)
+        self.assertNotIn("displacement_delta_high", missing_names)
+        self.assertNotIn("feature_input_missing", card["confidence_reasons"])
+
     def test_scorecard_index_ranks_entities_by_score(self) -> None:
         result = self.scorecard.build_artifacts(
             {

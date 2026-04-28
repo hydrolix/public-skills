@@ -846,6 +846,8 @@ def eval_good_bot_policy_collateral_present(row: dict[str, Any]) -> tuple[dict[s
         "good_bot_collateral_429_requests",
         "collateral_good_bot_429_requests",
         "policy_collateral_good_bot_429_requests",
+        "good_bot_429_requests",
+        "good_bot_rate_limited_429",
     )
     if affected is None:
         return None, missing_feature(
@@ -871,6 +873,8 @@ def eval_policy_collateral_error_rate_high(row: dict[str, Any]) -> tuple[dict[st
         "policy_collateral_error_rate_pct",
         "collateral_error_rate_pct",
         "good_bot_collateral_error_rate_pct",
+        "good_bot_error_rate_pct",
+        "good_bot_errors_pct",
     )
     if rate is None:
         return None, missing_feature(
@@ -890,7 +894,19 @@ def eval_policy_collateral_error_rate_high(row: dict[str, Any]) -> tuple[dict[st
     return None, None
 
 
+def displacement_inputs_present(row: dict[str, Any]) -> bool:
+    names = (
+        "displacement_requests",
+        "other_scope_requests",
+        "post_policy_displacement_requests",
+    )
+    keys = prefixed_keys("current", names) + prefixed_keys("baseline", names) + names
+    return any(key in row for key in keys)
+
+
 def eval_displacement_delta_high(row: dict[str, Any]) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    if not displacement_inputs_present(row):
+        return None, None
     current, baseline = metric_values(
         row,
         (

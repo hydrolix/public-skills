@@ -77,9 +77,12 @@ they require external policy-change evidence and do not prove causality.
 
 - `good_bot_collateral_429_requests`,
   `collateral_good_bot_429_requests`, or
-  `policy_collateral_good_bot_429_requests`
+  `policy_collateral_good_bot_429_requests`; `good_bot_429_requests` is also
+  accepted when the protected-population aggregate comes from a shared
+  crawler/governance enrichment query.
 - `policy_collateral_error_rate_pct`, `collateral_error_rate_pct`, or
-  `good_bot_collateral_error_rate_pct`
+  `good_bot_collateral_error_rate_pct`; `good_bot_error_rate_pct` is also
+  accepted from shared protected-population aggregates.
 - `current_displacement_requests` and `baseline_displacement_requests`
   (also accepted with the metric aliases `other_scope_requests` or
   `post_policy_displacement_requests`)
@@ -87,6 +90,13 @@ they require external policy-change evidence and do not prove causality.
 These fields score the `policy_collateral` domain. Missing inputs remain
 `not_evaluated_features`; they are not interpreted as proof that a policy had
 no collateral impact.
+
+When no external policy-change context exists, use the protected-population
+fields available from `bi_summary_*` and omit displacement fields. The
+scorecard evaluates good-bot 429/error-rate inputs, including zero values, and
+skips displacement rather than reporting it as missing. Displacement should be
+added only when a caller supplies a policy/control change and a displacement
+population to compare.
 
 ## Interpretation
 
