@@ -5622,6 +5622,86 @@ class BotInsightsScriptTests(unittest.TestCase):
         ):
             self.render_report.render(wrapper, self.render_args())
 
+    def test_render_report_executive_rolls_up_compatible_scorecards(self) -> None:
+        shared = {
+            "scope": {"request_host": "www.example.com"},
+            "current_window": {"start": "2026-04-01", "end": "2026-04-08"},
+            "baseline_windows": [{"start": "2026-03-25", "end": "2026-04-01"}],
+            "comparison_type": "previous_window",
+            "table_used": "akamai.bi_summary_hour",
+        }
+        wrapper = {
+            "schema_version": "bot_report_input.v1",
+            "report_type": "executive_posture",
+            "artifacts": [
+                {
+                    "schema_version": "bot_posture_movement.v1",
+                    "artifact_id": "posture-1",
+                    **shared,
+                    "metrics": [
+                        {
+                            "name": "requests",
+                            "current": 1500,
+                            "baseline": 1000,
+                            "absolute_delta": 500,
+                            "pct_change": 50,
+                            "direction": "increase",
+                            "confidence": "high",
+                        }
+                    ],
+                },
+                {
+                    "schema_version": "bot_scorecard_artifacts.v1",
+                    "artifact_id": "scorecards-1",
+                    "index": {
+                        "schema_version": "bot_scorecard_index.v1",
+                        **shared,
+                        "ranked_entities": [
+                            {
+                                "rank": 1,
+                                "entity_type": "request_host",
+                                "entity": "www.example.com",
+                                "score": 50,
+                                "band": "medium_review",
+                                "primary_domain": "cache_busting",
+                                "confidence": "medium",
+                            }
+                        ],
+                    },
+                    "scorecards": [
+                        {
+                            "schema_version": "bot_entity_scorecard.v1",
+                            **shared,
+                            "entity_type": "request_host",
+                            "entity": "www.example.com",
+                            "score": 50,
+                            "band": "medium_review",
+                            "primary_domain": "cache_busting",
+                            "domain_scores": {
+                                "cache_busting": 40,
+                                "origin_impact": 10,
+                            },
+                            "features": [],
+                            "confidence_reasons": ["feature_input_missing"],
+                        }
+                    ],
+                },
+            ],
+        }
+
+        output, warnings = self.render_report.render(wrapper, self.render_args())
+
+        self.assertIn("Lens Rollup", output)
+        self.assertIn("Domain Totals", output)
+        self.assertIn("| cache\\_busting | 40 |", output)
+        self.assertIn("| origin\\_impact | 10 |", output)
+        self.assertIn("Primary Lens Counts", output)
+        self.assertIn("| cache\\_busting | 1 |", output)
+        self.assertIn("Caveats", output)
+        self.assertIn("| feature\\_input\\_missing | 1 |", output)
+        self.assertIn("Domain Score Matrix", output)
+        self.assertEqual(warnings, [])
+
     def test_render_report_crawler_generic_rates_require_structured_provenance(
         self,
     ) -> None:

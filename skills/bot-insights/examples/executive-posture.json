@@ -168,6 +168,91 @@
       "table_used": "bot_summary_day",
       "total_delta": 390000,
       "total_delta_basis": "sum_abs_mover_delta"
+    },
+    {
+      "artifact_id": "scorecards-host-1",
+      "index": {
+        "artifact_id": "scorecards-host-1#index",
+        "baseline_windows": [
+          {
+            "end": "2026-04-07",
+            "start": "2026-03-31"
+          }
+        ],
+        "comparison_type": "week_over_week",
+        "current_window": {
+          "end": "2026-04-14",
+          "start": "2026-04-07"
+        },
+        "ranked_entities": [
+          {
+            "band": "medium_review",
+            "confidence": "medium",
+            "entity": "www.example.com",
+            "entity_type": "request_host",
+            "primary_domain": "cache_busting",
+            "rank": 1,
+            "score": 48
+          }
+        ],
+        "schema_version": "bot_scorecard_index.v1",
+        "scope": {
+          "request_host": "www.example.com"
+        },
+        "table_used": "bot_summary_day"
+      },
+      "schema_version": "bot_scorecard_artifacts.v1",
+      "scorecards": [
+        {
+          "artifact_id": "scorecards-host-1#scorecard-1",
+          "band": "medium_review",
+          "baseline_windows": [
+            {
+              "end": "2026-04-07",
+              "start": "2026-03-31"
+            }
+          ],
+          "comparison_type": "week_over_week",
+          "confidence": "medium",
+          "confidence_reasons": [
+            "summary_table_used",
+            "retained_dimensions_fit",
+            "feature_input_missing"
+          ],
+          "current_window": {
+            "end": "2026-04-14",
+            "start": "2026-04-07"
+          },
+          "domain_scores": {
+            "cache_busting": 28,
+            "crawler_governance": 10,
+            "origin_impact": 10
+          },
+          "entity": "www.example.com",
+          "entity_type": "request_host",
+          "features": [
+            {
+              "domain": "cache_busting",
+              "evidence": "Cache miss rate and query-string diversity crossed scorecard thresholds.",
+              "name": "querystring_diversity_with_high_miss_rate",
+              "points": 18
+            },
+            {
+              "domain": "crawler_governance",
+              "evidence": "AI crawler requests increased against the comparison window.",
+              "name": "ai_crawler_growth_high",
+              "points": 10
+            }
+          ],
+          "primary_domain": "cache_busting",
+          "schema_version": "bot_entity_scorecard.v1",
+          "scope": {
+            "request_host": "www.example.com"
+          },
+          "score": 48,
+          "table_used": "bot_summary_day"
+        }
+      ]
     }
   ],
   "report_type": "executive_posture",

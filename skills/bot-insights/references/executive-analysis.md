@@ -8,6 +8,20 @@ equivalent metadata-confirmed `bot_summary_day`, and replace
 `<siem_summary_day>` with `bi_siem_summary_day` or an equivalent
 metadata-confirmed `bot_siem_summary_day`.
 
+Executive posture reports should not invent a separate executive-only feature
+set. Build them from:
+
+- one `bot_posture_movement.v1` artifact for overall movement,
+- an optional compatible `bot_scorecard_index.v1` for ranked routing,
+- optional compatible `bot_entity_scorecard.v1` artifacts for lens/domain
+  rollups,
+- optional `bot_mover_attribution.v1` for top mover context.
+
+When scorecards are included, `scripts/render_report.py` summarizes emitted
+domain scores, primary-domain counts, and scorecard caveats. Missing policy
+context, sparse SIEM/crawler populations, and missing feature inputs remain
+caveats rather than executive conclusions.
+
 ## Posture Movement [Director+]
 
 ```sql
@@ -58,6 +72,12 @@ WHERE timestamp >= toDateTime('<start>')
 GROUP BY request_host
 ORDER BY requests DESC
 ```
+
+Feed the resulting rows to `scripts/scorecard.py` with the lens-specific
+`analysis_domains` that match the decision being routed. Include the generated
+scorecard packet alongside the posture movement artifact when rendering an
+executive posture report. The renderer uses only compatible artifacts with the
+same scope, windows, comparison type, and table metadata.
 
 ## Control Review [Director+, SOC]
 

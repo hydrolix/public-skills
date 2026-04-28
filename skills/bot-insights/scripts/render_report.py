@@ -150,6 +150,25 @@ def stringify(value: Any) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ": "))
 
 
+def to_float(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value)
+        except ValueError:
+            return None
+    return None
+
+
+def clean_display(value: float) -> int | float:
+    if value.is_integer():
+        return int(value)
+    return round(value, 6)
+
+
 _MD_BACKSLASH_CHARS = "`*_{}[]()#+-.!"
 
 
@@ -713,9 +732,19 @@ def validate_report_artifacts(
         posture = require_one(artifacts, POSTURE_SCHEMA, report_type)
         index = first_or_warn(artifacts, INDEX_SCHEMA, report_type, ctx)
         mover = first_or_warn(artifacts, MOVER_SCHEMA, report_type, ctx)
+        index = filter_compatible_companion(posture, index, "index", ctx)
+        scorecards: list[dict[str, Any]] = []
+        if index:
+            scorecards = compatible_scorecards_for_index(
+                index,
+                by_schema(artifacts, SCORECARD_SCHEMA),
+                ctx,
+                required=False,
+            )
         return {
             "posture": posture,
-            "index": filter_compatible_companion(posture, index, "index", ctx),
+            "index": index,
+            "scorecards": scorecards,
             "mover": filter_compatible_companion(posture, mover, "mover", ctx),
         }
     if report_type == "soc_triage":
@@ -1098,6 +1127,7 @@ def render_markdown(
 def md_executive(selected: dict[str, Any], limit: int, ctx: ReportContext) -> str:
     posture = selected["posture"]
     metrics = limited_rows(posture.get("metrics", []), limit, "posture metrics", ctx)
+    scorecards = selected.get("scorecards") or []
     rows = [
         [
             metric.get("name"),
@@ -1132,6 +1162,22 @@ def md_executive(selected: dict[str, Any], limit: int, ctx: ReportContext) -> st
     index = selected.get("index")
     if index:
         parts.extend(["## Top Scorecard Ranking", md_ranking(index, limit, ctx)])
+        if scorecards:
+            parts.extend(
+                [
+                    "## Lens Rollup",
+                    md_executive_scorecard_rollup(scorecards, limit, ctx),
+                    "## Domain Score Matrix",
+                    md_domain_matrix(scorecards, limit, ctx),
+                ]
+            )
+        else:
+            parts.extend(
+                [
+                    "## Lens Rollup",
+                    "Scorecard index is available, but compatible scorecard details were not provided; lens/domain rollups are unavailable.",
+                ]
+            )
     mover = selected.get("mover")
     if mover:
         parts.extend(["## Movers", md_movers(mover, limit, ctx)])
@@ -1539,6 +1585,66 @@ def md_domain_matrix(
         if rows
         else "No scorecard domain scores available."
     )
+
+
+def md_executive_scorecard_rollup(
+    scorecards: list[dict[str, Any]], limit: int, ctx: ReportContext
+) -> str:
+    domain_totals: dict[str, float] = {}
+    primary_counts: dict[str, int] = {}
+    caveats: dict[str, int] = {}
+    for card in scorecards:
+        primary = str(card.get("primary_domain") or "none")
+        primary_counts[primary] = primary_counts.get(primary, 0) + 1
+        domain_scores = card.get("domain_scores") or {}
+        if isinstance(domain_scores, dict):
+            for domain, score in domain_scores.items():
+                numeric = to_float(score)
+                if numeric is not None:
+                    domain_text = str(domain)
+                    domain_totals[domain_text] = domain_totals.get(domain_text, 0.0) + numeric
+        for reason in card.get("confidence_reasons") or []:
+            reason_text = str(reason)
+            if reason_text in {
+                "feature_input_missing",
+                "siem_unavailable",
+                "source_coverage_caveat",
+                "sparse_counts",
+            }:
+                caveats[reason_text] = caveats.get(reason_text, 0) + 1
+
+    domain_rows = [
+        [domain, clean_display(score)]
+        for domain, score in sorted(
+            domain_totals.items(), key=lambda item: (-item[1], item[0])
+        )
+    ]
+    primary_rows = [
+        [domain, count]
+        for domain, count in sorted(
+            primary_counts.items(), key=lambda item: (-item[1], item[0])
+        )
+    ]
+    caveat_rows = [
+        [reason, count]
+        for reason, count in sorted(caveats.items(), key=lambda item: (-item[1], item[0]))
+    ]
+    parts = [
+        "Scorecard rollup uses emitted scorecard fields only; it does not create executive-only features.",
+        "### Domain Totals",
+        md_table(["Domain", "Total score"], limited_rows(domain_rows, limit, "domain rollup rows", ctx))
+        if domain_rows
+        else "No numeric domain scores available.",
+        "### Primary Lens Counts",
+        md_table(["Primary domain", "Entities"], limited_rows(primary_rows, limit, "primary lens rows", ctx))
+        if primary_rows
+        else "No primary domain values available.",
+        "### Caveats",
+        md_table(["Caveat", "Entities"], limited_rows(caveat_rows, limit, "caveat rows", ctx))
+        if caveat_rows
+        else "No scorecard caveats reported.",
+    ]
+    return "\n\n".join(parts)
 
 
 def domain_score_order(scorecards: list[dict[str, Any]]) -> list[str]:
@@ -2433,6 +2539,9 @@ def html_chart_sections(
             pieces.append(html_ranking_bars(selected["index"], limit, ctx))
         if selected.get("mover"):
             pieces.append(html_mover_bars(selected["mover"], limit, ctx))
+        scorecards = selected.get("scorecards") or []
+        if scorecards:
+            pieces.append(html_domain_matrix(scorecards, limit, ctx))
     elif report_type == "soc_triage":
         pieces.append(html_ranking_bars(selected["index"], limit, ctx))
         scorecards = selected.get("scorecards") or []
