@@ -16,10 +16,27 @@ The percentage formula intentionally matches the skill references:
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import sys
 from pathlib import Path
 from typing import Any
+
+
+def _load_baselines_module() -> Any:
+    spec = importlib.util.spec_from_file_location(
+        "_bot_insights_baselines", Path(__file__).with_name("baselines.py")
+    )
+    if spec is None or spec.loader is None:
+        raise RuntimeError("Could not load sibling baselines.py module.")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+baselines = _load_baselines_module()
+pct_delta = baselines.pct_delta
+to_number = baselines.to_number
 
 
 def parse_args() -> argparse.Namespace:
@@ -52,19 +69,6 @@ def read_input(args: argparse.Namespace) -> str:
     if args.text:
         return " ".join(args.text)
     return sys.stdin.read()
-
-
-def to_number(value: Any) -> float | None:
-    if isinstance(value, bool):
-        return None
-    if isinstance(value, (int, float)):
-        return float(value)
-    if isinstance(value, str):
-        try:
-            return float(value)
-        except ValueError:
-            return None
-    return None
 
 
 def rows_to_periods(value: Any) -> dict[str, dict[str, Any]]:
@@ -103,7 +107,7 @@ def compare(value: Any) -> list[dict[str, Any]]:
         if current_value is None or baseline_value is None:
             continue
         delta = current_value - baseline_value
-        pct_change = delta / max(baseline_value, 1.0) * 100
+        pct_change = pct_delta(current_value, baseline_value)
         results.append(
             {
                 "metric": metric,

@@ -56,10 +56,10 @@ Known v1 non-goals and future surfaces:
 - Multiple independent candidate lists in one report.
 - SIEM candidate surfaces.
 
-`bot_summary_day`, `bot_summary_hour`, and `bot_summary_minute` may be queried
-separately for host-scope context such as bot-traffic share or AI-category
-share. That context belongs under `optional_metadata.bot_summary_context`; it
-must not be presented as path-level candidate evidence.
+`bi_summary_*` or `bot_summary_*` tables may be queried separately for
+host-scope context such as bot-traffic share or AI-category share. That context
+belongs under `optional_metadata.bot_summary_context`; it must not be presented
+as path-level candidate evidence.
 
 ## Input Contract
 

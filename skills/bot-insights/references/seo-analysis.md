@@ -5,6 +5,8 @@ Use summaries for AI crawler share, bot class, error rates, cache miss rates,
 resource categories, and paths. Fall back to request-level data for
 `verified_bot_owner`, `bot_verification_tier`, exact `user_agent`, and
 governance-surface inspection when those dimensions are required.
+In SQL templates, replace `<posture_summary_day>` with `bi_summary_day` or an
+equivalent metadata-confirmed `bot_summary_day`.
 
 ### Verified vs. Unverified Bots [SOC, SEO]
 
@@ -88,7 +90,7 @@ SELECT
     round(sum(cnt_4xx + cnt_5xx) / greatest(sum(cnt_all), 1) * 100, 2) AS error_rate_pct,
     round(sum(cnt_429) / greatest(sum(cnt_all), 1) * 100, 2) AS rate_limited_pct,
     max(p95_origin_ttfb) AS origin_p95_ms
-FROM <project>.bot_summary_day
+FROM <project>.<posture_summary_day>
 WHERE timestamp >= now() - INTERVAL 30 DAY
   AND bot_class = 'good'
 GROUP BY timestamp, request_host
@@ -164,7 +166,7 @@ SELECT
     sum(cnt_2xx) as ok_2xx,
     sum(cnt_429) as rate_limited_429,
     round(sum(cnt_cache_miss) / greatest(sum(cnt_all), 1) * 100, 2) AS cache_miss_pct
-FROM <project>.bot_summary_day
+FROM <project>.<posture_summary_day>
 WHERE timestamp >= now() - INTERVAL 24 HOUR
   AND ai_category != ''
 GROUP BY ai_category

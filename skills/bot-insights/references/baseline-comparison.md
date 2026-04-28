@@ -37,6 +37,12 @@ stable product-facing packet:
   as causality or doing analysis over raw records;
 - offline reproducibility from saved MCP results, pasted JSON, or CI fixtures.
 
+Shared deterministic baseline semantics live in `scripts/baselines.py`. Keep
+delta math, direction labels, numeric sanitization, count support checks,
+granularity matching, and confidence labels there when multiple scripts need
+the same behavior. Keep `scripts/compare_posture.py` as the product-facing CLI
+for posture, simple mover, and control-review packets.
+
 If a one-off SQL query already answers the question and no structured packet,
 confidence metadata, or repeatable handoff is needed, do not add script work.
 Keep the result in Hydrolix.
@@ -99,7 +105,7 @@ Machine-readable reasons:
   "schema_version": "bot_posture_movement.v1",
   "comparison_type": "quarter_over_quarter",
   "granularity": "day",
-  "table_used": "bot_summary_day",
+  "table_used": "bi_summary_day",
   "scope": {"request_host": "www.example.com"},
   "current_window": {"start": "2026-01-01", "end": "2026-04-01"},
   "baseline_windows": [
@@ -137,7 +143,7 @@ scorecard, or control-review artifacts from the same comparison context.
   "schema_version": "bot_mover_attribution.v1",
   "comparison_type": "month_over_month",
   "granularity": "day",
-  "table_used": "bot_summary_day",
+  "table_used": "bi_summary_day",
   "scope": {"request_host": "www.example.com"},
   "current_window": {"start": "2026-04-01", "end": "2026-04-08"},
   "baseline_windows": [
@@ -207,7 +213,7 @@ preserved verbatim.
     "start": "2026-03-25T00:00:00Z",
     "end": "2026-04-01T00:00:00Z"
   },
-  "table_used": "bot_siem_summary_day",
+  "table_used": "bi_siem_summary_day",
   "target_effects": [
     {
       "metric": "siem_blocked_requests",
@@ -237,6 +243,11 @@ preserved verbatim.
 These templates produce aggregate rows for the local posture comparison script.
 They intentionally do not include client setup, credentials, or execution logic.
 
+Replace `<posture_summary_day>` with `bi_summary_day` or an equivalent
+metadata-confirmed `bot_summary_day`. Replace `<siem_summary_day>` with
+`bi_siem_summary_day` or an equivalent metadata-confirmed
+`bot_siem_summary_day`.
+
 If the Hydrolix metadata reports aggregate-state columns, replace `sum(metric)`
 with the reported merge function.
 
@@ -260,13 +271,13 @@ SELECT
   max(p95_origin_ttfb) AS origin_p95_ms
 FROM (
   SELECT 'current' AS period, *
-  FROM <project>.bot_summary_day
+  FROM <project>.<posture_summary_day>
   WHERE timestamp >= current_start
     AND timestamp < current_end
     AND request_host = '<host>'
   UNION ALL
   SELECT 'baseline' AS period, *
-  FROM <project>.bot_summary_day
+  FROM <project>.<posture_summary_day>
   WHERE timestamp >= baseline_start
     AND timestamp < baseline_end
     AND request_host = '<host>'
@@ -289,7 +300,7 @@ SELECT
   sumIf(cnt_all, timestamp >= baseline_start AND timestamp < baseline_end) AS baseline,
   current - baseline AS absolute_delta,
   round(absolute_delta / greatest(baseline, 1) * 100, 2) AS pct_change
-FROM <project>.bot_summary_day
+FROM <project>.<posture_summary_day>
 WHERE timestamp >= baseline_start
   AND timestamp < current_end
   AND request_host = '<host>'
@@ -315,13 +326,13 @@ SELECT
   round(sum(cnt_cache_miss) / greatest(sum(cnt_all), 1) * 100, 2) AS cache_miss_pct
 FROM (
   SELECT 'before' AS period, *
-  FROM <project>.bot_siem_summary_day
+  FROM <project>.<siem_summary_day>
   WHERE timestamp >= before_start
     AND timestamp < change_time
     AND policy_id = '<policy_id>'
   UNION ALL
   SELECT 'after' AS period, *
-  FROM <project>.bot_siem_summary_day
+  FROM <project>.<siem_summary_day>
   WHERE timestamp >= change_time
     AND timestamp < after_end
     AND policy_id = '<policy_id>'

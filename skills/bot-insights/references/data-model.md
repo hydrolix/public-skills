@@ -14,13 +14,13 @@ confidence, intent analysis, verified bot ownership, and attack data fields.
   SIEM summaries
 
 **Summary tables**:
-- `bot_summary_minute`, `bot_summary_hour`, `bot_summary_day` — posture
-  summaries by host, CDN, bot class, AI category, bot flag, ASN, ASN type,
-  resource category, and method.
+- `bi_summary_minute`, `bi_summary_hour`, `bi_summary_day` and equivalent
+  `bot_summary_*` tables — posture summaries by host, CDN, bot class, AI
+  category, bot flag, ASN, ASN type, resource category, and method.
 - `bot_agg_*` — focused host, ASN, path, resource, traffic, and bot-class
   summaries at hour granularity, with selected day/minute variants.
-- `bot_siem_*` — action, policy, filter, and Akamai canonical class summaries
-  at minute/hour/day granularity.
+- `bi_siem_summary_*` and `bot_siem_*` — action, policy, filter, and Akamai
+  canonical class summaries at minute/hour/day granularity.
 
 **Data sources**: Akamai DS2, Akamai SIEM, Akamai SIEM GZ, CloudFront Firehose,
 Cloudflare, Fastly, Tencent, and other CDN sources (8 transforms)

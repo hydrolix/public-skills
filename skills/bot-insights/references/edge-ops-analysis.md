@@ -4,6 +4,8 @@ Edge/Ops analysis should use summaries first for cache, origin, bandwidth
 proxy, path, resource, bot class, and ASN movement. Use request-level fallback
 only for exact query-string values, exact status codes, headers, or fields not
 retained in summaries.
+In SQL templates, replace `<posture_summary_hour>` with `bi_summary_hour` or an
+equivalent metadata-confirmed `bot_summary_hour`.
 
 For structured cache-busting, query-string churn, cache-miss movement, or
 origin-impact detector output, use
@@ -100,7 +102,7 @@ SELECT
     sum(cnt_cached) as cache_hits,
     round(cache_hits / greatest(requests, 1) * 100, 2) as hit_rate_pct,
     sum(cnt_cache_miss) as cache_misses
-FROM <project>.bot_summary_hour
+FROM <project>.<posture_summary_hour>
 WHERE timestamp >= now() - INTERVAL 24 HOUR
 GROUP BY is_bot_traffic, bot_class
 ORDER BY requests DESC

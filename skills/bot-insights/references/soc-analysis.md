@@ -21,6 +21,8 @@ Bot Insights pass should still ask what posture moved and which retained
 summary dimensions explain it. Use hour summaries for same-hour-yesterday or
 same-weekday-hour-last-week comparisons, and minute summaries for detailed
 policy-change timelines.
+In SQL templates, replace `<posture_summary_hour>` with `bi_summary_hour` or an
+equivalent metadata-confirmed `bot_summary_hour`.
 
 ### What Moved — Summary Delta [SOC, Director+]
 
@@ -35,11 +37,11 @@ SELECT
   round(sum(cnt_cache_miss) / greatest(sum(cnt_all), 1) * 100, 2) AS cache_miss_pct
 FROM (
   SELECT 'current' AS period, *
-  FROM <project>.bot_summary_hour
+  FROM <project>.<posture_summary_hour>
   WHERE timestamp >= now() - INTERVAL 6 HOUR
   UNION ALL
   SELECT 'baseline' AS period, *
-  FROM <project>.bot_summary_hour
+  FROM <project>.<posture_summary_hour>
   WHERE timestamp >= now() - INTERVAL 12 HOUR
     AND timestamp < now() - INTERVAL 6 HOUR
 )
@@ -60,7 +62,7 @@ SELECT
     sumIf(cnt_all, timestamp >= now() - INTERVAL 12 HOUR AND timestamp < now() - INTERVAL 6 HOUR) AS baseline,
     current - baseline AS absolute_delta,
     round(absolute_delta / greatest(baseline, 1) * 100, 2) AS pct_change
-FROM <project>.bot_summary_hour
+FROM <project>.<posture_summary_hour>
 WHERE timestamp >= now() - INTERVAL 12 HOUR
 GROUP BY client_asn
 ORDER BY abs(absolute_delta) DESC
