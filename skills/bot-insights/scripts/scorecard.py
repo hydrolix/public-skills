@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 from pathlib import Path
 from typing import Any, Callable
@@ -161,7 +162,7 @@ def validate_rowset_scope(scope: Any, context: str) -> dict[str, Any]:
                 f"{context}.population must be one of "
                 + ", ".join(ALLOWED_POPULATIONS)
             )
-    return scope
+    return json_safe(scope)
 
 
 def validate_feature_provenance(provenance: Any, context: str) -> dict[str, Any]:
@@ -185,29 +186,54 @@ def validate_feature_provenance(provenance: Any, context: str) -> dict[str, Any]
                 raise ValueError(
                     f"{entry_context}.metric_inputs must be an array of strings"
                 )
-    return provenance
+    return json_safe(provenance)
 
 
 def to_number(value: Any) -> float | None:
     if isinstance(value, bool):
         return None
     if isinstance(value, (int, float)):
-        return float(value)
+        number = float(value)
+        return number if math.isfinite(number) else None
     if isinstance(value, str):
         try:
-            return float(value)
+            number = float(value)
         except ValueError:
             return None
+        return number if math.isfinite(number) else None
     return None
 
 
 def clean_number(value: float | int | None) -> float | int | None:
     if value is None:
         return None
+    if not math.isfinite(float(value)):
+        raise ValueError("Output numeric values must be finite.")
     rounded = round(float(value), 6)
     if rounded.is_integer():
         return int(rounded)
     return rounded
+
+
+def json_safe(value: Any) -> Any:
+    if isinstance(value, bool) or value is None:
+        return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, list):
+        return [json_safe(item) for item in value]
+    if isinstance(value, dict):
+        return {key: json_safe(item) for key, item in value.items()}
+    return value
+
+
+def metadata_text(value: Any, default: str = "") -> str:
+    safe_value = json_safe(value)
+    if safe_value is None:
+        return default
+    return str(safe_value)
 
 
 def pct_delta(current: float, baseline: float) -> float:
@@ -417,7 +443,7 @@ def metadata_from(value: Any) -> dict[str, Any]:
     ):
         if key in value:
             metadata[key] = value[key]
-    return metadata
+    return json_safe(metadata)
 
 
 def prepared_rows(value: Any, entity_type: str | None = None) -> tuple[list[dict[str, Any]], str]:
@@ -877,7 +903,7 @@ def confidence(
     min_count: float,
 ) -> tuple[str, list[str]]:
     reasons: list[str] = []
-    table_used = str(metadata.get("table_used", ""))
+    table_used = metadata_text(metadata.get("table_used", ""))
     summary_table_used = metadata.get("summary_table_used")
     if summary_table_used is None:
         summary_table_used = bool(table_used and table_used not in {"bot_detection", "bot_detection_siem"})
@@ -986,7 +1012,7 @@ def score_entity(
         "schema_version": SCORECARD_SCHEMA,
         "entity_type": entity_type,
         "entity": entity_value(row, entity_type),
-        "scope": metadata.get("scope", {}),
+        "scope": json_safe(metadata.get("scope", {})),
         "comparison_type": metadata.get("comparison_type", "previous_window"),
         "granularity": metadata.get("granularity", ""),
         "table_used": metadata.get("table_used", ""),
@@ -1003,9 +1029,9 @@ def score_entity(
         "interpretation_constraints": INTERPRETATION_CONSTRAINTS,
     }
     if "current_window" in metadata:
-        scorecard["current_window"] = metadata["current_window"]
+        scorecard["current_window"] = json_safe(metadata["current_window"])
     if "baseline_windows" in metadata:
-        scorecard["baseline_windows"] = metadata["baseline_windows"]
+        scorecard["baseline_windows"] = json_safe(metadata["baseline_windows"])
 
     row_rowset_scope = row.get("rowset_scope")
     if row_rowset_scope is not None:
@@ -1013,7 +1039,7 @@ def score_entity(
             row_rowset_scope, "row.rowset_scope"
         )
     elif "rowset_scope" in metadata:
-        scorecard["rowset_scope"] = metadata["rowset_scope"]
+        scorecard["rowset_scope"] = json_safe(metadata["rowset_scope"])
 
     row_feature_provenance = row.get("feature_provenance")
     if row_feature_provenance is not None:
@@ -1021,7 +1047,7 @@ def score_entity(
             row_feature_provenance, "row.feature_provenance"
         )
     elif "feature_provenance" in metadata:
-        scorecard["feature_provenance"] = metadata["feature_provenance"]
+        scorecard["feature_provenance"] = json_safe(metadata["feature_provenance"])
 
     return scorecard
 
@@ -1077,7 +1103,7 @@ def build_index(
     total = len(scorecards) if total_count is None else total_count
     index = {
         "schema_version": INDEX_SCHEMA,
-        "scope": metadata.get("scope", {}),
+        "scope": json_safe(metadata.get("scope", {})),
         "comparison_type": metadata.get("comparison_type", "previous_window"),
         "table_used": metadata.get("table_used", ""),
         "ranked_entities": [
@@ -1096,9 +1122,9 @@ def build_index(
     }
     index.update(limit_metadata(total, len(ranked), limit))
     if "current_window" in metadata:
-        index["current_window"] = metadata["current_window"]
+        index["current_window"] = json_safe(metadata["current_window"])
     if "baseline_windows" in metadata:
-        index["baseline_windows"] = metadata["baseline_windows"]
+        index["baseline_windows"] = json_safe(metadata["baseline_windows"])
     return index
 
 
@@ -1125,10 +1151,12 @@ def validate_advanced_scorecard_input_boundary(
         raise InvalidScorecardInputError(
             "scorecard_trusted_context_missing",
             "bot_scorecard_input.v1 requires an in-process trusted scorecard context.",
-            details={
-                "schema_version": schema_version,
-                "scorecard_export_safe": value.get("scorecard_export_safe"),
-            },
+            details=json_safe(
+                {
+                    "schema_version": schema_version,
+                    "scorecard_export_safe": value.get("scorecard_export_safe"),
+                }
+            ),
         )
 
     raise InvalidScorecardInputError(
@@ -1196,7 +1224,7 @@ def main() -> int:
             limit=args.limit,
         )
     except InvalidScorecardInputError as exc:
-        print(json.dumps(exc.document, indent=2, sort_keys=True))
+        print(json.dumps(exc.document, indent=2, sort_keys=True, allow_nan=False))
         return 2
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
@@ -1208,7 +1236,7 @@ def main() -> int:
         result = artifacts["index"]
     else:
         result = artifacts
-    print(json.dumps(result, indent=2, sort_keys=True))
+    print(json.dumps(result, indent=2, sort_keys=True, allow_nan=False))
     return 0
 
 

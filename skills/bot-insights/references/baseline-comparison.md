@@ -137,6 +137,7 @@ scorecard, or control-review artifacts from the same comparison context.
   "dimension": "client_asn",
   "metric": "requests",
   "total_delta": 120000,
+  "total_delta_basis": "complete_scope_total_abs_delta",
   "movers": [
     {
       "value": "12345",

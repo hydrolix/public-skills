@@ -457,6 +457,71 @@ class BotInsightsScriptTests(unittest.TestCase):
         self.assertEqual(metric["confidence"], "low")
         self.assertIn("sparse_counts", metric["confidence_reasons"])
 
+    def test_posture_ignores_non_finite_numeric_values(self) -> None:
+        result = self.compare_posture.compare(
+            {
+                "comparison_type": "previous_window",
+                "granularity": "hour",
+                "table_used": "bot_summary_hour",
+                "current": {"requests": float("nan")},
+                "baseline": {"requests": 1},
+            }
+        )
+
+        self.assertEqual(result["metrics"], [])
+        json.dumps(result, allow_nan=False)
+
+    def test_posture_sanitizes_non_finite_metadata_values(self) -> None:
+        result = self.compare_posture.compare(
+            {
+                "comparison_type": float("nan"),
+                "granularity": float("inf"),
+                "table_used": float("-inf"),
+                "scope": {"request_host": "www.example.com", "sample_rate": float("nan")},
+                "current_window": {"start": "2026-04-01", "weight": float("inf")},
+                "baseline_windows": [
+                    {
+                        "start": "2026-03-25",
+                        "end": "2026-04-01",
+                        "weight": float("-inf"),
+                    }
+                ],
+                "current": {"requests": 10},
+                "baseline": {"requests": 5},
+            }
+        )
+
+        self.assertIsNone(result["comparison_type"])
+        self.assertIsNone(result["granularity"])
+        self.assertIsNone(result["table_used"])
+        self.assertIsNone(result["scope"]["sample_rate"])
+        self.assertIsNone(result["current_window"]["weight"])
+        self.assertIsNone(result["baseline_windows"][0]["weight"])
+        json.dumps(result, allow_nan=False)
+
+    def test_compare_posture_main_sanitizes_non_finite_scalar_metadata(self) -> None:
+        payload = json.dumps(
+            {
+                "comparison_type": float("nan"),
+                "granularity": float("inf"),
+                "table_used": float("-inf"),
+                "current": {"requests": 10},
+                "baseline": {"requests": 5},
+            }
+        )
+        with mock.patch("sys.argv", ["compare_posture.py", payload]):
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            with mock.patch("sys.stdout", stdout), mock.patch("sys.stderr", stderr):
+                exit_code = self.compare_posture.main()
+
+        document = json.loads(stdout.getvalue())
+        self.assertEqual(exit_code, 0)
+        self.assertIsNone(document["comparison_type"])
+        self.assertIsNone(document["granularity"])
+        self.assertIsNone(document["table_used"])
+        self.assertEqual(stderr.getvalue(), "")
+
     def test_mover_contribution_percentage(self) -> None:
         result = self.compare_posture.compare(
             {
@@ -477,6 +542,55 @@ class BotInsightsScriptTests(unittest.TestCase):
         self.assertEqual(result["schema_version"], "bot_mover_attribution.v1")
         self.assertEqual(result["movers"][0]["absolute_delta"], 80)
         self.assertEqual(result["movers"][0]["contribution_pct"], 80)
+
+    def test_mover_uses_absolute_delta_denominator_for_unqualified_total_delta(self) -> None:
+        result = self.compare_posture.compare(
+            {
+                "comparison_type": "week_over_week",
+                "granularity": "day",
+                "table_used": "bot_summary_day",
+                "dimension": "client_asn",
+                "metric": "requests",
+                "total_delta": 250,
+                "movers": [
+                    {"value": "64500", "current": 420, "baseline": 80},
+                    {"value": "64600", "current": 260, "baseline": 210},
+                ],
+            },
+            schema="movers",
+        )
+
+        self.assertEqual(result["total_delta"], 390)
+        self.assertEqual(result["total_delta_basis"], "sum_abs_mover_delta")
+        self.assertEqual(result["movers"][0]["contribution_pct"], 87.179487)
+        self.assertEqual(result["movers"][1]["contribution_pct"], 12.820513)
+
+    def test_mover_uses_qualified_complete_scope_total_abs_delta_denominator(
+        self,
+    ) -> None:
+        result = self.compare_posture.compare(
+            {
+                "comparison_type": "week_over_week",
+                "granularity": "day",
+                "table_used": "bot_summary_day",
+                "dimension": "client_asn",
+                "metric": "requests",
+                "total_delta": 500,
+                "total_delta_basis": "complete_scope_total_abs_delta",
+                "movers": [
+                    {"value": "64500", "current": 300, "baseline": 200},
+                    {"value": "64600", "current": 250, "baseline": 200},
+                ],
+            },
+            schema="movers",
+        )
+
+        self.assertEqual(result["total_delta"], 500)
+        self.assertEqual(
+            result["total_delta_basis"], "complete_scope_total_abs_delta"
+        )
+        self.assertEqual(result["movers"][0]["contribution_pct"], 20)
+        self.assertEqual(result["movers"][1]["contribution_pct"], 10)
 
     def test_mover_artifact_preserves_compatibility_metadata(self) -> None:
         payload = {
@@ -509,6 +623,41 @@ class BotInsightsScriptTests(unittest.TestCase):
             f"unexpected mover compatibility warning: {warnings}",
         )
 
+    def test_mover_sanitizes_non_finite_metadata_and_values(self) -> None:
+        result = self.compare_posture.compare(
+            {
+                "comparison_type": float("nan"),
+                "granularity": float("inf"),
+                "table_used": float("-inf"),
+                "dimension": float("nan"),
+                "metric": float("inf"),
+                "scope": {"request_host": "www.example.com", "sample_rate": float("nan")},
+                "current_window": {"start": "2026-04-01", "weight": float("inf")},
+                "baseline_windows": [
+                    {
+                        "start": "2026-03-25",
+                        "end": "2026-04-01",
+                        "weight": float("-inf"),
+                    }
+                ],
+                "movers": [
+                    {"value": float("nan"), "current": 300, "baseline": 200},
+                ],
+            },
+            schema="movers",
+        )
+
+        self.assertIsNone(result["comparison_type"])
+        self.assertIsNone(result["granularity"])
+        self.assertIsNone(result["table_used"])
+        self.assertIsNone(result["dimension"])
+        self.assertIsNone(result["metric"])
+        self.assertIsNone(result["scope"]["sample_rate"])
+        self.assertIsNone(result["current_window"]["weight"])
+        self.assertIsNone(result["baseline_windows"][0]["weight"])
+        self.assertIsNone(result["movers"][0]["value"])
+        json.dumps(result, allow_nan=False)
+
     def test_control_review_status(self) -> None:
         result = self.compare_posture.compare(
             {
@@ -537,6 +686,60 @@ class BotInsightsScriptTests(unittest.TestCase):
         self.assertEqual(result["expected_window"]["start"], "2026-03-25")
         self.assertEqual(effect["absolute_delta_vs_expected"], 30)
         self.assertEqual(effect["status"], "increased")
+
+    def test_control_review_sanitizes_non_finite_metadata(self) -> None:
+        result = self.compare_posture.compare(
+            {
+                "comparison_type": "post_change_vs_expected",
+                "change_time": float("nan"),
+                "table_used": float("inf"),
+                "target": {"policy_id": "policy-123", "sample_rate": float("nan")},
+                "scope": {"request_host": "www.example.com", "sample_rate": float("inf")},
+                "before_window": {"start": "2026-03-25", "weight": float("-inf")},
+                "after_window": {"start": "2026-04-01", "weight": float("inf")},
+                "expected_window": {"start": "2026-03-25", "weight": float("nan")},
+                "collateral_checks": [{"name": "volume", "weight": float("nan")}],
+                "displacement_checks": [{"name": "path_shift", "weight": float("inf")}],
+                "before": {"siem_blocked_requests": 90},
+                "after": {"siem_blocked_requests": 130},
+                "expected": {"siem_blocked_requests": 100},
+                "target_metrics": ["siem_blocked_requests"],
+            }
+        )
+
+        self.assertIsNone(result["change_time"])
+        self.assertIsNone(result["table_used"])
+        self.assertIsNone(result["target"]["sample_rate"])
+        self.assertIsNone(result["scope"]["sample_rate"])
+        self.assertIsNone(result["before_window"]["weight"])
+        self.assertIsNone(result["after_window"]["weight"])
+        self.assertIsNone(result["expected_window"]["weight"])
+        self.assertIsNone(result["collateral_checks"][0]["weight"])
+        self.assertIsNone(result["displacement_checks"][0]["weight"])
+        json.dumps(result, allow_nan=False)
+
+    def test_compare_posture_main_sanitizes_control_scalar_metadata(self) -> None:
+        payload = json.dumps(
+            {
+                "comparison_type": "post_change_vs_expected",
+                "change_time": float("nan"),
+                "table_used": float("inf"),
+                "after": {"siem_blocked_requests": 130},
+                "expected": {"siem_blocked_requests": 100},
+                "target_metrics": ["siem_blocked_requests"],
+            }
+        )
+        with mock.patch("sys.argv", ["compare_posture.py", payload]):
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            with mock.patch("sys.stdout", stdout), mock.patch("sys.stderr", stderr):
+                exit_code = self.compare_posture.main()
+
+        document = json.loads(stdout.getvalue())
+        self.assertEqual(exit_code, 0)
+        self.assertIsNone(document["change_time"])
+        self.assertIsNone(document["table_used"])
+        self.assertEqual(stderr.getvalue(), "")
 
     def test_control_review_expected_basis_before_window_when_fallback(self) -> None:
         result = self.compare_posture.compare(
@@ -3890,6 +4093,47 @@ class BotInsightsScriptTests(unittest.TestCase):
             "scorecard_trusted_context_missing",
         )
 
+    def test_scorecard_rejects_non_finite_error_details_as_json_safe(self) -> None:
+        with self.assertRaises(self.scorecard.InvalidScorecardInputError) as exc:
+            self.scorecard.build_artifacts(
+                {
+                    "schema_version": "bot_scorecard_input.v1",
+                    "scorecard_export_safe": float("nan"),
+                    "entity_type": "client_asn",
+                    "rows": [],
+                }
+            )
+
+        error = exc.exception.document["errors"][0]
+        self.assertEqual(error["code"], "scorecard_trusted_context_missing")
+        self.assertIsNone(error["details"]["scorecard_export_safe"])
+        json.dumps(exc.exception.document, allow_nan=False)
+
+    def test_scorecard_main_rejects_non_finite_error_details_without_traceback(
+        self,
+    ) -> None:
+        payload = json.dumps(
+            {
+                "schema_version": "bot_scorecard_input.v1",
+                "scorecard_export_safe": float("nan"),
+                "entity_type": "client_asn",
+                "rows": [],
+            }
+        )
+        with mock.patch("sys.argv", ["scorecard.py", payload]):
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            with mock.patch("sys.stdout", stdout), mock.patch("sys.stderr", stderr):
+                exit_code = self.scorecard.main()
+
+        document = json.loads(stdout.getvalue())
+        self.assertEqual(exit_code, 2)
+        self.assertEqual(
+            document["errors"][0]["code"], "scorecard_trusted_context_missing"
+        )
+        self.assertIsNone(document["errors"][0]["details"]["scorecard_export_safe"])
+        self.assertEqual(stderr.getvalue(), "")
+
     def test_scorecard_rejects_scorecard_input_until_trusted_handoff_exists(self) -> None:
         with self.assertRaises(self.scorecard.InvalidScorecardInputError) as exc:
             self.scorecard.build_artifacts(
@@ -4278,6 +4522,70 @@ class BotInsightsScriptTests(unittest.TestCase):
         self.assertEqual(card["baseline_windows"][0]["label"], "previous_week")
         self.assertEqual(result["index"]["current_window"]["end"], "2026-04-08")
         self.assertEqual(result["index"]["baseline_windows"][0]["start"], "2026-03-25")
+
+    def test_scorecard_sanitizes_non_finite_metadata_values(self) -> None:
+        result = self.scorecard.build_artifacts(
+            {
+                "entity_type": "bot_class",
+                "comparison_type": float("nan"),
+                "granularity": float("inf"),
+                "table_used": float("-inf"),
+                "scope": {"request_host": "www.example.com", "sample_rate": float("nan")},
+                "current_window": {"start": "2026-04-01", "weight": float("inf")},
+                "baseline_windows": [
+                    {
+                        "start": "2026-03-25",
+                        "end": "2026-04-01",
+                        "weight": float("-inf"),
+                    }
+                ],
+                "rowset_scope": {
+                    "population": "all_traffic",
+                    "filters": {"sampling_rate": float("nan")},
+                },
+                "feature_provenance": {
+                    "rate_429_delta_high": {
+                        "rowset_scope": {
+                            "population": "all_traffic",
+                            "filters": {"sampling_rate": float("inf")},
+                        },
+                        "metric_inputs": [
+                            "current_rate_429_pct",
+                            "baseline_rate_429_pct",
+                        ],
+                        "observed_weight": float("-inf"),
+                    }
+                },
+                "rows": [
+                    {
+                        "bot_class": "bad",
+                        "current_requests": 5000,
+                        "baseline_requests": 1000,
+                        "current_rate_429_pct": 12,
+                        "baseline_rate_429_pct": 1,
+                    }
+                ],
+            }
+        )
+
+        card = result["scorecards"][0]
+        self.assertIsNone(card["comparison_type"])
+        self.assertIsNone(card["granularity"])
+        self.assertIsNone(card["table_used"])
+        self.assertIn("raw_table_fallback", card["confidence_reasons"])
+        self.assertNotIn("summary_table_used", card["confidence_reasons"])
+        self.assertNotIn("retained_dimensions_fit", card["confidence_reasons"])
+        self.assertIsNone(card["scope"]["sample_rate"])
+        self.assertIsNone(card["current_window"]["weight"])
+        self.assertIsNone(card["baseline_windows"][0]["weight"])
+        self.assertIsNone(card["rowset_scope"]["filters"]["sampling_rate"])
+        provenance = card["feature_provenance"]["rate_429_delta_high"]
+        self.assertIsNone(provenance["rowset_scope"]["filters"]["sampling_rate"])
+        self.assertIsNone(provenance["observed_weight"])
+        self.assertIsNone(result["index"]["scope"]["sample_rate"])
+        self.assertIsNone(result["index"]["comparison_type"])
+        self.assertIsNone(result["index"]["table_used"])
+        json.dumps(result, allow_nan=False)
 
     def test_scorecard_rejects_mixed_period_and_combined_rows(self) -> None:
         with self.assertRaisesRegex(ValueError, "must not mix period-split rows"):

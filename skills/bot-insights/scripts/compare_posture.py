@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 from pathlib import Path
 from typing import Any
@@ -40,6 +41,12 @@ VALID_EXPECTED_BASIS = {
     "explicit_target",
     "external_model",
     "unknown",
+}
+ABSOLUTE_DELTA_DENOMINATOR_BASES = {
+    "complete_scope_abs_delta",
+    "complete_scope_total_abs_delta",
+    "sum_abs_delta",
+    "sum_abs_mover_delta",
 }
 
 COUNT_METRICS = {
@@ -111,12 +118,14 @@ def to_number(value: Any) -> float | None:
     if isinstance(value, bool):
         return None
     if isinstance(value, (int, float)):
-        return float(value)
+        number = float(value)
+        return number if math.isfinite(number) else None
     if isinstance(value, str):
         try:
-            return float(value)
+            number = float(value)
         except ValueError:
             return None
+        return number if math.isfinite(number) else None
     return None
 
 
@@ -130,10 +139,41 @@ def first_number(row: dict[str, Any], *keys: str) -> float | None:
 
 
 def clean_number(value: float) -> float | int:
+    if not math.isfinite(value):
+        raise ValueError("Output numeric values must be finite.")
     rounded = round(value, 6)
     if rounded.is_integer():
         return int(rounded)
     return rounded
+
+
+def json_safe(value: Any) -> Any:
+    if isinstance(value, bool) or value is None:
+        return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, list):
+        return [json_safe(item) for item in value]
+    if isinstance(value, dict):
+        return {key: json_safe(item) for key, item in value.items()}
+    return value
+
+
+def json_safe_metadata_value(
+    metadata: dict[str, Any], key: str, default: Any
+) -> Any:
+    if key not in metadata:
+        return default
+    return json_safe(metadata[key])
+
+
+def metadata_text(value: Any, default: str = "") -> str:
+    safe_value = json_safe(value)
+    if safe_value is None:
+        return default
+    return str(safe_value)
 
 
 def direction(delta: float) -> str:
@@ -374,9 +414,9 @@ def metric_row(
         name, current, baseline, row_current, row_baseline, metadata
     )
     label, reasons = confidence(
-        table_used=str(metadata.get("table_used", "")),
-        comparison_type=str(metadata.get("comparison_type", "")),
-        granularity=str(metadata.get("granularity", "")),
+        table_used=metadata_text(metadata.get("table_used", "")),
+        comparison_type=metadata_text(metadata.get("comparison_type", "")),
+        granularity=metadata_text(metadata.get("granularity", "")),
         current_count=current_count,
         baseline_count=baseline_count,
         baseline_value=baseline,
@@ -415,6 +455,7 @@ def compare_posture(value: Any, min_count: float = 100.0) -> dict[str, Any]:
     ):
         if isinstance(data, dict) and key in data:
             metadata[key] = data[key]
+    metadata = json_safe(metadata)
 
     metrics: list[dict[str, Any]] = []
     for spec in metric_specs(data, current, baseline):
@@ -438,12 +479,16 @@ def compare_posture(value: Any, min_count: float = 100.0) -> dict[str, Any]:
 
     output: dict[str, Any] = {
         "schema_version": POSTURE_SCHEMA,
-        "comparison_type": metadata.get("comparison_type", "previous_window"),
-        "granularity": metadata.get("granularity", ""),
-        "table_used": metadata.get("table_used", ""),
-        "scope": metadata.get("scope", {}),
-        "current_window": metadata.get("current_window", {}),
-        "baseline_windows": metadata.get("baseline_windows", []),
+        "comparison_type": json_safe_metadata_value(
+            metadata, "comparison_type", "previous_window"
+        ),
+        "granularity": json_safe_metadata_value(metadata, "granularity", ""),
+        "table_used": json_safe_metadata_value(metadata, "table_used", ""),
+        "scope": json_safe_metadata_value(metadata, "scope", {}),
+        "current_window": json_safe_metadata_value(metadata, "current_window", {}),
+        "baseline_windows": json_safe_metadata_value(
+            metadata, "baseline_windows", []
+        ),
         "metrics": metrics,
         "interpretation_constraints": POSTURE_CONSTRAINTS,
     }
@@ -469,11 +514,15 @@ def compare_movers(value: Any, min_count: float = 100.0) -> dict[str, Any]:
         movers_input = result_rows(value)
 
     metadata = dict(data.get("confidence_context", {}) if isinstance(data, dict) else {})
-    dimension = str(data.get("dimension", "value")) if isinstance(data, dict) else "value"
-    metric = str(data.get("metric", "requests")) if isinstance(data, dict) else "requests"
-    table_used = str(data.get("table_used", "")) if isinstance(data, dict) else ""
-    comparison_type = str(data.get("comparison_type", "previous_window")) if isinstance(data, dict) else "previous_window"
-    granularity = str(data.get("granularity", "")) if isinstance(data, dict) else ""
+    dimension = json_safe_metadata_value(data, "dimension", "value")
+    metric = json_safe_metadata_value(data, "metric", "requests")
+    table_used = json_safe_metadata_value(data, "table_used", "")
+    comparison_type = json_safe_metadata_value(
+        data, "comparison_type", "previous_window"
+    )
+    granularity = json_safe_metadata_value(data, "granularity", "")
+    dimension_key = dimension if isinstance(dimension, str) and dimension else "value"
+    metric_key = metric if isinstance(metric, str) and metric else "requests"
     for key in ("scope", "current_window", "baseline_windows"):
         if isinstance(data, dict) and key in data:
             metadata[key] = data[key]
@@ -484,6 +533,7 @@ def compare_movers(value: Any, min_count: float = 100.0) -> dict[str, Any]:
             "granularity": granularity,
         }
     )
+    metadata = json_safe(metadata)
 
     prepared: list[tuple[dict[str, Any], float, float, float]] = []
     for row in movers_input:
@@ -496,9 +546,17 @@ def compare_movers(value: Any, min_count: float = 100.0) -> dict[str, Any]:
         delta = current - baseline
         prepared.append((row, current, baseline, delta))
 
-    total_delta = to_number(data.get("total_delta")) if isinstance(data, dict) else None
-    total_delta_basis = "provided_total_delta"
-    if total_delta is None:
+    provided_total_delta = to_number(data.get("total_delta")) if isinstance(data, dict) else None
+    provided_total_delta_basis = (
+        metadata_text(data.get("total_delta_basis", "")) if isinstance(data, dict) else ""
+    )
+    if (
+        provided_total_delta is not None
+        and provided_total_delta_basis in ABSOLUTE_DELTA_DENOMINATOR_BASES
+    ):
+        total_delta = abs(provided_total_delta)
+        total_delta_basis = provided_total_delta_basis
+    else:
         total_delta = sum(abs(delta) for _, _, _, delta in prepared)
         total_delta_basis = "sum_abs_mover_delta"
 
@@ -507,12 +565,12 @@ def compare_movers(value: Any, min_count: float = 100.0) -> dict[str, Any]:
         basis = abs(total_delta) if total_delta else 0.0
         contribution = abs(delta) / basis * 100.0 if basis > 0 else 0.0
         current_count, baseline_count = support_counts(
-            metric, current, baseline, {"requests": current}, {"requests": baseline}, metadata
+            metric_key, current, baseline, {"requests": current}, {"requests": baseline}, metadata
         )
         label, reasons = confidence(
-            table_used=table_used,
-            comparison_type=comparison_type,
-            granularity=granularity,
+            table_used=metadata_text(table_used),
+            comparison_type=metadata_text(comparison_type),
+            granularity=metadata_text(granularity),
             current_count=current_count,
             baseline_count=baseline_count,
             baseline_value=baseline,
@@ -522,7 +580,7 @@ def compare_movers(value: Any, min_count: float = 100.0) -> dict[str, Any]:
         movers.append(
             {
                 "dimension": dimension,
-                "value": mover_value(row, dimension),
+                "value": json_safe(mover_value(row, dimension_key)),
                 "metric": metric,
                 "current": clean_number(current),
                 "baseline": clean_number(baseline),
@@ -540,9 +598,11 @@ def compare_movers(value: Any, min_count: float = 100.0) -> dict[str, Any]:
         "comparison_type": comparison_type,
         "granularity": granularity,
         "table_used": table_used,
-        "scope": metadata.get("scope", {}),
-        "current_window": metadata.get("current_window", {}),
-        "baseline_windows": metadata.get("baseline_windows", []),
+        "scope": json_safe_metadata_value(metadata, "scope", {}),
+        "current_window": json_safe_metadata_value(metadata, "current_window", {}),
+        "baseline_windows": json_safe_metadata_value(
+            metadata, "baseline_windows", []
+        ),
         "dimension": dimension,
         "metric": metric,
         "total_delta": clean_number(total_delta or 0.0),
@@ -613,6 +673,7 @@ def compare_control(value: Any, min_count: float = 100.0) -> dict[str, Any]:
         if key in data:
             metadata[key] = data[key]
     metadata.setdefault("comparison_type", "post_change_vs_expected")
+    metadata = json_safe(metadata)
 
     desired = data.get("desired_directions", {})
     if not isinstance(desired, dict):
@@ -637,9 +698,9 @@ def compare_control(value: Any, min_count: float = 100.0) -> dict[str, Any]:
             metadata,
         )
         label, reasons = confidence(
-            table_used=str(metadata.get("table_used", "")),
+            table_used=metadata_text(metadata.get("table_used", "")),
             comparison_type="post_change_vs_expected",
-            granularity=str(metadata.get("granularity", "")),
+            granularity=metadata_text(metadata.get("granularity", "")),
             current_count=current_count,
             baseline_count=baseline_count,
             baseline_value=expected_value,
@@ -679,19 +740,19 @@ def compare_control(value: Any, min_count: float = 100.0) -> dict[str, Any]:
     output = {
         "schema_version": CONTROL_SCHEMA,
         "comparison_type": "post_change_vs_expected",
-        "change_time": data.get("change_time", ""),
-        "target": data.get("target", {}),
-        "scope": data.get("scope", {}),
+        "change_time": json_safe(data.get("change_time", "")),
+        "target": json_safe(data.get("target", {})),
+        "scope": json_safe(data.get("scope", {})),
         "expected_basis": expected_basis,
-        "table_used": metadata.get("table_used", ""),
+        "table_used": json_safe_metadata_value(metadata, "table_used", ""),
         "target_effects": target_effects,
-        "collateral_checks": data.get("collateral_checks", []),
-        "displacement_checks": data.get("displacement_checks", []),
+        "collateral_checks": json_safe(data.get("collateral_checks", [])),
+        "displacement_checks": json_safe(data.get("displacement_checks", [])),
         "interpretation_constraints": CONTROL_CONSTRAINTS,
     }
     for key in ("before_window", "after_window", "expected_window"):
         if key in data:
-            output[key] = data[key]
+            output[key] = json_safe(data[key])
     if (
         "expected_window" not in output
         and expected_basis == "before_window"
@@ -731,7 +792,7 @@ def main() -> int:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
 
-    print(json.dumps(result, indent=2, sort_keys=True))
+    print(json.dumps(result, indent=2, sort_keys=True, allow_nan=False))
     return 0
 
 

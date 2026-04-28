@@ -5,7 +5,7 @@
       "data_sources": [
         {
           "artifact_id": "posture-week-1",
-          "json_pointer": "/metrics/1/absolute_delta",
+          "json_pointer": "/metrics/0/absolute_delta",
           "label": "bot_share_pct delta"
         },
         {
@@ -132,7 +132,7 @@
             "current_count_sufficient",
             "baseline_count_sufficient"
           ],
-          "contribution_pct": 136,
+          "contribution_pct": 87.179487,
           "current": 420000,
           "dimension": "client_asn",
           "direction": "increase",
@@ -152,7 +152,7 @@
             "current_count_sufficient",
             "baseline_count_sufficient"
           ],
-          "contribution_pct": 20,
+          "contribution_pct": 12.820513,
           "current": 260000,
           "dimension": "client_asn",
           "direction": "increase",
@@ -166,8 +166,8 @@
         "request_host": "www.example.com"
       },
       "table_used": "bot_summary_day",
-      "total_delta": 250000,
-      "total_delta_basis": "provided_total_delta"
+      "total_delta": 390000,
+      "total_delta_basis": "sum_abs_mover_delta"
     }
   ],
   "report_type": "executive_posture",
