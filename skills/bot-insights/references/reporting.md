@@ -43,9 +43,10 @@ array tokens must be non-negative indexes without leading zeroes.
 
 - `executive_posture` - posture movement plus optional scorecard ranking and
   movers.
-- `soc_triage` - prioritized risky entities, scorecard ranking, and feature
-  evidence when scorecards are supplied; renders a ranking-only degraded
-  report when only a `bot_scorecard_index.v1` is available.
+- `soc_triage` - prioritized risky entities, scorecard ranking, per-entity
+  scorecard analysis, evaluated feature evidence, recommended next steps, and
+  missing-evidence limits when scorecards are supplied; renders a ranking-only
+  degraded report when only a `bot_scorecard_index.v1` is available.
 - `control_review` - before/after/expected effectiveness review.
 - `scorecard_brief` - single-entity brief with domain scores, feature
   evidence, and recommended next steps from the artifact.

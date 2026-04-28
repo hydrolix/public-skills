@@ -10,6 +10,37 @@ the Hydrolix MCP server or the host agent's Hydrolix query tool. If a metric is
 stored as an aggregate state, query it with the merge function reported by the
 tool. Do not add database clients or credentials to local scripts.
 
+Deployments may expose both current bundle table names and backwards-compatible
+`bi_*` table names:
+
+- `bi_summary_*` mirrors the canonical posture dimensions expected from
+  `bot_summary_*`. It is used by both TrafficPeak and non-TrafficPeak
+  deployments and should be treated as the preferred posture summary surface
+  for the `akamai` project. Prefer fully qualified `akamai.bi_summary_*` over
+  `akamai.bot_summary_*` when both are present.
+- `bi_siem_summary_*` mirrors the host/action/ASN/policy SIEM summary expected
+  from `bot_siem_summary_*`. It is used by both TrafficPeak and
+  non-TrafficPeak deployments and should be treated as the preferred SIEM
+  control summary surface for the `akamai` project. Prefer fully qualified
+  `akamai.bi_siem_summary_*`; if a deployment exposes
+  `akamai.bi_summary_siem_*`, treat that as an equivalent deployment-specific
+  alias after metadata inspection.
+- Some alternate or legacy tables may expose source-style Akamai names, such as
+  `reqTimeSec`, `reqHost`, `asn`, `statusCode`, `totalBytes`, and
+  `cacheStatus`.
+
+Use metadata as the source of truth for query text. Keep analysis artifacts and
+local script inputs canonical when possible. The attribution SQL renderer
+accepts canonical dimension and filter names, resolves them to metadata-backed
+physical columns, and aliases grouped output back to canonical names.
+
+When the project/database name is absent or equals `akamai`, start discovery as
+though the target is probably TrafficPeak and inspect `bi_summary_*` /
+`bi_siem_summary_*` before `bot_summary_*` / `bot_siem_summary_*`. When the
+project/database name is present and is not `akamai`, start discovery as though
+the target is probably non-TrafficPeak. This is a routing heuristic for table
+discovery only; always confirm with table metadata before writing SQL.
+
 ## Attribution SQL Template Rendering
 
 The local attribution script exposes a reviewed template renderer for future
@@ -35,6 +66,11 @@ does not execute SQL, read credentials, compute `result_digest`, emit scorecard
 artifacts, or make any output high-confidence by itself. A future reviewed
 direct-MCP wrapper must run the SQL, receive the tool result in memory, compute
 the result digest, and carry matching evidence into the normalizer.
+
+When metadata exposes source-style Akamai fields, canonical renderer input such
+as `dimensions=["client_asn"]` and `scope={"request_host": "www.example.com"}`
+may render SQL that groups by `asn AS client_asn` and filters on `reqHost`.
+The renderer records these translations in provenance under `column_aliases`.
 
 For aggregate-state columns, the renderer uses the exact `merge_function`
 reported in table metadata. For example a metadata column named
@@ -63,9 +99,10 @@ denominators are computed in the `scored` CTE before the final output `LIMIT`.
 
 | Table | Granularity | Parent | Retained dimensions | Metric support |
 |-------|-------------|--------|---------------------|----------------|
-| `bot_summary_day` | day | `bot_detection` | `timestamp`, `request_host`, `hdx_cdn`, `bot_class`, `ai_category`, `is_bot_traffic`, `client_asn`, `asn_type`, `resource_category`, `request_method` | requests, 2xx/4xx/429/5xx, cache hit/miss, avg TTFB, avg/p95/p99 origin TTFB, unique client IPs, source latency |
-| `bot_summary_hour` | hour | `bot_detection` | same as `bot_summary_day` | same as `bot_summary_day` |
-| `bot_summary_minute` | minute | `bot_detection` | same as `bot_summary_day` | same as `bot_summary_day` |
+| `bi_summary_day` / `bot_summary_day` | day | `bot_detection` | `timestamp`, `request_host`, `hdx_cdn`, `bot_class`, `ai_category`, `is_bot_traffic`, `client_asn`, `asn_type`, `resource_category`, `request_method` | requests, 2xx/4xx/429/5xx, cache hit/miss, avg TTFB, avg/p95/p99 origin TTFB, unique client IPs, source latency |
+| `bi_summary_hour` / `bot_summary_hour` | hour | `bot_detection` | same as `bi_summary_day` | same as `bi_summary_day` |
+| `bi_summary_minute` / `bot_summary_minute` | minute | `bot_detection` | same as `bi_summary_day` | same as `bi_summary_day` |
+| `bi_summary_month` | month | `bot_detection` | same as `bi_summary_day` when deployed | same as `bi_summary_day` when deployed |
 | `bot_agg_hour` | hour | `bot_detection` | `timestamp`, `request_host` | requests, 2xx/4xx/429/5xx, cache hit/miss, avg TTFB, avg/p95/p99 origin TTFB, unique client IPs, source latency |
 | `bot_agg_asn_hour` | hour | `bot_detection` | `timestamp`, `request_host`, `client_asn`, `asn_type` | same as `bot_agg_hour`, plus unique normalized paths |
 | `bot_agg_traffic_hour` | hour | `bot_detection` | `timestamp`, `request_host`, `is_bot_traffic`, `ai_category` | same as `bot_agg_hour` |
@@ -76,12 +113,12 @@ denominators are computed in the `scored` CTE before the final output `LIMIT`.
 | `bot_agg_resource_day` | day | `bot_detection` | `timestamp`, `request_host`, `resource_category` | same as `bot_agg_path_day` |
 | `bot_agg_resource_hour` | hour | `bot_detection` | same as `bot_agg_resource_day` | same as `bot_agg_path_day` |
 | `bot_agg_resource_minute` | minute | `bot_detection` | same as `bot_agg_resource_day` | same as `bot_agg_path_day` |
-| `bot_siem_summary_day` | day | `bot_detection_siem` | `timestamp`, `request_host`, `action_taken`, `client_asn`, `policy_id` | requests, blocked requests, auth failures, business failures, avg bot score, 2xx/4xx/5xx, unique client IPs, cache misses |
-| `bot_siem_summary_hour` | hour | `bot_detection_siem` | same as `bot_siem_summary_day` | same as `bot_siem_summary_day` |
-| `bot_siem_summary_minute` | minute | `bot_detection_siem` | same as `bot_siem_summary_day` | same as `bot_siem_summary_day` |
-| `bot_siem_filter_summary_day` | day | `bot_detection_siem` | `timestamp`, `request_host`, `client_asn`, `is_bot_traffic`, `ai_category`, `resource_category` | same as `bot_siem_summary_day` |
-| `bot_siem_filter_summary_hour` | hour | `bot_detection_siem` | same as `bot_siem_filter_summary_day` | same as `bot_siem_summary_day` |
-| `bot_siem_filter_summary_minute` | minute | `bot_detection_siem` | same as `bot_siem_filter_summary_day` | same as `bot_siem_summary_day` |
+| `bi_siem_summary_day` / `bot_siem_summary_day` | day | `bot_detection_siem` | `timestamp`, `request_host`, `action_taken`, `client_asn`, `policy_id` | requests, blocked requests, auth failures, business failures, avg bot score, 2xx/4xx/5xx, unique client IPs, cache misses |
+| `bi_siem_summary_hour` / `bot_siem_summary_hour` | hour | `bot_detection_siem` | same as `bi_siem_summary_day` | same as `bi_siem_summary_day` |
+| `bi_siem_summary_minute` / `bot_siem_summary_minute` | minute | `bot_detection_siem` | same as `bi_siem_summary_day` | same as `bi_siem_summary_day` |
+| `bot_siem_filter_summary_day` | day | `bot_detection_siem` | `timestamp`, `request_host`, `client_asn`, `is_bot_traffic`, `ai_category`, `resource_category` | same metric family as `bi_siem_summary_day` / `bot_siem_summary_day` |
+| `bot_siem_filter_summary_hour` | hour | `bot_detection_siem` | same as `bot_siem_filter_summary_day` | same metric family as `bi_siem_summary_day` / `bot_siem_summary_day` |
+| `bot_siem_filter_summary_minute` | minute | `bot_detection_siem` | same as `bot_siem_filter_summary_day` | same metric family as `bi_siem_summary_day` / `bot_siem_summary_day` |
 | `bot_siem_class_day` | day | `bot_detection_siem` | `timestamp`, `request_host`, `client_asn`, `akamai_canonical_bot_class` | requests, avg bot score, unique client IPs |
 | `bot_siem_class_hour` | hour | `bot_detection_siem` | same as `bot_siem_class_day` | same as `bot_siem_class_day` |
 | `bot_siem_class_minute` | minute | `bot_detection_siem` | same as `bot_siem_class_day` | same as `bot_siem_class_day` |
@@ -109,6 +146,12 @@ Derived posture metrics should be computed from aggregate rows, for example:
 - `cache_miss_pct = sum(cnt_cache_miss) / sum(cnt_all) * 100`
 - `rate_429_pct = sum(cnt_429) / sum(cnt_all) * 100`
 - `rate_5xx_pct = sum(cnt_5xx) / sum(cnt_all) * 100`
+
+If metadata reports aggregate-state columns, replace `sum(...)` and
+`sumIf(...)` over SummaryColumns with the aggregate column's exact merge
+function. For example, use the reported `countMerge` function around the
+`count()` aggregate column for total requests, and `countMergeIf` around that
+same aggregate column for bot-request subsets when supported.
 
 ## Raw Fallback Dimensions
 

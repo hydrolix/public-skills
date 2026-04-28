@@ -396,6 +396,24 @@ def table_family(
 SUMMARY_TABLE_CATALOG: dict[str, dict[str, Any]] = {}
 SUMMARY_TABLE_CATALOG.update(
     table_family(
+        "bi_summary",
+        ("minute", "hour", "day", "month"),
+        (
+            "request_host",
+            "hdx_cdn",
+            "bot_class",
+            "ai_category",
+            "is_bot_traffic",
+            "client_asn",
+            "asn_type",
+            "resource_category",
+            "request_method",
+        ),
+        parent="bot_detection",
+    )
+)
+SUMMARY_TABLE_CATALOG.update(
+    table_family(
         "bot_summary",
         ("minute", "hour", "day"),
         (
@@ -454,6 +472,22 @@ SUMMARY_TABLE_CATALOG.update(
 )
 SUMMARY_TABLE_CATALOG.update(
     table_family(
+        "bi_siem_summary",
+        ("minute", "hour", "day"),
+        ("request_host", "action_taken", "client_asn", "policy_id"),
+        parent="bot_detection_siem",
+    )
+)
+SUMMARY_TABLE_CATALOG.update(
+    table_family(
+        "bi_summary_siem",
+        ("minute", "hour", "day"),
+        ("request_host", "action_taken", "client_asn", "policy_id"),
+        parent="bot_detection_siem",
+    )
+)
+SUMMARY_TABLE_CATALOG.update(
+    table_family(
         "bot_siem_summary",
         ("minute", "hour", "day"),
         ("request_host", "action_taken", "client_asn", "policy_id"),
@@ -484,6 +518,17 @@ SUMMARY_TABLE_CATALOG.update(
 )
 
 SUMMARY_FILTER_ALWAYS_RETAINED = {"timestamp"}
+
+FIELD_NAME_ALIASES = {
+    "timestamp": ("timestamp", "reqTimeSec"),
+    "request_host": ("request_host", "reqHost"),
+    "client_asn": ("client_asn", "asn"),
+    "client_country_iso_code": ("client_country_iso_code", "country"),
+    "client_city": ("client_city", "city"),
+    "response_status_code": ("response_status_code", "statusCode"),
+    "response_total_bytes": ("response_total_bytes", "totalBytes"),
+    "cache_was_cached": ("cache_was_cached", "cacheStatus"),
+}
 
 CONTRIBUTION_REQUIRED_METADATA = [
     "trusted evidence for rowset_complete: true and contribution_basis: complete_rowset",
@@ -1851,6 +1896,29 @@ def required_metadata_column(
     return find_metadata_column(table_metadata, [column_name], purpose=purpose)
 
 
+def metadata_column_aliases(column_name: str) -> list[str]:
+    aliases = FIELD_NAME_ALIASES.get(column_name, (column_name,))
+    return unique_strings([column_name, *aliases])
+
+
+def resolved_metadata_column(
+    table_metadata: dict[str, Any],
+    column_name: str,
+    *,
+    purpose: str,
+) -> dict[str, Any]:
+    return find_metadata_column(table_metadata, metadata_column_aliases(column_name), purpose=purpose)
+
+
+def resolved_column_name(
+    table_metadata: dict[str, Any],
+    column_name: str,
+    *,
+    purpose: str,
+) -> str:
+    return str(resolved_metadata_column(table_metadata, column_name, purpose=purpose)["name"])
+
+
 def normalize_window(window: Any, *, path: str) -> dict[str, Any]:
     if not isinstance(window, dict):
         raise_invalid(
@@ -1957,6 +2025,32 @@ def sql_scope_predicates(scope: Any) -> list[str]:
     return predicates
 
 
+def resolve_sql_predicates(
+    table_metadata: dict[str, Any],
+    predicates: dict[str, Any],
+) -> dict[str, Any]:
+    resolved: dict[str, Any] = {}
+    normalized_by_physical_column: dict[str, Any] = {}
+    for canonical_column in sorted(predicates):
+        physical_column = resolved_column_name(
+            table_metadata,
+            canonical_column,
+            purpose="scope/filter",
+        )
+        normalized = normalized_predicate_value(predicates[canonical_column])
+        if physical_column in normalized_by_physical_column:
+            if normalized_by_physical_column[physical_column] != normalized:
+                raise_invalid(
+                    "scope_filter_conflict",
+                    "SQL template scope and filters contain conflicting predicates for the same physical column.",
+                    details={"column": canonical_column, "physical_column": physical_column},
+                )
+            continue
+        normalized_by_physical_column[physical_column] = normalized
+        resolved[physical_column] = predicates[canonical_column]
+    return resolved
+
+
 def selected_sql_columns(
     *,
     time_column: str,
@@ -1972,6 +2066,16 @@ def selected_sql_columns(
     columns.append(str(metric_column["name"]))
     columns.append(str(support_column["name"]))
     return unique_strings(columns)
+
+
+def selected_physical_sql_columns(
+    table_metadata: dict[str, Any],
+    selected_columns: Iterable[str],
+) -> list[str]:
+    return unique_strings(
+        resolved_column_name(table_metadata, column, purpose="selected")
+        for column in selected_columns
+    )
 
 
 def render_select_dimensions(alias: str, dimensions: list[str]) -> list[str]:
@@ -1991,6 +2095,20 @@ def render_coalesced_dimensions(dimensions: list[str]) -> list[str]:
         f"coalesce(c.{sql_identifier(dimension)}, b.{sql_identifier(dimension)}) AS {sql_identifier(dimension)}"
         for dimension in dimensions
     ]
+
+
+def render_source_dimension_selects(column_map: dict[str, str]) -> list[str]:
+    lines: list[str] = []
+    for canonical_name, physical_name in column_map.items():
+        expression = sql_identifier(physical_name)
+        if physical_name != canonical_name:
+            expression += f" AS {sql_identifier(canonical_name)}"
+        lines.append(expression)
+    return lines
+
+
+def render_source_group_by_dimensions(column_map: dict[str, str]) -> str:
+    return ", ".join(sql_identifier(physical_name) for physical_name in column_map.values())
 
 
 def baseline_reduction_expression(
@@ -2078,11 +2196,13 @@ def render_attribution_sql_template(
         support_column_candidates(metric_info["name"]),
         purpose="support",
     )
-    required_metadata_column(table_metadata, time_column, purpose="time")
-    for dimension in requested_dimensions:
-        required_metadata_column(table_metadata, dimension, purpose="dimension")
+    resolved_time_column = resolved_column_name(table_metadata, time_column, purpose="time")
+    dimension_column_map = {
+        dimension: resolved_column_name(table_metadata, dimension, purpose="dimension")
+        for dimension in requested_dimensions
+    }
     for filter_column in selected_filter_columns(scope, filters, applied_scope_filters):
-        required_metadata_column(table_metadata, filter_column, purpose="scope/filter")
+        resolved_column_name(table_metadata, filter_column, purpose="scope/filter")
 
     summary_validation = validate_summary_table_support(
         table_name,
@@ -2091,7 +2211,18 @@ def render_attribution_sql_template(
         filters=filters,
         applied_scope_filters=applied_scope_filters,
     )
+    metadata_supports_requested_columns = True
     if not summary_validation["supported"]:
+        for column in [
+            *requested_dimensions,
+            *selected_filter_columns(scope, filters, applied_scope_filters),
+        ]:
+            try:
+                resolved_column_name(table_metadata, column, purpose="summary selection")
+            except InvalidInputError:
+                metadata_supports_requested_columns = False
+                break
+    if not summary_validation["supported"] and not metadata_supports_requested_columns:
         raise_invalid(
             "unsupported_summary_selection",
             "Selected summary table does not retain the requested grouped dimensions or scope filters.",
@@ -2109,32 +2240,34 @@ def render_attribution_sql_template(
         metric_column=metric_column,
         support_column=support_column,
     )
+    physical_selected_columns = selected_physical_sql_columns(table_metadata, selected_columns)
     selected_column_metadata = [
         required_metadata_column(table_metadata, column, purpose="selected")
-        for column in selected_columns
+        for column in physical_selected_columns
     ]
     merge_expressions = merge_expression_map((metric_column, support_column))
     metric_expression = aggregate_sql_expression(metric_column)
     support_expression = aggregate_sql_expression(support_column)
     metadata_hash = metadata_fingerprint(
         table_metadata,
-        selected_columns=selected_columns,
+        selected_columns=physical_selected_columns,
         metadata_retrieval_identity=metadata_retrieval_identity,
         metadata_fixture_identity=metadata_fixture_identity,
     )
     sql_predicates = merge_sql_predicate_maps(scope, filters, applied_scope_filters)
+    physical_sql_predicates = resolve_sql_predicates(table_metadata, sql_predicates)
 
     metric_name = metric_info["name"]
     current_metric_alias = f"current_{metric_name}"
     baseline_raw_alias = f"baseline_raw_{metric_name}"
     baseline_metric_alias = f"baseline_{metric_name}"
-    dimension_group_by = render_group_by_dimensions(requested_dimensions)
+    source_dimension_group_by = render_source_group_by_dimensions(dimension_column_map)
     dimension_join_key = render_join_key(requested_dimensions)
     dimension_order = ", ".join(f"toString({sql_identifier(dimension)}) ASC" for dimension in requested_dimensions)
     current_predicates = [
-        f"{sql_identifier(time_column)} >= current_start",
-        f"{sql_identifier(time_column)} < current_end",
-        *sql_scope_predicates(sql_predicates),
+        f"{sql_identifier(resolved_time_column)} >= current_start",
+        f"{sql_identifier(resolved_time_column)} < current_end",
+        *sql_scope_predicates(physical_sql_predicates),
     ]
 
     with_lines = [
@@ -2155,22 +2288,22 @@ def render_attribution_sql_template(
             )
         )
         baseline_predicates = [
-            f"{sql_identifier(time_column)} >= {start_alias}",
-            f"{sql_identifier(time_column)} < {end_alias}",
-            *sql_scope_predicates(sql_predicates),
+            f"{sql_identifier(resolved_time_column)} >= {start_alias}",
+            f"{sql_identifier(resolved_time_column)} < {end_alias}",
+            *sql_scope_predicates(physical_sql_predicates),
         ]
         baseline_ctes.append(
             "\n".join(
                 [
                     f"  baseline_window_{index}_by_entity AS (",
                     "    SELECT",
-                    *[f"      {sql_identifier(dimension)}," for dimension in requested_dimensions],
+                    *[f"      {dimension}," for dimension in render_source_dimension_selects(dimension_column_map)],
                     f"      {metric_expression} AS baseline_window_{metric_name},",
                     f"      {support_expression} AS baseline_window_support_raw,",
                     f"      {duration_alias} AS baseline_window_duration_seconds",
                     f"    FROM {sql_table_name(table_metadata)}",
                     "    WHERE " + "\n      AND ".join(baseline_predicates),
-                    f"    GROUP BY {dimension_group_by}",
+                    f"    GROUP BY {source_dimension_group_by}",
                     "  )",
                 ]
             )
@@ -2216,12 +2349,12 @@ def render_attribution_sql_template(
         ",\n".join(with_lines) + ",",
         "  current_by_entity AS (",
         "    SELECT",
-        *[f"      {sql_identifier(dimension)}," for dimension in requested_dimensions],
+        *[f"      {dimension}," for dimension in render_source_dimension_selects(dimension_column_map)],
         f"      {metric_expression} AS {current_metric_alias},",
         f"      {support_expression} AS current_support_raw",
         f"    FROM {sql_table_name(table_metadata)}",
         "    WHERE " + "\n      AND ".join(current_predicates),
-        f"    GROUP BY {dimension_group_by}",
+        f"    GROUP BY {source_dimension_group_by}",
         "  ),",
         *[cte + "," for cte in baseline_ctes],
         "  baseline_windows_by_entity AS (",
@@ -2233,7 +2366,7 @@ def render_attribution_sql_template(
         f"      {baseline_metric_reducer} AS {baseline_raw_alias},",
         f"      {baseline_support_reducer} AS baseline_support_raw",
         "    FROM baseline_windows_by_entity",
-        f"    GROUP BY {dimension_group_by}",
+        f"    GROUP BY {render_group_by_dimensions(requested_dimensions)}",
         "  ),",
         "  by_entity AS (",
         "    SELECT",
@@ -2299,7 +2432,20 @@ def render_attribution_sql_template(
         "generator_version": SQL_GENERATOR_VERSION,
         "template_id": SQL_TEMPLATE_ID,
         "selected_table": table_name,
-        "selected_columns": selected_columns,
+        "selected_columns": physical_selected_columns,
+        "requested_columns": selected_columns,
+        "column_aliases": {
+            canonical: physical
+            for canonical, physical in {
+                time_column: resolved_time_column,
+                **dimension_column_map,
+                **{
+                    canonical: resolved_column_name(table_metadata, canonical, purpose="scope/filter")
+                    for canonical in selected_filter_columns(scope, filters, applied_scope_filters)
+                },
+            }.items()
+            if canonical != physical
+        },
         "selected_column_metadata": selected_column_metadata,
         "metadata_origin": metadata_origin,
         "metadata_fingerprint": metadata_hash,
@@ -2317,6 +2463,7 @@ def render_attribution_sql_template(
         "filters": filters or {},
         "applied_scope_filters": applied_scope_filters or {},
         "sql_predicates": sql_predicates,
+        "physical_sql_predicates": physical_sql_predicates,
         "current_window": current,
         "baseline_windows": baselines,
         "baseline_method": baseline_method,

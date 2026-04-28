@@ -1143,6 +1143,9 @@ def md_soc(selected: dict[str, Any], limit: int, ctx: ReportContext) -> str:
     scorecards = selected.get("scorecards") or []
     if scorecards:
         parts.extend(
+            ["## Scorecard Analysis", md_scorecard_analysis(scorecards, limit, ctx)]
+        )
+        parts.extend(
             ["## Domain Score Matrix", md_domain_matrix(scorecards, limit, ctx)]
         )
         parts.extend(
@@ -1158,6 +1161,68 @@ def md_soc(selected: dict[str, Any], limit: int, ctx: ReportContext) -> str:
         if confidence_section:
             parts.extend(["## Confidence Notes", confidence_section])
     return "\n\n".join(parts)
+
+
+def md_scorecard_analysis(
+    scorecards: list[dict[str, Any]], limit: int, ctx: ReportContext
+) -> str:
+    sections: list[str] = []
+    for card in limited_rows(scorecards, limit, "scorecard analysis entities", ctx):
+        lines = [
+            f"### {md_escape(card.get('entity'))}",
+            "",
+            md_table(
+                ["Score", "Band", "Primary domain", "Confidence"],
+                [
+                    [
+                        card.get("score"),
+                        card.get("band"),
+                        card.get("primary_domain"),
+                        card.get("confidence"),
+                    ]
+                ],
+            ),
+        ]
+        evidence = [
+            item
+            for item in card.get("evidence_summary", [])
+            if item is not None and str(item) != ""
+        ]
+        if evidence:
+            lines.extend(
+                [
+                    "",
+                    "**Evidence Summary**",
+                    "",
+                    "\n".join(f"- {md_escape(item)}" for item in evidence),
+                ]
+            )
+        features = card.get("features") or []
+        if features:
+            lines.extend(["", "**Evaluated Features**", "", md_feature_rows(features)])
+        steps = [
+            step
+            for step in card.get("recommended_next_steps", [])
+            if step is not None and str(step) != ""
+        ]
+        if steps:
+            lines.extend(
+                [
+                    "",
+                    "**Recommended Next Steps**",
+                    "",
+                    "\n".join(f"- {md_escape(step)}" for step in steps),
+                ]
+            )
+        if not evidence and not features and not steps:
+            lines.extend(
+                [
+                    "",
+                    "No scorecard narrative fields were emitted for this entity.",
+                ]
+            )
+        sections.append("\n".join(lines))
+    return "\n\n".join(sections) if sections else "No scorecard analysis available."
 
 
 def md_missing_feature_evidence(

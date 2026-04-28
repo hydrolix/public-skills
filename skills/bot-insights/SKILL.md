@@ -66,14 +66,27 @@ Primary request-level tables:
 
 Summary families:
 
-- `bot_summary_*`: minute/hour/day posture summaries by host, CDN, bot class,
-  AI category, bot flag, ASN, ASN type, resource category, and method.
+- `bi_summary_*`: backwards-compatible posture summaries by host, CDN, bot
+  class, AI category, bot flag, ASN, ASN type, resource category, and method.
+  This table family is used by TrafficPeak and non-TrafficPeak deployments.
+  For the `akamai` project, prefer fully qualified `akamai.bi_summary_*`
+  tables over `akamai.bot_summary_*` when both are present.
+- `bot_summary_*`: current bundle posture summaries with the same canonical
+  retained dimensions as `bi_summary_*`; use only when metadata proves the
+  preferred `bi_summary_*` family is absent or unsuitable for the requested
+  dimensions.
 - `bot_agg_*`: focused hourly and selected daily/minute summaries for host,
   ASN, path, resource, traffic, and bot class drilldowns.
-- `bot_siem_*`: minute/hour/day summaries for action, policy, SIEM outcome,
-  Akamai canonical class, and filter-aware views.
+- `bi_siem_summary_*`: backwards-compatible SIEM summaries by host, action,
+  ASN, and policy. This table family is used by TrafficPeak and
+  non-TrafficPeak deployments. For the `akamai` project, prefer fully
+  qualified `akamai.bi_siem_summary_*`; if a deployment exposes
+  `akamai.bi_summary_siem_*`, treat it as an equivalent deployment-specific
+  alias after metadata inspection.
+- `bot_siem_*`: current bundle SIEM summaries for action, policy, SIEM
+  outcome, Akamai canonical class, and filter-aware views.
 
-Key field groups:
+Canonical field groups:
 
 - Time: `timestamp`
 - Request: `request_host`, `request_path`, `request_method`,
@@ -87,20 +100,30 @@ Key field groups:
   `verified_bot_owner`, `ai_category`
 - Security evidence: `attack_data`, `asn_type`
 
+Deployments may expose both current bundle tables and backwards-compatible
+`bi_*` tables. Prefer `akamai.bi_summary_*` for posture and
+`akamai.bi_siem_summary_*` for SIEM on the Akamai project. Treat
+`bi_summary_siem_*` as an alternate SIEM summary spelling only when metadata
+shows that exact table exists. Some legacy or alternate tables may still expose
+source-style Akamai names such as `reqTimeSec`, `reqHost`, `asn`, `country`,
+`city`, `statusCode`, `totalBytes`, or `cacheStatus`; inspect metadata before
+querying and normalize deterministic script input back to the canonical names
+expected by the script.
+
+Project routing heuristic: if the project/database name is omitted or is
+`akamai`, assume the request is probably for a TrafficPeak project until
+metadata proves otherwise. If the project/database name is specified and is not
+`akamai`, assume it is probably a non-TrafficPeak project. Use this heuristic
+only to choose the first schema family to inspect; table metadata remains the
+source of truth for final query text.
+
 ## Progressive Disclosure
 
 Do not read every reference at startup. Load the smallest relevant file:
 
-Use this file as the routing layer, not the full manual. The
-[README.md](README.md) is the human-readable overview of all supported
-analytics; load it when the user asks what the skill can do, needs a product
-or analyst-facing explanation, or wants the complete catalog in prose. For
-execution, pick the narrow reference below and load only that file.
+Use this file as the routing layer, not the full manual. For execution, pick the
+narrow reference below and load only that file.
 
-- For a quick inventory of supported analytics and their deterministic support,
-  read [README.md](README.md). It covers posture movement, mover attribution,
-  control review, SOC/security, SEO/crawler governance, Edge/Ops,
-  cache-origin impact, executive posture, and scorecards.
 - For table shape, sources, key fields, and personas, read
   [references/data-model.md](references/data-model.md).
 - For summary inventory, retained dimensions, and summary-first table
@@ -181,18 +204,30 @@ execution, pick the narrow reference below and load only that file.
 
 ## Query Guardrails
 
-- Always filter on `timestamp`.
+- Always filter on the table's time column. Prefer the `timestamp` alias when
+  metadata exposes it; otherwise use the physical source time field such as
+  `reqTimeSec`.
 - Prefer summary tables when retained dimensions fit. Do not assume QoQ queries
   need monthly or quarterly summaries; benchmark daily summaries first.
 - Use string comparisons for `response_status_code`, or cast explicitly with
   `toUInt32OrZero()` when numeric operations are needed.
 - Prefer normalized fields over suppressed raw variants.
+- Support both canonical Bot Insights names and source-style Akamai names. Common
+  aliases include `timestamp`/`reqTimeSec`, `request_host`/`reqHost`,
+  `client_asn`/`asn`, `client_country_iso_code`/`country`,
+  `client_city`/`city`, `response_status_code`/`statusCode`,
+  `response_total_bytes`/`totalBytes`, and
+  `cache_was_cached`/`cacheStatus`.
 - Be explicit about `hdx_cdn` when comparing Akamai SIEM, Akamai DS2, and other
   CDN sources.
 - Treat Akamai-provided bot fields and Hydrolix-derived bot fields as separate
   signals. Divergence is evidence to investigate, not an automatic error.
 - For before/after checks, use the same baseline formula as the references:
   `(current - baseline) / greatest(baseline, 1) * 100`.
+- Reuse [scripts/baselines.py](scripts/baselines.py) for shared deterministic
+  baseline semantics in Bot Insights scripts: numeric parsing, delta math,
+  direction labels, count support, granularity checks, JSON-safe values, and
+  confidence labels. Do not copy this logic into new scripts.
 - Optionally use [scripts/compare_delta.py](scripts/compare_delta.py) to compute
   that formula from pasted current/baseline metric JSON. Use it only for numeric
   deltas; do not use it to classify bot intent or recommend action.

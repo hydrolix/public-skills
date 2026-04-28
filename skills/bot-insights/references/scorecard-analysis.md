@@ -128,16 +128,21 @@ revision.
 
 ## Summary-First Table Selection
 
-- Use `bot_summary_day`, `bot_summary_hour`, or `bot_summary_minute` for host,
-  ASN, bot class, AI category, bot share, cache miss rate, 429/5xx rate, and
-  origin latency when those retained dimensions answer the question.
+- Use `akamai.bi_summary_day`, `akamai.bi_summary_hour`, or
+  `akamai.bi_summary_minute` for Akamai-project host, ASN, bot class, AI
+  category, bot share, cache miss rate, 429/5xx rate, and origin latency when
+  those retained dimensions answer the question. Use `bot_summary_*` only when
+  metadata proves the preferred `bi_summary_*` family is absent or unsuitable.
 - Use `bot_agg_path_day`, `bot_agg_path_hour`, or `bot_agg_path_minute` for
   normalized path scorecards, especially query-string diversity and cache miss
   evidence.
 - Use `bot_agg_asn_hour` when ASN drilldowns need unique normalized paths.
-- Use `bot_siem_summary_*`, `bot_siem_filter_summary_*`, or
-  `bot_siem_class_*` for SIEM blocked requests, auth failures, policy/action
-  evidence, and Akamai canonical class views.
+- Use `akamai.bi_siem_summary_*` for SIEM blocked requests, auth failures, and
+  policy/action evidence on the Akamai project. Treat `akamai.bi_summary_siem_*`
+  as an equivalent deployment-specific alias only when metadata shows that
+  exact table exists. Use `bot_siem_summary_*`, `bot_siem_filter_summary_*`, or
+  `bot_siem_class_*` only when the preferred `bi_*` SIEM surface is absent or
+  lacks the retained dimensions needed for the question.
 - Fall back to `bot_detection` or `bot_detection_siem` only for fields not
   retained in summaries, such as exact user agent, verified owner,
   verification tier, bot confidence, attack payload details, exact query
@@ -180,6 +185,13 @@ Policy displacement fields should be provided as current/baseline pairs:
 
 These templates intentionally omit clients, credentials, and execution logic.
 Use the Hydrolix MCP server or host query tool to run them.
+
+Replace `<posture_summary_day>` / `<posture_summary_hour>` with
+`akamai.bi_summary_day` / `akamai.bi_summary_hour` for Akamai-project
+scorecards. Replace `<siem_summary_hour>` with `akamai.bi_siem_summary_hour`
+unless metadata confirms a deployment-specific `akamai.bi_summary_siem_hour`
+alias. Use `bot_summary_*` or `bot_siem_summary_*` only as metadata-confirmed
+fallbacks.
 
 ### ASN Scorecards
 
@@ -228,7 +240,7 @@ WITH
         sumIf(cnt_5xx, timestamp >= baseline_start AND timestamp < baseline_end)
         / greatest(baseline_requests, 1) * 100, 2
       ) AS baseline_rate_5xx_pct
-    FROM <project>.bot_summary_hour
+    FROM <project>.<posture_summary_hour>
     WHERE timestamp >= baseline_start
       AND timestamp < current_end
       AND request_host = '<host>'
@@ -311,7 +323,7 @@ SELECT
   round(sumIf(cnt_429, timestamp >= baseline_start AND timestamp < baseline_end) / greatest(baseline_requests, 1) * 100, 2) AS baseline_rate_429_pct,
   round(sumIf(cnt_5xx, timestamp >= current_start AND timestamp < current_end) / greatest(current_requests, 1) * 100, 2) AS current_rate_5xx_pct,
   round(sumIf(cnt_5xx, timestamp >= baseline_start AND timestamp < baseline_end) / greatest(baseline_requests, 1) * 100, 2) AS baseline_rate_5xx_pct
-FROM <project>.bot_summary_day
+FROM <project>.<posture_summary_day>
 WHERE timestamp >= baseline_start
   AND timestamp < current_end
 GROUP BY request_host
@@ -339,7 +351,7 @@ SELECT
   round(sumIf(cnt_429, timestamp >= baseline_start AND timestamp < baseline_end) / greatest(baseline_requests, 1) * 100, 2) AS baseline_rate_429_pct,
   round(sumIf(cnt_5xx, timestamp >= current_start AND timestamp < current_end) / greatest(current_requests, 1) * 100, 2) AS current_rate_5xx_pct,
   round(sumIf(cnt_5xx, timestamp >= baseline_start AND timestamp < baseline_end) / greatest(baseline_requests, 1) * 100, 2) AS baseline_rate_5xx_pct
-FROM <project>.bot_summary_day
+FROM <project>.<posture_summary_day>
 WHERE timestamp >= baseline_start
   AND timestamp < current_end
   AND ai_category != ''
@@ -362,7 +374,7 @@ SELECT
   sum(cnt_all) AS siem_requests,
   sum(cnt_blocked) AS siem_blocked_requests,
   sum(cnt_auth_fail) AS siem_auth_fail_requests
-FROM <project>.bot_siem_summary_hour
+FROM <project>.<siem_summary_hour>
 WHERE timestamp >= current_start
   AND timestamp < current_end
   AND request_host = '<host>'

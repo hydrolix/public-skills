@@ -405,6 +405,54 @@ class BotInsightsScriptTests(unittest.TestCase):
         self.assertEqual(result[0]["absolute_delta"], 5)
         self.assertEqual(result[0]["pct_change"], 500)
 
+    def test_compare_delta_ignores_non_finite_numeric_values(self) -> None:
+        result = self.compare_delta.compare(
+            {
+                "current": {"requests": float("nan"), "rate_429_pct": 3},
+                "baseline": {"requests": 1, "rate_429_pct": 1},
+            }
+        )
+
+        self.assertEqual([row["metric"] for row in result], ["rate_429_pct"])
+        self.assertEqual(result[0]["pct_change"], 200)
+        json.dumps(result, allow_nan=False)
+
+    def test_baseline_scripts_load_sibling_helper_when_sys_path_is_shadowed(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            fake_baselines = Path(temp_dir) / "baselines.py"
+            fake_baselines.write_text(
+                "def to_number(value):\n"
+                "    raise RuntimeError('shadowed baselines imported')\n"
+                "def pct_delta(current, baseline):\n"
+                "    raise RuntimeError('shadowed baselines imported')\n",
+                encoding="utf-8",
+            )
+            with mock.patch.object(sys, "path", [temp_dir, *sys.path]):
+                compare_delta = load_module(
+                    "compare_delta_shadowed",
+                    ROOT / "skills/bot-insights/scripts/compare_delta.py",
+                )
+                compare_posture = load_module(
+                    "compare_posture_shadowed",
+                    ROOT / "skills/bot-insights/scripts/compare_posture.py",
+                )
+
+        delta = compare_delta.compare(
+            {"current": {"requests": 2}, "baseline": {"requests": 1}}
+        )
+        posture = compare_posture.compare(
+            {
+                "comparison_type": "previous_window",
+                "granularity": "hour",
+                "table_used": "bot_summary_hour",
+                "current": {"requests": 2},
+                "baseline": {"requests": 1},
+            }
+        )
+
+        self.assertEqual(delta[0]["pct_change"], 100)
+        self.assertEqual(posture["metrics"][0]["pct_change"], 100)
+
     def test_posture_movement_packet_from_mcp_rows(self) -> None:
         result = self.compare_posture.compare(
             {
@@ -2136,6 +2184,110 @@ class BotInsightsScriptTests(unittest.TestCase):
         self.assertFalse(any(value == "high" for _, value in flattened))
         self.assertFalse(any(key == "scorecard_export_safe" for key, _ in flattened))
         self.assertFalse(any(value == "bot_scorecard_input.v1" for _, value in flattened))
+
+    def test_attribution_sql_template_supports_akamai_source_field_aliases(self) -> None:
+        table_metadata = {
+            "table": "bot_summary_day",
+            "database": "akamai",
+            "is_summary_table": True,
+            "columns": [
+                {"name": "timestamp", "type": "DateTime", "column_category": "AliasColumn"},
+                {"name": "reqHost", "type": "String", "column_category": "Column"},
+                {"name": "asn", "type": "String", "column_category": "Column"},
+                {"name": "country", "type": "String", "column_category": "Column"},
+                {
+                    "name": "count()",
+                    "type": "AggregateFunction(count)",
+                    "column_category": "AggregateColumn",
+                    "merge_function": "countMerge",
+                },
+            ],
+        }
+
+        result = self.attribution.render_attribution_sql_template(
+            table_metadata=table_metadata,
+            metric="requests",
+            dimensions=["client_asn"],
+            scope={"request_host": "www.example.com"},
+            filters={"client_country_iso_code": "US"},
+            current_window={
+                "start": "2026-04-01T00:00:00Z",
+                "end": "2026-04-02T00:00:00Z",
+            },
+            baseline_windows=[
+                {
+                    "start": "2026-03-01T00:00:00Z",
+                    "end": "2026-03-02T00:00:00Z",
+                }
+            ],
+            baseline_method="single_previous_window",
+            output_limit=25,
+            metadata_fixture_identity="fixture:akamai_bot_summary_day:v1",
+        )
+
+        sql = result["sql"]
+        provenance = result["provenance"]
+
+        self.assertIn("`asn` AS `client_asn`", sql)
+        self.assertIn("`reqHost` = 'www.example.com'", sql)
+        self.assertIn("`country` = 'US'", sql)
+        self.assertIn("FULL OUTER JOIN baseline_by_entity AS b USING (`client_asn`)", sql)
+        self.assertIn("ORDER BY abs_delta DESC, toString(`client_asn`) ASC", sql)
+        self.assertEqual(
+            provenance["column_aliases"],
+            {
+                "client_asn": "asn",
+                "client_country_iso_code": "country",
+                "request_host": "reqHost",
+            },
+        )
+        self.assertEqual(
+            provenance["physical_sql_predicates"],
+            {"country": "US", "reqHost": "www.example.com"},
+        )
+        self.assertIn("asn", provenance["selected_columns"])
+        self.assertIn("reqHost", provenance["selected_columns"])
+        self.assertIn("country", provenance["selected_columns"])
+        self.assertEqual(
+            provenance["requested_columns"],
+            ["timestamp", "client_asn", "request_host", "client_country_iso_code", "count()"],
+        )
+
+    def test_attribution_catalog_supports_bi_summary_tables(self) -> None:
+        posture = self.attribution.validate_summary_table_support(
+            "bi_summary_day",
+            ["client_asn"],
+            scope={"request_host": "www.example.com"},
+            filters={"bot_class": "crawler"},
+        )
+        siem = self.attribution.validate_summary_table_support(
+            "bi_siem_summary_day",
+            ["client_asn"],
+            scope={"request_host": "www.example.com"},
+            filters={"policy_id": "policy-1"},
+        )
+        alternate_siem = self.attribution.validate_summary_table_support(
+            "bi_summary_siem_day",
+            ["client_asn"],
+            scope={"request_host": "www.example.com"},
+            filters={"policy_id": "policy-1"},
+        )
+
+        self.assertTrue(posture["supported"])
+        self.assertTrue(siem["supported"])
+        self.assertTrue(alternate_siem["supported"])
+        catalog_names = list(self.attribution.SUMMARY_TABLE_CATALOG)
+        self.assertLess(
+            catalog_names.index("bi_summary_day"),
+            catalog_names.index("bot_summary_day"),
+        )
+        self.assertLess(
+            catalog_names.index("bi_siem_summary_day"),
+            catalog_names.index("bot_siem_summary_day"),
+        )
+        self.assertIn("bi_summary_day", self.attribution.SUMMARY_TABLE_CATALOG)
+        self.assertIn("bi_siem_summary_day", self.attribution.SUMMARY_TABLE_CATALOG)
+        self.assertIn("bi_summary_siem_day", self.attribution.SUMMARY_TABLE_CATALOG)
 
     def test_attribution_sql_template_applies_filters_to_all_period_ctes(self) -> None:
         table_metadata = {
@@ -6697,6 +6849,9 @@ class BotInsightsScriptTests(unittest.TestCase):
             "confidence": "medium",
             "confidence_reasons": ["sparse_counts"],
             "domain_scores": {"security_evidence": 80},
+            "evidence_summary": [
+                "Bad bot share crossed the review threshold.",
+            ],
             "features": [
                 {
                     "domain": "security_evidence",
@@ -6713,10 +6868,19 @@ class BotInsightsScriptTests(unittest.TestCase):
                     "reason": "siem_unavailable",
                 }
             ],
+            "recommended_next_steps": [
+                "Review SIEM policy actions for this ASN.",
+            ],
         }
         output, _ = self.render_report.render(
             [index, scorecard], self.render_args(report_type="soc_triage")
         )
+        self.assertIn("Scorecard Analysis", output)
+        self.assertIn("Evidence Summary", output)
+        self.assertIn("Bad bot share crossed the review threshold", output)
+        self.assertIn("Evaluated Features", output)
+        self.assertIn("Recommended Next Steps", output)
+        self.assertIn("Review SIEM policy actions for this ASN", output)
         self.assertIn("Missing Feature Evidence", output)
         self.assertIn("siem\\_blocked\\_present", output)
         self.assertIn("Confidence Notes", output)
@@ -6741,6 +6905,7 @@ class BotInsightsScriptTests(unittest.TestCase):
         )
         self.assertNotIn("Missing Feature Evidence", output)
         self.assertNotIn("Confidence Notes", output)
+        self.assertNotIn("Scorecard Analysis", output)
         self.assertNotIn("Domain Score Matrix", output)
 
     def test_render_report_control_renders_collateral_and_displacement(self) -> None:
