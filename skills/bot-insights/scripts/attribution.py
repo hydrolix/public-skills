@@ -31,6 +31,10 @@ TRUSTED_WRAPPER_AVAILABLE = False
 PROVIDED_CONTRIBUTION_TOLERANCE_PP = Decimal("0.01")
 SAMPLE_ENTITY_VALUES_LIMIT = 10
 SHA256_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
+ANALYSIS_TYPES = {
+    "aggregate_delta_attribution",
+    "policy_displacement",
+}
 
 INTERPRETATION_CONSTRAINTS = [
     "attribution_from_aggregate_deltas",
@@ -72,6 +76,11 @@ REPORT_FIELDS = {
     "summary_table_used",
     "table_used",
     "applied_scope_filters",
+    "analysis_type",
+    "policy_change",
+    "policy_change_window",
+    "reviewed_policy",
+    "target_effect",
 }
 
 TRUST_METADATA_FIELDS = {
@@ -97,6 +106,7 @@ TRUST_METADATA_FIELDS = {
 METADATA_KEYS = {
     "absolute_delta",
     "abs_delta",
+    "analysis_type",
     "baseline",
     "baseline_method",
     "baseline_normalization",
@@ -135,8 +145,11 @@ METADATA_KEYS = {
     "output_limit_applied",
     "pct_change",
     "period",
+    "policy_change",
+    "policy_change_window",
     "query_fingerprint",
     "result_digest",
+    "reviewed_policy",
     "row_shape",
     "rowset_complete",
     "rows",
@@ -148,6 +161,7 @@ METADATA_KEYS = {
     "support_count",
     "support_raw",
     "table_used",
+    "target_effect",
     "template_id",
     "time",
     "timestamp",
@@ -560,6 +574,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Comma-separated dimensions to echo in the report and row keys.",
     )
     parser.add_argument(
+        "--analysis",
+        choices=tuple(sorted(ANALYSIS_TYPES)),
+        help="Analysis mode. Use policy_displacement for policy-change displacement review.",
+    )
+    parser.add_argument(
         "--min-count",
         type=float,
         default=100.0,
@@ -646,6 +665,33 @@ def normalize_options(options: Any) -> dict[str, Any]:
     if isinstance(options, dict):
         return dict(options)
     raise TypeError("options must be a dict, argparse.Namespace, or None")
+
+
+def normalize_analysis_type(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    if text not in ANALYSIS_TYPES:
+        raise_invalid(
+            "analysis_type_invalid",
+            f"Unsupported analysis_type '{value}'.",
+            details={"analysis_type": value, "supported_analysis_types": sorted(ANALYSIS_TYPES)},
+        )
+    return text
+
+
+def resolve_analysis_type(payload: Any, metadata: dict[str, Any], options: dict[str, Any]) -> str:
+    cli_analysis = normalize_analysis_type(options.get("analysis"))
+    input_analysis = normalize_analysis_type(resolve_value(payload, metadata, "analysis_type"))
+    if cli_analysis and input_analysis and cli_analysis != input_analysis:
+        raise_invalid(
+            "analysis_type_conflict",
+            "CLI analysis conflicts with input analysis_type.",
+            details={"cli_analysis": cli_analysis, "input_analysis": input_analysis},
+        )
+    return cli_analysis or input_analysis or "aggregate_delta_attribution"
 
 
 def unique_strings(values: Iterable[Any]) -> list[str]:
@@ -2975,12 +3021,17 @@ def heuristic_summary_table_used(table_used: Any) -> bool | None:
 def collect_report_metadata(payload: Any, metadata: dict[str, Any]) -> dict[str, Any]:
     report_metadata: dict[str, Any] = {}
     for key in (
+        "analysis_type",
         "comparison_type",
         "granularity",
         "scope",
         "filters",
         "applied_scope_filters",
         "current_window",
+        "policy_change",
+        "policy_change_window",
+        "reviewed_policy",
+        "target_effect",
         "table_used",
     ):
         value = resolve_value(payload, metadata, key)
@@ -3057,6 +3108,7 @@ def normalize_input_rows(input_doc: Any, *, options: Any = None) -> dict[str, An
     metric_info = resolve_metric(payload, metadata, rows, opts)
     dimensions, dimensions_inferred = resolve_dimensions(payload, metadata, rows, metric_info["metric"], opts)
     baseline_metadata = validate_baseline_metadata(payload, metadata)
+    analysis_type = resolve_analysis_type(payload, metadata, opts)
 
     row_shapes: set[str] = set()
     unusable_rows: list[int] = []
@@ -3119,6 +3171,7 @@ def normalize_input_rows(input_doc: Any, *, options: Any = None) -> dict[str, An
         limitations.append("dimensions_inferred")
 
     report_metadata = collect_report_metadata(payload, metadata)
+    report_metadata["analysis_type"] = analysis_type
     summary_validation = summary_validation_for_report(report_metadata, dimensions)
     if summary_validation is not None:
         limitations.extend(summary_validation["limitations"])
@@ -3126,6 +3179,7 @@ def normalize_input_rows(input_doc: Any, *, options: Any = None) -> dict[str, An
     normalized = {
         "metric": metric_info["metric"],
         "metric_kind": metric_info["metric_kind"],
+        "analysis_type": analysis_type,
         "dimensions": dimensions,
         "row_shape": row_shape,
         "canonical_rows": canonical_rows,
@@ -3286,9 +3340,57 @@ def build_buckets(movers: list[dict[str, Any]]) -> dict[str, Any]:
     return buckets
 
 
+def movement_extreme(
+    movers: list[dict[str, Any]],
+    *,
+    direction_name: str,
+) -> dict[str, Any] | None:
+    selected = [
+        mover
+        for mover in movers
+        if mover.get("direction") == direction_name
+    ]
+    if not selected:
+        return None
+    if direction_name == "increase":
+        mover = max(selected, key=lambda item: float(item["absolute_delta"]))
+    else:
+        mover = min(selected, key=lambda item: float(item["absolute_delta"]))
+    return {
+        "rank": mover.get("rank"),
+        "values": mover.get("values", {}),
+        "absolute_delta": mover.get("absolute_delta"),
+        "pct_change": mover.get("pct_change"),
+        "confidence": mover.get("confidence"),
+    }
+
+
+def displacement_summary(movers: list[dict[str, Any]]) -> dict[str, Any]:
+    positive_delta = sum(
+        max(float(mover["absolute_delta"]), 0.0)
+        for mover in movers
+    )
+    negative_delta = sum(
+        min(float(mover["absolute_delta"]), 0.0)
+        for mover in movers
+    )
+    summary = {
+        "basis": "returned_rows",
+        "increase_count": sum(1 for mover in movers if mover["direction"] == "increase"),
+        "decrease_count": sum(1 for mover in movers if mover["direction"] == "decrease"),
+        "total_positive_delta": clean_number(positive_delta),
+        "total_negative_delta": clean_number(negative_delta),
+        "net_delta": clean_number(positive_delta + negative_delta),
+        "largest_increase": movement_extreme(movers, direction_name="increase"),
+        "largest_decrease": movement_extreme(movers, direction_name="decrease"),
+    }
+    return summary
+
+
 def normalize_attribution(input_doc: Any, trusted_context: Any = None, *, options: Any = None) -> dict[str, Any]:
     normalized = normalize_input_rows(input_doc, options=options)
     opts = normalize_options(options)
+    analysis_type = normalized["analysis_type"]
 
     min_count_value = opts.get("min_count")
     if min_count_value is None:
@@ -3308,6 +3410,8 @@ def normalize_attribution(input_doc: Any, trusted_context: Any = None, *, option
     )
 
     report_reasons = {"standalone_confidence_cap"}
+    if analysis_type == "policy_displacement":
+        report_reasons.add("policy_displacement_review")
     report_reasons.update(trust_validation["reasons"])
     if trusted_context is not None:
         report_reasons.add("trusted_context_reserved_for_future_tasks")
@@ -3476,9 +3580,24 @@ def normalize_attribution(input_doc: Any, trusted_context: Any = None, *, option
                 }
             )
 
+    method = (
+        "policy_displacement_attribution"
+        if analysis_type == "policy_displacement"
+        else "aggregate_delta_attribution"
+    )
+    interpretation_constraints = list(INTERPRETATION_CONSTRAINTS)
+    if analysis_type == "policy_displacement":
+        interpretation_constraints.extend(
+            [
+                "policy_displacement_review",
+                "requires_external_policy_change_evidence",
+            ]
+        )
+
     result = {
         "schema_version": ATTRIBUTION_SCHEMA,
-        "method": "aggregate_delta_attribution",
+        "method": method,
+        "analysis_type": analysis_type,
         "metric": normalized["metric"],
         "metric_kind": normalized["metric_kind"],
         "dimensions": normalized["dimensions"],
@@ -3499,18 +3618,25 @@ def normalize_attribution(input_doc: Any, trusted_context: Any = None, *, option
         "limitations": [limitation_doc(code) for code in sorted(limitation_codes | set(normalized["limitations"]))],
         "confidence": confidence,
         "confidence_reasons": sorted(report_reasons),
-        "interpretation_constraints": INTERPRETATION_CONSTRAINTS,
+        "interpretation_constraints": interpretation_constraints,
     }
+    if analysis_type == "policy_displacement":
+        result["displacement_summary"] = displacement_summary(returned_movers)
 
     if limit > 0:
         result["output_limit"] = limit
     for key in (
+        "analysis_type",
         "comparison_type",
         "granularity",
         "scope",
         "filters",
         "applied_scope_filters",
         "current_window",
+        "policy_change",
+        "policy_change_window",
+        "reviewed_policy",
+        "target_effect",
         "table_used",
         "summary_table_used",
     ):
@@ -3561,6 +3687,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             options={
                 "metric": args.metric,
                 "dimensions": args.dimensions,
+                "analysis": args.analysis,
                 "min_count": args.min_count,
                 "limit": args.limit,
                 "output": args.output,

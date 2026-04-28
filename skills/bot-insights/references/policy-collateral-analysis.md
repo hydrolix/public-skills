@@ -13,6 +13,7 @@ the reviewed policy change happened at the stated time.
 
 - [Workflow](#workflow)
 - [Control Review Inputs](#control-review-inputs)
+- [Advanced Displacement Attribution](#advanced-displacement-attribution)
 - [Scorecard Inputs](#scorecard-inputs)
 - [Interpretation](#interpretation)
 
@@ -24,7 +25,10 @@ the reviewed policy change happened at the stated time.
    crawlers, AI crawlers, governance surfaces, and business-critical paths.
 4. Add displacement checks for related hosts, paths, ASNs, bot classes, CDN
    sources, SIEM policies, or action outcomes.
-5. Use `scripts/scorecard.py` when the workflow needs ranked entities for
+5. When displacement needs ranked follow-up, run
+   `scripts/attribution.py --analysis policy_displacement` on retained
+   dimension aggregates.
+6. Use `scripts/scorecard.py` when the workflow needs ranked entities for
    follow-up.
 
 ## Control Review Inputs
@@ -42,6 +46,30 @@ Each check should include the metric, before/after or after/expected values,
 status, confidence, and confidence reasons when available. Renderers preserve
 these checks as evidence; they do not infer missing collateral or displacement
 rows.
+
+## Advanced Displacement Attribution
+
+Use `bot_attribution_report.v1` from `scripts/attribution.py` when a policy
+collateral review needs to rank where traffic moved after a known change:
+
+```sh
+uv run python skills/bot-insights/scripts/attribution.py \
+  --file aggregate.json \
+  --metric requests \
+  --dimensions request_host,bot_class \
+  --analysis policy_displacement
+```
+
+The aggregate rows should cover one metric and one retained dimension set, such
+as `request_host`, `request_path_norm`, `client_asn`, `bot_class`,
+`ai_category`, SIEM `policy_id`, or `action_taken`. The report preserves
+`policy_change`, `policy_change_window`, `reviewed_policy`, and `target_effect`
+metadata when provided.
+
+Policy displacement mode adds a `displacement_summary` to the attribution
+report with positive delta, negative delta, net delta, largest increase, and
+largest decrease across returned rows. Treat these as movement evidence only;
+they require external policy-change evidence and do not prove causality.
 
 ## Scorecard Inputs
 

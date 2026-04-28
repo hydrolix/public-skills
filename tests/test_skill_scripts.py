@@ -1017,6 +1017,8 @@ class BotInsightsScriptTests(unittest.TestCase):
                 "requests",
                 "--dimensions",
                 "client_asn,bot_class",
+                "--analysis",
+                "policy_displacement",
                 "--min-count",
                 "75",
                 "--limit",
@@ -1029,9 +1031,100 @@ class BotInsightsScriptTests(unittest.TestCase):
 
         self.assertEqual(args.metric, "requests")
         self.assertEqual(args.dimensions, "client_asn,bot_class")
+        self.assertEqual(args.analysis, "policy_displacement")
         self.assertEqual(args.min_count, 75.0)
         self.assertEqual(args.limit, 5)
         self.assertEqual(args.output, "report")
+
+    def test_attribution_policy_displacement_preserves_review_metadata(self) -> None:
+        result = self.attribution.normalize_attribution(
+            {
+                "analysis_type": "policy_displacement",
+                "metric": "requests",
+                "dimensions": ["request_host"],
+                "comparison_type": "post_policy_vs_baseline",
+                "policy_change": {
+                    "name": "block suspicious crawler policy",
+                    "changed_at": "2026-04-15T12:00:00Z",
+                },
+                "target_effect": {
+                    "metric": "blocked_requests",
+                    "direction": "increase",
+                },
+                "table_used": "bot_summary_hour",
+                "rows": [
+                    {
+                        "request_host": "api.example.com",
+                        "current_requests": 700,
+                        "baseline_requests": 300,
+                    },
+                    {
+                        "request_host": "www.example.com",
+                        "current_requests": 200,
+                        "baseline_requests": 500,
+                    },
+                ],
+            }
+        )
+
+        self.assertEqual(result["schema_version"], "bot_attribution_report.v1")
+        self.assertEqual(result["analysis_type"], "policy_displacement")
+        self.assertEqual(result["method"], "policy_displacement_attribution")
+        self.assertEqual(result["policy_change"]["name"], "block suspicious crawler policy")
+        self.assertEqual(result["target_effect"]["metric"], "blocked_requests")
+        self.assertIn("policy_displacement_review", result["confidence_reasons"])
+        self.assertIn(
+            "requires_external_policy_change_evidence",
+            result["interpretation_constraints"],
+        )
+        summary = result["displacement_summary"]
+        self.assertEqual(summary["increase_count"], 1)
+        self.assertEqual(summary["decrease_count"], 1)
+        self.assertEqual(summary["total_positive_delta"], 400)
+        self.assertEqual(summary["total_negative_delta"], -300)
+        self.assertEqual(summary["net_delta"], 100)
+        self.assertEqual(
+            summary["largest_increase"]["values"],
+            {"request_host": "api.example.com"},
+        )
+        self.assertEqual(
+            summary["largest_decrease"]["values"],
+            {"request_host": "www.example.com"},
+        )
+
+    def test_attribution_cli_passes_policy_displacement_analysis(self) -> None:
+        payload = json.dumps(
+            {
+                "rows": [
+                    {
+                        "request_host": "api.example.com",
+                        "current_requests": 700,
+                        "baseline_requests": 300,
+                    }
+                ]
+            }
+        )
+        with mock.patch(
+            "sys.argv",
+            [
+                "attribution.py",
+                "--metric",
+                "requests",
+                "--dimensions",
+                "request_host",
+                "--analysis",
+                "policy_displacement",
+                payload,
+            ],
+        ):
+            with mock.patch("sys.stdout", new=io.StringIO()) as stdout:
+                exit_code = self.attribution.main()
+
+        result = json.loads(stdout.getvalue())
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(result["analysis_type"], "policy_displacement")
+        self.assertEqual(result["method"], "policy_displacement_attribution")
+        self.assertIn("displacement_summary", result)
 
     def test_attribution_preserves_zero_min_count_option(self) -> None:
         result = self.attribution.normalize_attribution(

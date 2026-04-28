@@ -236,6 +236,9 @@ Script support:
 
 - `scripts/compare_posture.py --schema control` preserves
   `collateral_checks` and `displacement_checks`.
+- `scripts/attribution.py --analysis policy_displacement` emits
+  `bot_attribution_report.v1` with a positive/negative displacement summary for
+  retained dimension aggregates.
 - `scripts/scorecard.py` scores policy collateral fields in the
   `policy_collateral` domain for ranked follow-up.
 
@@ -637,5 +640,5 @@ the current supported attribution path remains the simple single-dimension
 | Metric and dimension registries | Reviewed allowlists and alias maps | Documents which metrics are additive, contribution-safe, lifecycle-safe, or display-only. |
 | Timeline reconstruction | Later-phase temporal reconstruction | Shows how movement unfolded across buckets instead of only current versus baseline totals. |
 | Seasonal or rolling baselines | Later-phase baseline methods beyond provided aggregate rows | Adds rolling or seasonal comparison support while preserving explicit baseline semantics. |
-| Advanced displacement attribution | Optional summary of offsetting positive and negative movers across multiple dimensions | Extends current policy collateral/displacement checks into a fuller attribution report when complete retained-dimension evidence exists. |
+| Advanced displacement attribution | Current `scripts/attribution.py --analysis policy_displacement` support | Extends policy collateral/displacement checks into a fuller attribution report with positive and negative movement summaries when retained-dimension aggregate evidence exists. |
 | High-cardinality attribution summaries | Possible summaries such as `bot_agg_asn_path_hour` or `bot_agg_asn_path_day` after cardinality validation | Enables safer ASN-plus-path attribution without raw request-level scans. |

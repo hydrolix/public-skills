@@ -54,9 +54,62 @@ Options:
   `blocked_requests`, or `bot_share_pct`.
 - `--dimensions`: comma-separated dimension columns, such as `client_asn` or
   `request_host,bot_class`.
+- `--analysis policy_displacement`: emit a policy-change displacement review
+  using the same conservative attribution schema.
 - `--min-count`: minimum current and baseline support for medium confidence.
 - `--limit`: optional maximum number of ranked movers in the returned report.
 - `--output report`: the only v1a output mode.
+
+## Policy Displacement Mode
+
+Use policy displacement mode after a known policy, mitigation, cache-key,
+routing, or bot-control change when the question is "where did traffic move?"
+rather than only "did the target metric move?"
+
+```sh
+uv run python skills/bot-insights/scripts/attribution.py \
+  --file aggregate.json \
+  --metric requests \
+  --dimensions request_host,bot_class \
+  --analysis policy_displacement
+```
+
+Inputs remain aggregate current/baseline or before/after rows. Add policy-review
+metadata when available:
+
+```json
+{
+  "analysis_type": "policy_displacement",
+  "metric": "requests",
+  "dimensions": ["request_host"],
+  "comparison_type": "post_policy_vs_baseline",
+  "policy_change": {
+    "name": "block suspicious crawler policy",
+    "changed_at": "2026-04-15T12:00:00Z"
+  },
+  "target_effect": {
+    "metric": "blocked_requests",
+    "direction": "increase"
+  },
+  "rows": [
+    {
+      "request_host": "api.example.com",
+      "current_requests": 700,
+      "baseline_requests": 300
+    }
+  ]
+}
+```
+
+The output still uses `bot_attribution_report.v1`, but sets
+`analysis_type: policy_displacement`, uses
+`method: policy_displacement_attribution`, preserves policy metadata, and adds
+`displacement_summary` with positive delta, negative delta, net delta, largest
+increase, and largest decrease across returned rows.
+
+Policy displacement output is a ranked review queue. It does not prove that the
+policy caused the movement; pair it with external change evidence and collateral
+checks before declaring a policy successful.
 
 ## Accepted Input Shapes
 
