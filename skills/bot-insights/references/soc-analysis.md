@@ -24,6 +24,12 @@ policy-change timelines.
 In SQL templates, replace `<posture_summary_hour>` with `bi_summary_hour` or an
 equivalent metadata-confirmed `bot_summary_hour`.
 
+When producing SOC scorecards, seed the entity population from
+`bi_siem_summary_*` / `bot_siem_summary_*`, not from an Edge/Ops or crawler
+top-N list. Feed those rows to `scripts/scorecard.py` with
+`analysis_domains: ["security_evidence"]` or `--domains security_evidence` so
+only SOC-relevant evidence and missing inputs are evaluated.
+
 ### What Moved — Summary Delta [SOC, Director+]
 
 ```sql

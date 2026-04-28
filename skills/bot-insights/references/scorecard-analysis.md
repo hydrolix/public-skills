@@ -30,16 +30,22 @@ perform forecast, correlation, ML, or opaque classification.
 
 ## Workflow
 
-1. Pick the entity type: `client_asn`, `request_path_norm`, `request_host`,
-   `bot_class`, or `ai_category`.
-2. Start from the narrowest summary table whose retained dimensions fit the
-   entity and requested scope.
+1. Pick the report lens and entity type. Supported entity types are
+   `client_asn`, `request_path_norm`, `request_host`, `bot_class`, or
+   `ai_category`.
+2. Start from the narrowest summary table whose retained dimensions fit that
+   lens, entity, and requested scope. For SOC/security scorecards, seed the
+   entity population from `bi_siem_summary_*`; do not reuse an Edge/Ops,
+   crawler, or posture top-N population unless that is the explicit scope.
 3. Aggregate current and baseline windows in Hydrolix, returning one row per
    entity with scorecard-ready fields.
 4. Add SIEM enrichment only when security action or policy evidence is needed.
 5. Fall back to request-level tables only when required dimensions or features
    are unavailable in summaries, and state the fallback reason.
 6. Run `scripts/scorecard.py` on the aggregate JSON to create reusable packets.
+   Pass `analysis_domains` in the input JSON, or `--domains` on the CLI, when
+   generating a lens-specific scorecard such as `security_evidence` for SOC or
+   `crawler_governance` for crawler reports.
 
 Missing fields are not interpreted as safe behavior. They are emitted in
 `not_evaluated_features` and reflected in confidence reasons such as
@@ -322,7 +328,14 @@ SELECT
   round(sumIf(cnt_429, timestamp >= current_start AND timestamp < current_end) / greatest(current_requests, 1) * 100, 2) AS current_rate_429_pct,
   round(sumIf(cnt_429, timestamp >= baseline_start AND timestamp < baseline_end) / greatest(baseline_requests, 1) * 100, 2) AS baseline_rate_429_pct,
   round(sumIf(cnt_5xx, timestamp >= current_start AND timestamp < current_end) / greatest(current_requests, 1) * 100, 2) AS current_rate_5xx_pct,
-  round(sumIf(cnt_5xx, timestamp >= baseline_start AND timestamp < baseline_end) / greatest(baseline_requests, 1) * 100, 2) AS baseline_rate_5xx_pct
+  round(sumIf(cnt_5xx, timestamp >= baseline_start AND timestamp < baseline_end) / greatest(baseline_requests, 1) * 100, 2) AS baseline_rate_5xx_pct,
+  sumIf(cnt_all, timestamp >= current_start AND timestamp < current_end AND ai_category != '') AS current_ai_crawler_requests,
+  sumIf(cnt_all, timestamp >= baseline_start AND timestamp < baseline_end AND ai_category != '') AS baseline_ai_crawler_requests,
+  sumIf(cnt_429, timestamp >= current_start AND timestamp < current_end AND bot_class IN ('good', 'crawler')) AS good_bot_429_requests,
+  round(
+    sumIf(cnt_5xx, timestamp >= current_start AND timestamp < current_end AND bot_class IN ('good', 'crawler'))
+    / greatest(sumIf(cnt_all, timestamp >= current_start AND timestamp < current_end AND bot_class IN ('good', 'crawler')), 1) * 100, 2
+  ) AS good_bot_error_rate_pct
 FROM <project>.<posture_summary_day>
 WHERE timestamp >= baseline_start
   AND timestamp < current_end
@@ -359,6 +372,104 @@ GROUP BY ai_category
 ORDER BY current_requests DESC
 ```
 
+### Crawler Governance Enrichment
+
+Run this over the same `bi_summary_*` posture table used for the base
+scorecard when the scorecard should support the `crawler_governance` report
+lens. Join the returned fields into the scorecard row by entity before calling
+`scorecard.py`. Preserve zero values; a zero count is evaluated evidence, while
+a missing field becomes `feature_input_missing`.
+
+```sql
+WITH
+  toDateTime('<current_start>') AS current_start,
+  toDateTime('<current_end>') AS current_end,
+  toDateTime('<baseline_start>') AS baseline_start,
+  toDateTime('<baseline_end>') AS baseline_end
+SELECT
+  request_host,
+  sumIf(cnt_all, timestamp >= current_start AND timestamp < current_end AND ai_category != '') AS current_ai_crawler_requests,
+  sumIf(cnt_all, timestamp >= baseline_start AND timestamp < baseline_end AND ai_category != '') AS baseline_ai_crawler_requests,
+  sumIf(cnt_429, timestamp >= current_start AND timestamp < current_end AND bot_class IN ('good', 'crawler')) AS good_bot_429_requests,
+  round(
+    sumIf(cnt_5xx, timestamp >= current_start AND timestamp < current_end AND bot_class IN ('good', 'crawler'))
+    / greatest(sumIf(cnt_all, timestamp >= current_start AND timestamp < current_end AND bot_class IN ('good', 'crawler')), 1) * 100, 2
+  ) AS good_bot_error_rate_pct,
+  0 AS policy_surface_failures
+FROM <project>.<posture_summary_hour>
+WHERE timestamp >= baseline_start
+  AND timestamp < current_end
+GROUP BY request_host
+```
+
+For aggregate-state summary tables such as `akamai.bi_summary_hour`, use the
+metadata-reported merge functions directly, for example
+`countMergeIf(\`count()\`, ...)`, `countIfMergeIf(\`countIf(...429...)\`, ...)`,
+and `countIfMergeIf(\`countIf(...500...)\`, ...)`. The fields emitted to
+`scorecard.py` stay canonical: `current_ai_crawler_requests`,
+`baseline_ai_crawler_requests`, `good_bot_429_requests`,
+`good_bot_error_rate_pct`, and `policy_surface_failures`.
+
+### SOC Security Evidence Scorecards
+
+For SOC triage, start from the SIEM-active population and evaluate only the
+`security_evidence` domain. This prevents a SOC scorecard from inheriting an
+Edge/Ops host list that has no SIEM rows, and it prevents unrelated cache,
+origin, crawler, or policy-collateral inputs from appearing as missing SOC
+evidence. Use `akamai.bi_siem_summary_hour` on the Akamai project unless
+metadata proves a different SIEM summary table is required.
+
+```sql
+WITH
+  toDateTime('<current_start>') AS current_start,
+  toDateTime('<current_end>') AS current_end,
+  toDateTime('<baseline_start>') AS baseline_start,
+  toDateTime('<baseline_end>') AS baseline_end
+SELECT
+  request_host,
+  countMergeIf(`count()`, timestamp >= current_start AND timestamp < current_end) AS current_requests,
+  countMergeIf(`count()`, timestamp >= baseline_start AND timestamp < baseline_end) AS baseline_requests,
+  countIfMergeIf(
+    `countIf(or(equals(action_taken, 'deny'), equals(action_taken, 'block')))`,
+    timestamp >= current_start AND timestamp < current_end
+  ) AS siem_blocked_requests,
+  countIfMergeIf(
+    `countIf(equals(auth_outcome, 'fail'))`,
+    timestamp >= current_start AND timestamp < current_end
+  ) AS siem_auth_fail_requests,
+  0 AS bad_bot_share_pct
+FROM <project>.<siem_summary_hour>
+WHERE timestamp >= baseline_start
+  AND timestamp < current_end
+GROUP BY request_host
+HAVING current_requests > 0 OR siem_blocked_requests > 0 OR siem_auth_fail_requests > 0
+ORDER BY siem_blocked_requests DESC, siem_auth_fail_requests DESC, current_requests DESC
+LIMIT 50
+```
+
+Wrap the rows with lens metadata before running the script:
+
+```json
+{
+  "entity_type": "request_host",
+  "analysis_domains": ["security_evidence"],
+  "table_used": "akamai.bi_siem_summary_hour",
+  "rows": []
+}
+```
+
+Or pass the lens on the CLI:
+
+```bash
+uv run python skills/bot-insights/scripts/scorecard.py \
+  --domains security_evidence \
+  --file /tmp/soc-scorecard-input.json
+```
+
+Replace the `bad_bot_share_pct` placeholder with a posture-summary enrichment
+when bad-bot share is needed for the SOC decision. A zero value is evaluated as
+"not present"; an omitted value is treated as a missing scorecard input.
+
 ### Optional SIEM Enrichment
 
 Run this as an enrichment query when scorecards need security action or policy
@@ -371,9 +482,9 @@ WITH
   toDateTime('<current_end>') AS current_end
 SELECT
   client_asn,
-  sum(cnt_all) AS siem_requests,
-  sum(cnt_blocked) AS siem_blocked_requests,
-  sum(cnt_auth_fail) AS siem_auth_fail_requests
+  countMerge(`count()`) AS siem_requests,
+  countIfMerge(`countIf(or(equals(action_taken, 'deny'), equals(action_taken, 'block')))`) AS siem_blocked_requests,
+  countIfMerge(`countIf(equals(auth_outcome, 'fail'))`) AS siem_auth_fail_requests
 FROM <project>.<siem_summary_hour>
 WHERE timestamp >= current_start
   AND timestamp < current_end

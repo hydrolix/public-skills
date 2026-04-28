@@ -4770,6 +4770,88 @@ class BotInsightsScriptTests(unittest.TestCase):
         self.assertIn("interpretation_constraints", result["index"])
         self.assertIn("rule_based_scorecard", card["interpretation_constraints"])
 
+    def test_scorecard_crawler_governance_zero_inputs_are_evaluated(self) -> None:
+        result = self.scorecard.build_artifacts(
+            {
+                "entity_type": "request_host",
+                "table_used": "akamai.bi_summary_hour",
+                "rows": [
+                    {
+                        "request_host": "docs.hydrolix.io",
+                        "current_requests": 1243,
+                        "baseline_requests": 1307,
+                        "current_rate_429_pct": 0,
+                        "baseline_rate_429_pct": 0,
+                        "current_rate_5xx_pct": 0,
+                        "baseline_rate_5xx_pct": 0,
+                        "current_ai_crawler_requests": 50,
+                        "baseline_ai_crawler_requests": 84,
+                        "good_bot_429_requests": 0,
+                        "good_bot_error_rate_pct": 0,
+                        "policy_surface_failures": 0,
+                    }
+                ],
+            }
+        )
+
+        card = result["scorecards"][0]
+        missing_names = {
+            feature["name"]
+            for feature in card["not_evaluated_features"]
+            if feature["domain"] == "crawler_governance"
+        }
+        self.assertFalse(
+            {
+                "ai_crawler_growth_high",
+                "good_bot_429_present",
+                "good_bot_error_rate_high",
+                "policy_surface_failure_present",
+                "rate_429_delta_high",
+                "rate_5xx_delta_high",
+            }
+            & missing_names
+        )
+        self.assertIn("summary_table_used", card["confidence_reasons"])
+
+    def test_scorecard_soc_lens_uses_security_domain_only(self) -> None:
+        result = self.scorecard.build_artifacts(
+            {
+                "entity_type": "request_host",
+                "analysis_domains": ["security_evidence"],
+                "table_used": "akamai.bi_siem_summary_hour",
+                "rows": [
+                    {
+                        "request_host": "akamai.appsec.work",
+                        "current_requests": 500,
+                        "baseline_requests": 300,
+                        "siem_blocked_requests": 0,
+                        "siem_auth_fail_requests": 12,
+                        "bad_bot_share_pct": 0,
+                    }
+                ],
+            }
+        )
+
+        card = result["scorecards"][0]
+        self.assertEqual(card["analysis_domains"], ["security_evidence"])
+        self.assertEqual(result["index"]["analysis_domains"], ["security_evidence"])
+        self.assertEqual(card["primary_domain"], "security_evidence")
+        self.assertEqual(card["domain_scores"]["security_evidence"], 12)
+        self.assertEqual(card["features"][0]["name"], "siem_auth_fail_present")
+        self.assertFalse(card["not_evaluated_features"])
+        self.assertNotIn("feature_input_missing", card["confidence_reasons"])
+        self.assertNotIn("siem_unavailable", card["confidence_reasons"])
+
+    def test_scorecard_rejects_unknown_analysis_domain(self) -> None:
+        with self.assertRaisesRegex(ValueError, "unsupported domains"):
+            self.scorecard.build_artifacts(
+                {
+                    "entity_type": "request_host",
+                    "analysis_domains": ["security_evidence", "not_a_domain"],
+                    "rows": [{"request_host": "www.example.com"}],
+                }
+            )
+
     def test_scorecard_includes_window_metadata(self) -> None:
         result = self.scorecard.build_artifacts(
             {

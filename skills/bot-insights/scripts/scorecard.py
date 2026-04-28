@@ -136,6 +136,14 @@ def parse_args() -> argparse.Namespace:
         help="Optional maximum number of scorecards and ranked index entries.",
     )
     parser.add_argument(
+        "--domains",
+        help=(
+            "Optional comma-separated scorecard domains to evaluate, such as "
+            "security_evidence for SOC or crawler_governance for crawler reports. "
+            "Defaults to all domains."
+        ),
+    )
+    parser.add_argument(
         "--output",
         choices=("all", "scorecards", "index"),
         default="all",
@@ -440,10 +448,35 @@ def metadata_from(value: Any) -> dict[str, Any]:
         "contribution_basis",
         "rowset_scope",
         "feature_provenance",
+        "analysis_domains",
     ):
         if key in value:
             metadata[key] = value[key]
     return json_safe(metadata)
+
+
+def normalize_analysis_domains(value: Any) -> tuple[str, ...]:
+    if value is None or value == "":
+        return tuple(DOMAINS)
+    if isinstance(value, str):
+        candidates = [item.strip() for item in value.split(",")]
+    elif isinstance(value, list):
+        candidates = [str(item).strip() for item in value]
+    elif isinstance(value, tuple):
+        candidates = [str(item).strip() for item in value]
+    else:
+        raise ValueError("analysis_domains must be a list or comma-separated string.")
+
+    domains = tuple(dict.fromkeys(item for item in candidates if item))
+    invalid = [domain for domain in domains if domain not in DOMAINS]
+    if invalid:
+        raise ValueError(
+            "analysis_domains contains unsupported domains: "
+            + ", ".join(invalid)
+            + ". Supported domains: "
+            + ", ".join(DOMAINS)
+        )
+    return domains or tuple(DOMAINS)
 
 
 def prepared_rows(value: Any, entity_type: str | None = None) -> tuple[list[dict[str, Any]], str]:
@@ -988,6 +1021,7 @@ def confidence(
     metadata: dict[str, Any],
     not_evaluated: list[dict[str, Any]],
     min_count: float,
+    analysis_domains: tuple[str, ...],
 ) -> tuple[str, list[str]]:
     reasons: list[str] = []
     table_used = metadata_text(metadata.get("table_used", ""))
@@ -1019,7 +1053,7 @@ def confidence(
         reasons.append("zero_baseline_guard")
     if metadata.get("source_coverage_caveat") or metadata.get("source_caveats"):
         reasons.append("source_coverage_caveat")
-    if not siem_inputs_available(row):
+    if "security_evidence" in analysis_domains and not siem_inputs_available(row):
         reasons.append("siem_unavailable")
     if not_evaluated:
         reasons.append("feature_input_missing")
@@ -1075,14 +1109,16 @@ def score_entity(
     entity_type: str,
     metadata: dict[str, Any],
     min_count: float = 100.0,
+    analysis_domains: tuple[str, ...] | None = None,
 ) -> dict[str, Any]:
+    active_domains = analysis_domains or tuple(DOMAINS)
     features: list[dict[str, Any]] = []
     not_evaluated: list[dict[str, Any]] = []
     for evaluator in FEATURE_EVALUATORS:
         feature, missing = evaluator(row)
-        if feature is not None:
+        if feature is not None and feature.get("domain") in active_domains:
             features.append(feature)
-        if missing is not None:
+        if missing is not None and missing.get("domain") in active_domains:
             not_evaluated.append(missing)
 
     domain_scores = {domain: 0 for domain in DOMAINS}
@@ -1096,7 +1132,7 @@ def score_entity(
     if nonzero_domains:
         primary_domain = sorted(nonzero_domains, key=lambda item: (-item[1], item[0]))[0][0]
 
-    label, reasons = confidence(row, metadata, not_evaluated, min_count)
+    label, reasons = confidence(row, metadata, not_evaluated, min_count, active_domains)
     scorecard = {
         "schema_version": SCORECARD_SCHEMA,
         "entity_type": entity_type,
@@ -1117,6 +1153,8 @@ def score_entity(
         "confidence_reasons": reasons,
         "interpretation_constraints": INTERPRETATION_CONSTRAINTS,
     }
+    if active_domains != tuple(DOMAINS):
+        scorecard["analysis_domains"] = list(active_domains)
     if "current_window" in metadata:
         scorecard["current_window"] = json_safe(metadata["current_window"])
     if "baseline_windows" in metadata:
@@ -1209,6 +1247,8 @@ def build_index(
         ],
         "interpretation_constraints": INTERPRETATION_CONSTRAINTS,
     }
+    if "analysis_domains" in metadata:
+        index["analysis_domains"] = json_safe(metadata["analysis_domains"])
     index.update(limit_metadata(total, len(ranked), limit))
     if "current_window" in metadata:
         index["current_window"] = json_safe(metadata["current_window"])
@@ -1261,6 +1301,7 @@ def build_artifacts(
     entity_type: str | None = None,
     min_count: float = 100.0,
     limit: int = 0,
+    analysis_domains: tuple[str, ...] | list[str] | str | None = None,
     scorecard_trusted_context: Any = None,
 ) -> dict[str, Any]:
     validate_advanced_scorecard_input_boundary(
@@ -1272,6 +1313,11 @@ def build_artifacts(
         validate_rowset_scope(metadata["rowset_scope"], "rowset_scope")
     if "feature_provenance" in metadata:
         validate_feature_provenance(metadata["feature_provenance"], "feature_provenance")
+    active_domains = normalize_analysis_domains(
+        analysis_domains if analysis_domains is not None else metadata.get("analysis_domains")
+    )
+    if active_domains != tuple(DOMAINS):
+        metadata["analysis_domains"] = list(active_domains)
     rows, inferred_entity_type = prepared_rows(value, entity_type)
     if inferred_entity_type not in SUPPORTED_ENTITY_TYPES:
         raise ValueError(
@@ -1281,7 +1327,7 @@ def build_artifacts(
     rows = [dict(row) for row in rows]
     add_contribution_percentages(rows, metadata)
     scorecards = [
-        score_entity(row, inferred_entity_type, metadata, min_count)
+        score_entity(row, inferred_entity_type, metadata, min_count, active_domains)
         for row in rows
         if entity_value(row, inferred_entity_type) != ""
     ]
@@ -1311,6 +1357,7 @@ def main() -> int:
             entity_type=args.entity_type,
             min_count=args.min_count,
             limit=args.limit,
+            analysis_domains=args.domains,
         )
     except InvalidScorecardInputError as exc:
         print(json.dumps(exc.document, indent=2, sort_keys=True, allow_nan=False))
