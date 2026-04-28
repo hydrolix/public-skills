@@ -16,6 +16,18 @@ JSON and emits:
 The script does not query Hydrolix, open database clients, read credentials, or
 perform forecast, correlation, ML, or opaque classification.
 
+## Contents
+
+- [Workflow](#workflow)
+- [Rowset And Feature Provenance](#rowset-and-feature-provenance)
+- [Producer Limit Metadata](#producer-limit-metadata)
+- [Rule Domains](#rule-domains)
+- [Summary-First Table Selection](#summary-first-table-selection)
+- [Scorecard-Ready Columns](#scorecard-ready-columns)
+- [SQL Templates](#sql-templates)
+- [Example Input](#example-input)
+- [Example Output](#example-output)
+
 ## Workflow
 
 1. Pick the entity type: `client_asn`, `request_path_norm`, `request_host`,
@@ -106,11 +118,13 @@ The MVP actively scores these domains:
 - `crawler_governance`: 429/5xx movement, good bot rate limiting, good bot
   error rate, governance-surface failures, AI crawler growth.
 - `security_evidence`: SIEM blocked/auth-fail evidence and bad bot share.
+- `policy_collateral`: good bot collateral 429s, protected-population error
+  rates, and displacement movement after a policy or control change.
 
-`signal_alignment` and `policy_collateral` are reserved scorecard domains.
-When their inputs are unavailable, do not score them as zero-risk substitutes;
-leave the evidence unevaluated or add explicit feature inputs in a future
-schema revision.
+`signal_alignment` is reserved for future scorecard inputs. When any optional
+domain inputs are unavailable, do not score them as zero-risk substitutes; leave
+the evidence unevaluated or add explicit feature inputs in a future schema
+revision.
 
 ## Summary-First Table Selection
 
@@ -155,6 +169,12 @@ It also accepts current-only fields such as:
 - `siem_blocked_requests`
 - `siem_auth_fail_requests`
 - `bad_bot_share_pct`
+- `good_bot_collateral_429_requests`
+- `policy_collateral_error_rate_pct`
+
+Policy displacement fields should be provided as current/baseline pairs:
+
+- `current_displacement_requests`, `baseline_displacement_requests`
 
 ## SQL Templates
 

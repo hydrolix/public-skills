@@ -807,6 +807,90 @@ def eval_ai_crawler_growth_high(row: dict[str, Any]) -> tuple[dict[str, Any] | N
     return None, None
 
 
+def eval_good_bot_policy_collateral_present(row: dict[str, Any]) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    affected = current_number(
+        row,
+        "good_bot_collateral_429_requests",
+        "collateral_good_bot_429_requests",
+        "policy_collateral_good_bot_429_requests",
+    )
+    if affected is None:
+        return None, missing_feature(
+            "good_bot_policy_collateral_present",
+            "policy_collateral",
+            ["good_bot_collateral_429_requests"],
+        )
+    if affected > 0:
+        return make_feature(
+            "good_bot_policy_collateral_present",
+            "policy_collateral",
+            16,
+            f"Policy collateral check found {clean_number(affected)} good bot 429 responses.",
+            current=affected,
+            threshold=0,
+        ), None
+    return None, None
+
+
+def eval_policy_collateral_error_rate_high(row: dict[str, Any]) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    rate = current_number(
+        row,
+        "policy_collateral_error_rate_pct",
+        "collateral_error_rate_pct",
+        "good_bot_collateral_error_rate_pct",
+    )
+    if rate is None:
+        return None, missing_feature(
+            "policy_collateral_error_rate_high",
+            "policy_collateral",
+            ["policy_collateral_error_rate_pct"],
+        )
+    if rate >= 5:
+        return make_feature(
+            "policy_collateral_error_rate_high",
+            "policy_collateral",
+            12,
+            f"Policy collateral error rate is {clean_number(rate)}%.",
+            current=rate,
+            threshold=5,
+        ), None
+    return None, None
+
+
+def eval_displacement_delta_high(row: dict[str, Any]) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    current, baseline = metric_values(
+        row,
+        (
+            "displacement_requests",
+            "other_scope_requests",
+            "post_policy_displacement_requests",
+        ),
+    )
+    if current is None or baseline is None:
+        return None, missing_feature(
+            "displacement_delta_high",
+            "policy_collateral",
+            ["current_displacement_requests", "baseline_displacement_requests"],
+        )
+    delta = current - baseline
+    change = pct_delta(current, baseline)
+    if delta >= 100 and change >= 50:
+        return make_feature(
+            "displacement_delta_high",
+            "policy_collateral",
+            12,
+            f"Displacement metric increased by {clean_number(delta)} ({clean_number(change)}%).",
+            current=current,
+            baseline=baseline,
+            threshold=100,
+            supporting_metrics={
+                "absolute_delta": clean_number(delta),
+                "pct_change": clean_number(change),
+            },
+        ), None
+    return None, None
+
+
 def eval_siem_blocked_present(row: dict[str, Any]) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
     blocked = current_number(row, "siem_blocked_requests", "cnt_blocked", "blocked_requests")
     if blocked is None:
@@ -874,6 +958,9 @@ FEATURE_EVALUATORS: tuple[FeatureEvaluator, ...] = (
     eval_good_bot_error_rate_high,
     eval_policy_surface_failure_present,
     eval_ai_crawler_growth_high,
+    eval_good_bot_policy_collateral_present,
+    eval_policy_collateral_error_rate_high,
+    eval_displacement_delta_high,
     eval_siem_blocked_present,
     eval_siem_auth_fail_present,
     eval_bad_bot_share_high,
@@ -974,6 +1061,8 @@ def recommended_next_steps(features: list[dict[str, Any]], not_evaluated: list[d
         steps.append("Check good crawler rate limits, 5xx exposure, robots.txt, llms.txt, and sitemap availability.")
     if "security_evidence" in domains:
         steps.append("Enrich with SIEM action, policy, auth-failure, and blocked-request summaries for the same entity.")
+    if "policy_collateral" in domains:
+        steps.append("Review collateral and displacement checks before declaring the policy change successful.")
     if not steps and not_evaluated:
         steps.append("Regenerate aggregate rows with the missing scorecard feature inputs listed in not_evaluated_features.")
     if not steps:

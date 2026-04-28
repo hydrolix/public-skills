@@ -4410,6 +4410,38 @@ class BotInsightsScriptTests(unittest.TestCase):
         self.assertIn("querystring_diversity_high", missing)
         self.assertIn("feature_input_missing", card["confidence_reasons"])
 
+    def test_scorecard_policy_collateral_features(self) -> None:
+        result = self.scorecard.build_artifacts(
+            {
+                "entity_type": "request_host",
+                "table_used": "bot_siem_summary_hour",
+                "rows": [
+                    {
+                        "request_host": "www.example.com",
+                        "current_requests": 5000,
+                        "baseline_requests": 4000,
+                        "good_bot_collateral_429_requests": 42,
+                        "policy_collateral_error_rate_pct": 7,
+                        "current_displacement_requests": 650,
+                        "baseline_displacement_requests": 250,
+                        "siem_blocked_requests": 100,
+                    }
+                ],
+            }
+        )
+
+        card = result["scorecards"][0]
+        features = {feature["name"]: feature for feature in card["features"]}
+        self.assertEqual(card["domain_scores"]["policy_collateral"], 40)
+        self.assertEqual(card["primary_domain"], "policy_collateral")
+        self.assertIn("good_bot_policy_collateral_present", features)
+        self.assertIn("policy_collateral_error_rate_high", features)
+        self.assertIn("displacement_delta_high", features)
+        self.assertIn(
+            "Review collateral and displacement checks before declaring the policy change successful.",
+            card["recommended_next_steps"],
+        )
+
     def test_scorecard_index_ranks_entities_by_score(self) -> None:
         result = self.scorecard.build_artifacts(
             {

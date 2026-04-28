@@ -2,6 +2,15 @@
 
 Bot Insights baseline analytics are for posture movement, program health, and
 control review. They are not a replacement for real-time mitigation consoles.
+
+## Contents
+
+- [Hydrolix Boundary](#hydrolix-boundary)
+- [First-Class Methods](#first-class-methods)
+- [Confidence](#confidence)
+- [Output Schemas](#output-schemas)
+- [SQL Templates](#sql-templates)
+
 Queries should produce aggregate current/baseline rows from Hydrolix summaries;
 local scripts may then compute deterministic deltas and structured outputs.
 

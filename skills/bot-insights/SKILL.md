@@ -34,6 +34,8 @@ Use this skill when the user asks about:
   or rate-limiting impact.
 - Before/after checks for blocks, cache-key changes, rate limits, bot-control
   policies, or security policy changes.
+- Protected-population collateral checks or displacement after a policy,
+  mitigation, or routing change.
 - Bot posture across domains, hosts, ASNs, paths, countries, or CDN sources.
 - Entity prioritization, deterministic scorecards, ranked investigation
   packets, or requests to rank risky/suspicious bot-related entities.
@@ -89,6 +91,16 @@ Key field groups:
 
 Do not read every reference at startup. Load the smallest relevant file:
 
+Use this file as the routing layer, not the full manual. The
+[README.md](README.md) is the human-readable overview of all supported
+analytics; load it when the user asks what the skill can do, needs a product
+or analyst-facing explanation, or wants the complete catalog in prose. For
+execution, pick the narrow reference below and load only that file.
+
+- For a quick inventory of supported analytics and their deterministic support,
+  read [README.md](README.md). It covers posture movement, mover attribution,
+  control review, SOC/security, SEO/crawler governance, Edge/Ops,
+  cache-origin impact, executive posture, and scorecards.
 - For table shape, sources, key fields, and personas, read
   [references/data-model.md](references/data-model.md).
 - For summary inventory, retained dimensions, and summary-first table
@@ -96,6 +108,9 @@ Do not read every reference at startup. Load the smallest relevant file:
 - For quarter-over-quarter, month-over-month, week-over-week, year-over-year,
   seasonal, previous-window, and control-review baselines, read
   [references/baseline-comparison.md](references/baseline-comparison.md).
+- For policy collateral, protected-population side effects, or displacement
+  after a control or policy change, read
+  [references/policy-collateral-analysis.md](references/policy-collateral-analysis.md).
 - For full column inventory, flags, suppressed fields, and source coverage, read
   [references/schema.md](references/schema.md).
 - For SOC/security investigations, deltas, movers, spoofing, attack evidence,
@@ -120,8 +135,26 @@ Do not read every reference at startup. Load the smallest relevant file:
   read [references/executive-analysis.md](references/executive-analysis.md).
 - For rendering saved Bot Insights artifacts into Markdown or self-contained
   HTML reports, read [references/reporting.md](references/reporting.md).
+- For runnable report-rendering demos, use the complete
+  `bot_report_input.v1` wrappers in [examples/](examples/). They cover
+  executive posture, SOC triage, control review, and crawler governance.
 - Before finalizing a query or conclusion, scan
   [references/pitfalls.md](references/pitfalls.md).
+
+## Analysis Routing
+
+| User intent | Load | Deterministic output or workflow |
+|-------------|------|----------------------------------|
+| What changed over a baseline? | `references/baseline-comparison.md` | `bot_posture_movement.v1` via `scripts/compare_posture.py --schema posture` |
+| Which entity drove movement? | `references/baseline-comparison.md`; use `references/advanced-attribution.md` only for advanced aggregate-delta reports | `bot_mover_attribution.v1` or `bot_attribution_report.v1` |
+| Did a known mitigation or policy change work? | `references/baseline-comparison.md` | `bot_control_review.v1` |
+| Did a policy change affect protected traffic or displace traffic? | `references/policy-collateral-analysis.md`; add `references/scorecard-analysis.md` when ranking entities | `collateral_checks`, `displacement_checks`, and `policy_collateral` scorecard features |
+| Suspicious automation, SIEM, spoofing, attack evidence | `references/soc-analysis.md`; add `references/summary-tables.md` when choosing tables | Summary-backed SOC queries, SIEM enrichment, or scorecard-ready rows |
+| Crawler availability, good bot health, AI crawler governance | `references/seo-analysis.md` | SEO/crawler governance query patterns and scorecard-ready rows |
+| Cache busting, cache misses, origin pressure | `references/cache-origin-impact.md` for structured detector output; otherwise `references/edge-ops-analysis.md` | `cache_origin_impact_report.v1` or Edge/Ops query evidence |
+| Executive posture, routing across teams, mitigation verification | `references/executive-analysis.md`; add `references/reporting.md` for final report rendering | Executive posture artifacts and rendered reports |
+| Rank entities for handoff or repeated triage | `references/scorecard-analysis.md` | `bot_entity_scorecard.v1` and `bot_scorecard_index.v1` |
+| Render saved artifacts | `references/reporting.md` | Markdown or self-contained HTML from `scripts/render_report.py` |
 
 ## Triage Flow
 
@@ -204,6 +237,9 @@ Do not read every reference at startup. Load the smallest relevant file:
 - [references/baseline-comparison.md](references/baseline-comparison.md):
   comparison methods, granularity selection, confidence reasons, output schemas,
   and SQL templates.
+- [references/policy-collateral-analysis.md](references/policy-collateral-analysis.md):
+  protected-population collateral checks, displacement checks, and scorecard
+  inputs for policy-change safety reviews.
 - [references/schema.md](references/schema.md): full schema with type, flags,
   and source coverage.
 - [references/soc-analysis.md](references/soc-analysis.md): SOC and security
@@ -245,16 +281,4 @@ Do not read every reference at startup. Load the smallest relevant file:
 - [scripts/render_report.py](scripts/render_report.py): render existing Bot
   Insights artifacts or `bot_report_input.v1` wrappers into Markdown or
   self-contained HTML reports.
-
-## Script List
-
-- `scripts/compare_delta.py`: simple current/baseline numeric deltas.
-- `scripts/compare_posture.py`: posture movement, legacy/simple mover
-  attribution, and control-review packets.
-- `scripts/attribution.py`: advanced aggregate-delta attribution reports.
-- `scripts/scorecard.py`: reusable entity scorecards and ranked scorecard
-  index from aggregate JSON.
-- `scripts/cache_origin_impact.py`: cache-busting and origin-impact candidate
-  reports from already-aggregated path rows.
-- `scripts/render_report.py`: dependency-free report renderer for existing
-  Bot Insights artifacts.
+- [examples/](examples/): complete report-rendering demo payloads.

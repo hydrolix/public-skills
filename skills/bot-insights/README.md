@@ -10,6 +10,22 @@ analyst can connect automation identity to operational impact: who the traffic
 appears to be, whether that claim is credible, what the traffic is doing, and
 whether it is affecting cache, origin, SEO, or security posture.
 
+## How To Use These Docs
+
+This README is the human-facing manual for Bot Insights analytics. It explains
+what each analysis is for, the main formulas, what the outputs mean, and where
+to go next.
+
+`SKILL.md` is the agent routing file. It intentionally stays shorter and points
+agents to the smallest relevant reference instead of loading every schema,
+query pattern, and example at once. The detailed runbooks in `references/`
+remain the source of truth for SQL templates, input contracts, output schemas,
+confidence rules, and renderer behavior.
+
+If you are deciding which analysis to run, start with the catalog below. If you
+are building or validating a specific artifact, open the linked reference for
+that artifact family.
+
 ## Overview
 
 The Bot Insights tooling is not limited to the analyses listed below. Analysts
@@ -28,6 +44,7 @@ same kind of aggregate evidence and documented calculation rules.
 | Posture movement | [Posture Movement](#posture-movement) | Current/baseline formulas, `bot_posture_movement.v1`, confidence reasons | What changed for a scope over a comparable baseline. |
 | Mover attribution | [Mover Attribution](#mover-attribution) | Single-dimension current/baseline delta and contribution math, `bot_mover_attribution.v1` | Which ASN, host, path, class, category, policy, or action drove movement. |
 | Control review | [Control Review](#control-review) | Before/after or after/expected formulas, `bot_control_review.v1` | Whether a known policy or control change behaved as expected. |
+| Policy collateral and displacement | [Policy Collateral And Displacement](#policy-collateral-and-displacement) | Collateral/displacement checks plus `policy_collateral` scorecard features | Whether a policy change affected protected traffic or shifted traffic elsewhere. |
 | SOC and security | [SOC And Security Analysis](#soc-and-security-analysis) | Summary-backed movement, SIEM metrics, raw fallback rules for exact evidence | Suspicious automation, spoofing, attack evidence, and incident follow-up. |
 | SEO and crawler governance | [SEO And Crawler Governance](#seo-and-crawler-governance) | Crawler health formulas, good bot and AI crawler summary patterns, raw fallback rules for owner verification | Good crawler availability, AI crawler monitoring, and governance surfaces. |
 | Edge and operations | [Edge And Operations Analysis](#edge-and-operations-analysis) | Cache, query-string diversity, origin latency, and origin cost proxy formulas | Cache busting, origin pressure, latency, and byte/cost investigations. |
@@ -192,6 +209,35 @@ Script support:
 
 - `scripts/compare_posture.py --schema control` emits
   `bot_control_review.v1`.
+
+### Policy Collateral And Displacement
+
+Policy collateral analysis answers "did the policy change create side effects
+or shift traffic elsewhere?" It extends control review beyond the intended
+target metric.
+
+Common checks:
+
+- good bot 429s or 5xx after a block or rate-limit change
+- governance-surface failures for `robots.txt`, `llms.txt`, or sitemaps
+- cache miss rate or origin p95 after a cache-key or bot-control change
+- displacement to another host, path, ASN, bot class, CDN source, SIEM policy,
+  or action outcome
+
+What it means:
+
+Target effects are not enough to declare success. A policy can move the target
+metric while increasing protected-traffic errors or shifting traffic to a
+different retained segment. Treat collateral and displacement results as a
+review queue unless external change evidence and follow-up investigation
+support a stronger conclusion.
+
+Script support:
+
+- `scripts/compare_posture.py --schema control` preserves
+  `collateral_checks` and `displacement_checks`.
+- `scripts/scorecard.py` scores policy collateral fields in the
+  `policy_collateral` domain for ranked follow-up.
 
 ### SOC And Security Analysis
 
@@ -470,11 +516,11 @@ Scored domains:
 - `cache_busting`
 - `crawler_governance`
 - `security_evidence`
+- `policy_collateral`
 
 Reserved domains:
 
 - `signal_alignment`
-- `policy_collateral`
 
 Score calculation:
 
@@ -516,6 +562,9 @@ Scorecard rules:
 | `siem_blocked_present` | security_evidence | 12 | SIEM blocked requests are greater than 0. |
 | `siem_auth_fail_present` | security_evidence | 12 | SIEM auth failures are greater than 0. |
 | `bad_bot_share_high` | security_evidence | 14 | Bad bot share is at least 50%. |
+| `good_bot_policy_collateral_present` | policy_collateral | 16 | Good bot collateral 429 request count is greater than 0. |
+| `policy_collateral_error_rate_high` | policy_collateral | 12 | Policy collateral error rate is at least 5%. |
+| `displacement_delta_high` | policy_collateral | 12 | Displacement requests increase by at least 100 and at least 50%. |
 
 Missing scorecard inputs are emitted in `not_evaluated_features`; they are not
 scored as safe, zero-risk, or zero-impact. Contribution percentages are only
@@ -556,6 +605,8 @@ Script support:
   `references/cache-origin-impact.md`.
 - Baseline packet schemas and comparison rules:
   `references/baseline-comparison.md`.
+- Policy collateral and displacement review:
+  `references/policy-collateral-analysis.md`.
 - Scorecard input/output schemas and templates:
   `references/scorecard-analysis.md`.
 - Summary table inventory: `references/summary-tables.md`.
@@ -586,5 +637,5 @@ the current supported attribution path remains the simple single-dimension
 | Metric and dimension registries | Reviewed allowlists and alias maps | Documents which metrics are additive, contribution-safe, lifecycle-safe, or display-only. |
 | Timeline reconstruction | Later-phase temporal reconstruction | Shows how movement unfolded across buckets instead of only current versus baseline totals. |
 | Seasonal or rolling baselines | Later-phase baseline methods beyond provided aggregate rows | Adds rolling or seasonal comparison support while preserving explicit baseline semantics. |
-| Displacement candidate summary | Optional summary of offsetting positive and negative movers | Helps identify traffic that may have moved from one entity to another after a control or routing change. |
+| Advanced displacement attribution | Optional summary of offsetting positive and negative movers across multiple dimensions | Extends current policy collateral/displacement checks into a fuller attribution report when complete retained-dimension evidence exists. |
 | High-cardinality attribution summaries | Possible summaries such as `bot_agg_asn_path_hour` or `bot_agg_asn_path_day` after cardinality validation | Enables safer ASN-plus-path attribution without raw request-level scans. |

@@ -1,5 +1,19 @@
 # bot-insights — SOC Analysis Patterns
 
+## Contents
+
+- [Analysis Patterns](#analysis-patterns)
+- [What Moved - Summary Delta](#what-moved--summary-delta-soc-director)
+- [Mover Attribution](#mover-attribution-soc)
+- [Raw Fallback - Newly Seen Entities](#raw-fallback--newly-seen-entities-soc)
+- [SOC Evidence - Behavioral Fingerprint](#soc-evidence--behavioral-fingerprint-soc)
+- [Bot Classification Deep Dive](#bot-classification-deep-dive-soc)
+- [Spoof Detection - Three-Signal Verification](#spoof-detection--three-signal-verification-soc)
+- [Akamai vs. Hydrolix Signal Alignment](#akamai-vs-hydrolix-signal-alignment-soc-director)
+- [Verified vs. Unverified Bots](#verified-vs-unverified-bots-soc-seo)
+- [Attack Data Analysis](#attack-data-analysis-soc)
+- [Bad Bot Behavior Patterns](#bad-bot-behavior-patterns-soc-edgeops)
+
 ## Analysis Patterns
 
 SOC analysis remains available for short-window investigation, but the first

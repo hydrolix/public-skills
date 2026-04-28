@@ -11,6 +11,16 @@ bot-attributable cache-miss candidate. It must not claim causality, classify
 traffic with opaque models, recommend mitigations, or treat proxy origin
 pressure as a billing or capacity unit.
 
+## Contents
+
+- [V1 Scope](#v1-scope)
+- [Input Contract](#input-contract)
+- [Standalone Script Example](#standalone-script-example)
+- [Output Shape](#output-shape)
+- [Confidence Boundary](#confidence-boundary)
+- [Summary SQL Template Guidance](#summary-sql-template-guidance)
+- [Tight Raw Fallback](#tight-raw-fallback)
+
 ## V1 Scope
 
 V1 is path-grain only. Produce one combined candidate list for one host scope,
