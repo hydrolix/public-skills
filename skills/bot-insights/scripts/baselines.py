@@ -171,7 +171,7 @@ def confidence(
     if summary_table_used:
         reasons.append("summary_table_used")
     else:
-        reasons.append("raw_table_fallback")
+        reasons.append("request_level_query")
 
     if context.get("missing_retained_dimension"):
         reasons.append("missing_retained_dimension")
@@ -183,8 +183,8 @@ def confidence(
         comparable = True
     if comparable:
         reasons.append("comparable_windows_available")
-    if context.get("fallback_baseline_selected"):
-        reasons.append("fallback_baseline_selected")
+    if context.get("substitute_baseline_selected"):
+        reasons.append("substitute_baseline_selected")
 
     granularity_match = comparison_granularity_matches(comparison_type, granularity)
     if granularity_match is True:
@@ -214,7 +214,7 @@ def confidence(
         reasons.append("source_coverage_caveat")
 
     low_reasons = {
-        "raw_table_fallback",
+        "request_level_query",
         "missing_retained_dimension",
         "granularity_mismatch",
         "sparse_counts",
@@ -222,7 +222,7 @@ def confidence(
     }
     if any(reason in reasons for reason in low_reasons) or not comparable:
         label = "low"
-    elif "fallback_baseline_selected" in reasons or "source_coverage_caveat" in reasons:
+    elif "substitute_baseline_selected" in reasons or "source_coverage_caveat" in reasons:
         label = "medium"
     else:
         label = "high"

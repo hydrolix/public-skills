@@ -400,34 +400,42 @@ SUMMARY_TABLE_CATALOG.update(
         ("minute", "hour", "day", "month"),
         (
             "request_host",
-            "hdx_cdn",
-            "bot_class",
-            "ai_category",
-            "is_bot_traffic",
             "client_asn",
-            "asn_type",
+            "user_agent_category",
+            "is_bot_traffic",
+            "ai_category",
+            "ai_source",
+            "traffic_cohort",
             "resource_category",
             "request_method",
+            "cache_was_cached",
+            "response_status_code",
+            "request_path_pattern",
+            "client_country_iso_code",
         ),
         parent="bot_detection",
     )
 )
 SUMMARY_TABLE_CATALOG.update(
     table_family(
-        "bot_summary",
+        "bi_siem_policy_summary",
         ("minute", "hour", "day"),
         (
             "request_host",
-            "hdx_cdn",
-            "bot_class",
-            "ai_category",
-            "is_bot_traffic",
             "client_asn",
-            "asn_type",
+            "user_agent_category",
+            "is_bot_traffic",
+            "ai_category",
+            "ai_source",
             "resource_category",
             "request_method",
+            "response_status_code",
+            "client_country_iso_code",
+            "policy_id",
+            "action_class",
+            "bot_type",
         ),
-        parent="bot_detection",
+        parent="bot_detection_siem",
     )
 )
 SUMMARY_TABLE_CATALOG["bot_agg_hour"] = {
@@ -470,64 +478,28 @@ SUMMARY_TABLE_CATALOG.update(
         parent="bot_detection",
     )
 )
-SUMMARY_TABLE_CATALOG.update(
-    table_family(
-        "bi_siem_summary",
-        ("minute", "hour", "day"),
-        ("request_host", "action_taken", "client_asn", "policy_id"),
-        parent="bot_detection_siem",
-    )
-)
-SUMMARY_TABLE_CATALOG.update(
-    table_family(
-        "bi_summary_siem",
-        ("minute", "hour", "day"),
-        ("request_host", "action_taken", "client_asn", "policy_id"),
-        parent="bot_detection_siem",
-    )
-)
-SUMMARY_TABLE_CATALOG.update(
-    table_family(
-        "bot_siem_summary",
-        ("minute", "hour", "day"),
-        ("request_host", "action_taken", "client_asn", "policy_id"),
-        parent="bot_detection_siem",
-    )
-)
-SUMMARY_TABLE_CATALOG.update(
-    table_family(
-        "bot_siem_filter_summary",
-        ("minute", "hour", "day"),
-        (
-            "request_host",
-            "client_asn",
-            "is_bot_traffic",
-            "ai_category",
-            "resource_category",
-        ),
-        parent="bot_detection_siem",
-    )
-)
-SUMMARY_TABLE_CATALOG.update(
-    table_family(
-        "bot_siem_class",
-        ("minute", "hour", "day"),
-        ("request_host", "client_asn", "akamai_canonical_bot_class"),
-        parent="bot_detection_siem",
-    )
-)
-
 SUMMARY_FILTER_ALWAYS_RETAINED = {"timestamp"}
 
 FIELD_NAME_ALIASES = {
     "timestamp": ("timestamp", "reqTimeSec"),
-    "request_host": ("request_host", "reqHost"),
+    "request_host": ("request_host", "reqHost", "host"),
     "client_asn": ("client_asn", "asn"),
     "client_country_iso_code": ("client_country_iso_code", "country"),
     "client_city": ("client_city", "city"),
-    "response_status_code": ("response_status_code", "statusCode"),
+    "response_status_code": ("response_status_code", "statusCode", "status"),
     "response_total_bytes": ("response_total_bytes", "totalBytes"),
     "cache_was_cached": ("cache_was_cached", "cacheStatus"),
+    "is_bot_traffic": ("is_bot_traffic", "isBotTraffic"),
+    "ai_category": ("ai_category", "aiCategory"),
+    "ai_source": ("ai_source", "aiSource"),
+    "traffic_cohort": ("traffic_cohort", "trafficCohort"),
+    "resource_category": ("resource_category", "resourceCategory"),
+    "request_method": ("request_method", "reqMethod", "method"),
+    "user_agent_category": ("user_agent_category", "userAgentCategory"),
+    "request_path_pattern": ("request_path_pattern", "requestPathPattern"),
+    "policy_id": ("policy_id", "policyId"),
+    "action_class": ("action_class", "actionClass"),
+    "bot_type": ("bot_type", "botType"),
 }
 
 CONTRIBUTION_REQUIRED_METADATA = [
@@ -1205,7 +1177,7 @@ TRUSTED_EVIDENCE_TYPES = {
     "zero_fill_evidence",
     "provided_contribution_evidence",
     "complete_rowset_evidence",
-    "raw_fallback_coverage_evidence",
+    "request_level_coverage_evidence",
     "duplicate_aggregation_evidence",
 }
 
@@ -1549,8 +1521,8 @@ def validate_specific_evidence_fields(
         if evidence.get("grouped_scope_complete") is not True or evidence.get("all_grouped_rows_returned") is not True:
             append_once(reasons, "trusted_evidence_mismatch")
             valid = False
-    elif evidence_type == "raw_fallback_coverage_evidence":
-        if evidence.get("coverage_reviewed") is not True and evidence.get("raw_fallback_coverage_reviewed") is not True:
+    elif evidence_type == "request_level_coverage_evidence":
+        if evidence.get("coverage_reviewed") is not True and evidence.get("request_level_coverage_reviewed") is not True:
             append_once(reasons, "trusted_evidence_mismatch")
             valid = False
     elif evidence_type == "duplicate_aggregation_evidence":
@@ -3578,7 +3550,7 @@ def normalize_attribution(input_doc: Any, trusted_context: Any = None, *, option
     if summary_table_used is True:
         report_reasons.add("summary_table_used")
     elif summary_table_used is False:
-        report_reasons.add("raw_table_fallback")
+        report_reasons.add("request_level_query")
     summary_validation = normalized.get("summary_validation")
     if summary_validation and summary_validation["supported"]:
         report_reasons.add("summary_dimension_set_supported")
@@ -3670,7 +3642,7 @@ def normalize_attribution(input_doc: Any, trusted_context: Any = None, *, option
     if (
         saw_sparse
         or "metadata_poor_input" in report_reasons
-        or "raw_table_fallback" in report_reasons
+        or "request_level_query" in report_reasons
         or "lifecycle_support_missing" in report_reasons
         or "unsupported_summary_dimension_set" in report_reasons
         or "unsupported_summary_filter" in report_reasons

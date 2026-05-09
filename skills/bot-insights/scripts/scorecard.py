@@ -167,17 +167,14 @@ def validate_rowset_scope(scope: Any, context: str) -> dict[str, Any]:
         population = scope["population"]
         if not isinstance(population, str) or population not in ALLOWED_POPULATIONS:
             raise ValueError(
-                f"{context}.population must be one of "
-                + ", ".join(ALLOWED_POPULATIONS)
+                f"{context}.population must be one of " + ", ".join(ALLOWED_POPULATIONS)
             )
     return json_safe(scope)
 
 
 def validate_feature_provenance(provenance: Any, context: str) -> dict[str, Any]:
     if not isinstance(provenance, dict):
-        raise ValueError(
-            f"{context} must be a JSON object keyed by feature name"
-        )
+        raise ValueError(f"{context} must be a JSON object keyed by feature name")
     for feature_name, entry in provenance.items():
         if not isinstance(feature_name, str) or not feature_name:
             raise ValueError(f"{context} keys must be non-empty feature name strings")
@@ -185,7 +182,9 @@ def validate_feature_provenance(provenance: Any, context: str) -> dict[str, Any]
         if not isinstance(entry, dict):
             raise ValueError(f"{entry_context} must be a JSON object")
         if "rowset_scope" in entry:
-            validate_rowset_scope(entry["rowset_scope"], f"{entry_context}.rowset_scope")
+            validate_rowset_scope(
+                entry["rowset_scope"], f"{entry_context}.rowset_scope"
+            )
         if "metric_inputs" in entry:
             metric_inputs = entry["metric_inputs"]
             if not isinstance(metric_inputs, list) or not all(
@@ -285,7 +284,13 @@ def result_rows(value: Any) -> list[dict[str, Any]]:
     converted: list[dict[str, Any]] = []
     for row in rows:
         if isinstance(row, list):
-            converted.append({name: row[index] for index, name in enumerate(names) if index < len(row)})
+            converted.append(
+                {
+                    name: row[index]
+                    for index, name in enumerate(names)
+                    if index < len(row)
+                }
+            )
     return converted
 
 
@@ -347,8 +352,7 @@ def merge_period_metadata(
         return
     if combined[field] != value:
         raise ValueError(
-            "Period-split rows for "
-            f"{entity_type}={entity} must not disagree on {field}"
+            f"Period-split rows for {entity_type}={entity} must not disagree on {field}"
         )
 
 
@@ -390,7 +394,9 @@ def count_values(row: dict[str, Any]) -> tuple[float | None, float | None]:
     return current, baseline
 
 
-def combine_period_rows(rows: list[dict[str, Any]], entity_type: str) -> list[dict[str, Any]]:
+def combine_period_rows(
+    rows: list[dict[str, Any]], entity_type: str
+) -> list[dict[str, Any]]:
     grouped: dict[tuple[str, str], dict[str, Any]] = {}
     saw_period = False
     saw_non_period = False
@@ -401,8 +407,16 @@ def combine_period_rows(rows: list[dict[str, Any]], entity_type: str) -> list[di
             saw_non_period = True
             continue
         saw_period = True
-        normalized_period = "current" if period == "after" else "baseline" if period == "before" else period
-        row_entity_type = infer_entity_type(row, entity_type if entity_type != "value" else None)
+        normalized_period = (
+            "current"
+            if period == "after"
+            else "baseline"
+            if period == "before"
+            else period
+        )
+        row_entity_type = infer_entity_type(
+            row, entity_type if entity_type != "value" else None
+        )
         entity = entity_value(row, row_entity_type)
         key = (row_entity_type, entity)
         combined = grouped.setdefault(key, {row_entity_type: entity})
@@ -433,7 +447,11 @@ def combine_period_rows(rows: list[dict[str, Any]], entity_type: str) -> list[di
 def metadata_from(value: Any) -> dict[str, Any]:
     if not isinstance(value, dict):
         return {}
-    metadata = dict(value.get("confidence_context", {}) if isinstance(value.get("confidence_context"), dict) else {})
+    metadata = dict(
+        value.get("confidence_context", {})
+        if isinstance(value.get("confidence_context"), dict)
+        else {}
+    )
     for key in (
         "scope",
         "comparison_type",
@@ -479,7 +497,9 @@ def normalize_analysis_domains(value: Any) -> tuple[str, ...]:
     return domains or tuple(DOMAINS)
 
 
-def prepared_rows(value: Any, entity_type: str | None = None) -> tuple[list[dict[str, Any]], str]:
+def prepared_rows(
+    value: Any, entity_type: str | None = None
+) -> tuple[list[dict[str, Any]], str]:
     rows = result_rows(value)
     if not rows and isinstance(value, dict):
         rows = [value]
@@ -497,7 +517,9 @@ def prepared_rows(value: Any, entity_type: str | None = None) -> tuple[list[dict
     return rows, inferred
 
 
-def metric_values(row: dict[str, Any], metric: tuple[str, ...]) -> tuple[float | None, float | None]:
+def metric_values(
+    row: dict[str, Any], metric: tuple[str, ...]
+) -> tuple[float | None, float | None]:
     return current_number(row, *metric), baseline_number(row, *metric)
 
 
@@ -529,7 +551,30 @@ def make_feature(
     return feature
 
 
-def missing_feature(name: str, domain: str, missing_inputs: list[str]) -> dict[str, Any]:
+def evaluated_zero_feature(
+    name: str,
+    domain: str,
+    *,
+    current: float | None = None,
+    baseline: float | None = None,
+    threshold: float | None = None,
+    supporting_metrics: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return make_feature(
+        name,
+        domain,
+        0,
+        "Rule evaluated below threshold.",
+        current=current,
+        baseline=baseline,
+        threshold=threshold,
+        supporting_metrics=supporting_metrics,
+    )
+
+
+def missing_feature(
+    name: str, domain: str, missing_inputs: list[str]
+) -> dict[str, Any]:
     return {
         "name": name,
         "domain": domain,
@@ -538,10 +583,14 @@ def missing_feature(name: str, domain: str, missing_inputs: list[str]) -> dict[s
     }
 
 
-def eval_new_entity(row: dict[str, Any]) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+def eval_new_entity(
+    row: dict[str, Any],
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
     current, baseline = count_values(row)
     if current is None or baseline is None:
-        return None, missing_feature("new_entity", "movement", ["current_requests", "baseline_requests"])
+        return None, missing_feature(
+            "new_entity", "movement", ["current_requests", "baseline_requests"]
+        )
     if baseline < 1 and current > 0:
         return make_feature(
             "new_entity",
@@ -552,13 +601,23 @@ def eval_new_entity(row: dict[str, Any]) -> tuple[dict[str, Any] | None, dict[st
             baseline=baseline,
             threshold=1,
         ), None
-    return None, None
+    return evaluated_zero_feature(
+        "new_entity",
+        "movement",
+        current=current,
+        baseline=baseline,
+        threshold=1,
+    ), None
 
 
-def eval_volume_delta_high(row: dict[str, Any]) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+def eval_volume_delta_high(
+    row: dict[str, Any],
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
     current, baseline = count_values(row)
     if current is None or baseline is None:
-        return None, missing_feature("volume_delta_high", "movement", ["current_requests", "baseline_requests"])
+        return None, missing_feature(
+            "volume_delta_high", "movement", ["current_requests", "baseline_requests"]
+        )
     delta = current - baseline
     change = pct_delta(current, baseline)
     if delta >= 100 and change >= 100:
@@ -570,13 +629,30 @@ def eval_volume_delta_high(row: dict[str, Any]) -> tuple[dict[str, Any] | None, 
             current=current,
             baseline=baseline,
             threshold=100,
-            supporting_metrics={"absolute_delta": clean_number(delta), "pct_change": clean_number(change)},
+            supporting_metrics={
+                "absolute_delta": clean_number(delta),
+                "pct_change": clean_number(change),
+            },
         ), None
-    return None, None
+    return evaluated_zero_feature(
+        "volume_delta_high",
+        "movement",
+        current=current,
+        baseline=baseline,
+        threshold=100,
+        supporting_metrics={
+            "absolute_delta": clean_number(delta),
+            "pct_change": clean_number(change),
+        },
+    ), None
 
 
-def eval_contribution_to_total_delta_high(row: dict[str, Any]) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
-    contribution = first_number(row, ("contribution_pct", "contribution_to_total_delta_pct"))
+def eval_contribution_to_total_delta_high(
+    row: dict[str, Any],
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    contribution = first_number(
+        row, ("contribution_pct", "contribution_to_total_delta_pct")
+    )
     if contribution is None:
         return None, missing_feature(
             "contribution_to_total_delta_high",
@@ -592,13 +668,24 @@ def eval_contribution_to_total_delta_high(row: dict[str, Any]) -> tuple[dict[str
             current=contribution,
             threshold=20,
         ), None
-    return None, None
+    return evaluated_zero_feature(
+        "contribution_to_total_delta_high",
+        "movement",
+        current=contribution,
+        threshold=20,
+    ), None
 
 
-def eval_bot_share_delta_high(row: dict[str, Any]) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+def eval_bot_share_delta_high(
+    row: dict[str, Any],
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
     current, baseline = metric_values(row, ("bot_share_pct", "bot_pct"))
     if current is None or baseline is None:
-        return None, missing_feature("bot_share_delta_high", "movement", ["current_bot_share_pct", "baseline_bot_share_pct"])
+        return None, missing_feature(
+            "bot_share_delta_high",
+            "movement",
+            ["current_bot_share_pct", "baseline_bot_share_pct"],
+        )
     delta = current - baseline
     if delta >= 10:
         return make_feature(
@@ -611,18 +698,30 @@ def eval_bot_share_delta_high(row: dict[str, Any]) -> tuple[dict[str, Any] | Non
             threshold=10,
             supporting_metrics={"absolute_delta_points": clean_number(delta)},
         ), None
-    return None, None
+    return evaluated_zero_feature(
+        "bot_share_delta_high",
+        "movement",
+        current=current,
+        baseline=baseline,
+        threshold=10,
+        supporting_metrics={"absolute_delta_points": clean_number(delta)},
+    ), None
 
 
-def eval_cache_miss_rate_high(row: dict[str, Any]) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+def eval_cache_miss_rate_high(
+    row: dict[str, Any],
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
     current = current_number(row, "cache_miss_pct", "miss_rate_pct")
+    baseline = baseline_number(row, "cache_miss_pct", "miss_rate_pct")
     if current is None:
         misses = current_number(row, "cache_misses", "cnt_cache_miss")
         requests, _ = count_values(row)
         if misses is not None and requests and requests > 0:
             current = misses / requests * 100.0
     if current is None:
-        return None, missing_feature("cache_miss_rate_high", "cache_busting", ["cache_miss_pct"])
+        return None, missing_feature(
+            "cache_miss_rate_high", "cache_busting", ["cache_miss_pct"]
+        )
     if current >= 50:
         return make_feature(
             "cache_miss_rate_high",
@@ -630,15 +729,36 @@ def eval_cache_miss_rate_high(row: dict[str, Any]) -> tuple[dict[str, Any] | Non
             10,
             f"Cache miss rate is {clean_number(current)}%.",
             current=current,
+            baseline=baseline,
             threshold=50,
+            supporting_metrics={
+                "absolute_delta_points": clean_number(current - baseline)
+            }
+            if baseline is not None
+            else None,
         ), None
-    return None, None
+    return evaluated_zero_feature(
+        "cache_miss_rate_high",
+        "cache_busting",
+        current=current,
+        baseline=baseline,
+        threshold=50,
+        supporting_metrics={"absolute_delta_points": clean_number(current - baseline)}
+        if baseline is not None
+        else None,
+    ), None
 
 
-def eval_cache_miss_delta_high(row: dict[str, Any]) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+def eval_cache_miss_delta_high(
+    row: dict[str, Any],
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
     current, baseline = metric_values(row, ("cache_miss_pct", "miss_rate_pct"))
     if current is None or baseline is None:
-        return None, missing_feature("cache_miss_delta_high", "cache_busting", ["current_cache_miss_pct", "baseline_cache_miss_pct"])
+        return None, missing_feature(
+            "cache_miss_delta_high",
+            "cache_busting",
+            ["current_cache_miss_pct", "baseline_cache_miss_pct"],
+        )
     delta = current - baseline
     if delta >= 15:
         return make_feature(
@@ -651,13 +771,28 @@ def eval_cache_miss_delta_high(row: dict[str, Any]) -> tuple[dict[str, Any] | No
             threshold=15,
             supporting_metrics={"absolute_delta_points": clean_number(delta)},
         ), None
-    return None, None
+    return evaluated_zero_feature(
+        "cache_miss_delta_high",
+        "cache_busting",
+        current=current,
+        baseline=baseline,
+        threshold=15,
+        supporting_metrics={"absolute_delta_points": clean_number(delta)},
+    ), None
 
 
-def eval_origin_p95_delta_high(row: dict[str, Any]) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
-    current, baseline = metric_values(row, ("origin_p95_ms", "p95_origin_ttfb", "origin_p95_ttfb_ms"))
+def eval_origin_p95_delta_high(
+    row: dict[str, Any],
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    current, baseline = metric_values(
+        row, ("origin_p95_ms", "p95_origin_ttfb", "origin_p95_ttfb_ms")
+    )
     if current is None or baseline is None:
-        return None, missing_feature("origin_p95_delta_high", "origin_impact", ["current_origin_p95_ms", "baseline_origin_p95_ms"])
+        return None, missing_feature(
+            "origin_p95_delta_high",
+            "origin_impact",
+            ["current_origin_p95_ms", "baseline_origin_p95_ms"],
+        )
     delta = current - baseline
     change = pct_delta(current, baseline)
     if delta >= 100 and change >= 25:
@@ -669,15 +804,36 @@ def eval_origin_p95_delta_high(row: dict[str, Any]) -> tuple[dict[str, Any] | No
             current=current,
             baseline=baseline,
             threshold=100,
-            supporting_metrics={"absolute_delta_ms": clean_number(delta), "pct_change": clean_number(change)},
+            supporting_metrics={
+                "absolute_delta_ms": clean_number(delta),
+                "pct_change": clean_number(change),
+            },
         ), None
-    return None, None
+    return evaluated_zero_feature(
+        "origin_p95_delta_high",
+        "origin_impact",
+        current=current,
+        baseline=baseline,
+        threshold=100,
+        supporting_metrics={
+            "absolute_delta_ms": clean_number(delta),
+            "pct_change": clean_number(change),
+        },
+    ), None
 
 
-def eval_origin_cost_contribution_high(row: dict[str, Any]) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
-    contribution = current_number(row, "origin_cost_contribution_pct", "origin_cost_pct")
+def eval_origin_cost_contribution_high(
+    row: dict[str, Any],
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    contribution = current_number(
+        row, "origin_cost_contribution_pct", "origin_cost_pct"
+    )
     if contribution is None:
-        return None, missing_feature("origin_cost_contribution_high", "origin_impact", ["origin_cost_contribution_pct"])
+        return None, missing_feature(
+            "origin_cost_contribution_high",
+            "origin_impact",
+            ["origin_cost_contribution_pct"],
+        )
     if contribution >= 20:
         return make_feature(
             "origin_cost_contribution_high",
@@ -687,13 +843,22 @@ def eval_origin_cost_contribution_high(row: dict[str, Any]) -> tuple[dict[str, A
             current=contribution,
             threshold=20,
         ), None
-    return None, None
+    return evaluated_zero_feature(
+        "origin_cost_contribution_high",
+        "origin_impact",
+        current=contribution,
+        threshold=20,
+    ), None
 
 
-def eval_querystring_diversity_high(row: dict[str, Any]) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+def eval_querystring_diversity_high(
+    row: dict[str, Any],
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
     ratio = current_number(row, "qs_diversity_ratio", "querystring_diversity_ratio")
     if ratio is None:
-        return None, missing_feature("querystring_diversity_high", "cache_busting", ["qs_diversity_ratio"])
+        return None, missing_feature(
+            "querystring_diversity_high", "cache_busting", ["qs_diversity_ratio"]
+        )
     if ratio >= 0.5:
         return make_feature(
             "querystring_diversity_high",
@@ -703,10 +868,17 @@ def eval_querystring_diversity_high(row: dict[str, Any]) -> tuple[dict[str, Any]
             current=ratio,
             threshold=0.5,
         ), None
-    return None, None
+    return evaluated_zero_feature(
+        "querystring_diversity_high",
+        "cache_busting",
+        current=ratio,
+        threshold=0.5,
+    ), None
 
 
-def eval_querystring_diversity_with_high_miss_rate(row: dict[str, Any]) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+def eval_querystring_diversity_with_high_miss_rate(
+    row: dict[str, Any],
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
     ratio = current_number(row, "qs_diversity_ratio", "querystring_diversity_ratio")
     miss_rate = current_number(row, "cache_miss_pct", "miss_rate_pct")
     if ratio is None or miss_rate is None:
@@ -715,7 +887,9 @@ def eval_querystring_diversity_with_high_miss_rate(row: dict[str, Any]) -> tuple
             missing.append("qs_diversity_ratio")
         if miss_rate is None:
             missing.append("cache_miss_pct")
-        return None, missing_feature("querystring_diversity_with_high_miss_rate", "cache_busting", missing)
+        return None, missing_feature(
+            "querystring_diversity_with_high_miss_rate", "cache_busting", missing
+        )
     if ratio >= 0.5 and miss_rate >= 50:
         return make_feature(
             "querystring_diversity_with_high_miss_rate",
@@ -724,15 +898,33 @@ def eval_querystring_diversity_with_high_miss_rate(row: dict[str, Any]) -> tuple
             f"High query-string diversity coincides with {clean_number(miss_rate)}% cache misses.",
             current=ratio,
             threshold=0.5,
-            supporting_metrics={"cache_miss_pct": clean_number(miss_rate), "cache_miss_threshold": 50},
+            supporting_metrics={
+                "cache_miss_pct": clean_number(miss_rate),
+                "cache_miss_threshold": 50,
+            },
         ), None
-    return None, None
+    return evaluated_zero_feature(
+        "querystring_diversity_with_high_miss_rate",
+        "cache_busting",
+        current=ratio,
+        threshold=0.5,
+        supporting_metrics={
+            "cache_miss_pct": clean_number(miss_rate),
+            "cache_miss_threshold": 50,
+        },
+    ), None
 
 
-def eval_rate_429_delta_high(row: dict[str, Any]) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+def eval_rate_429_delta_high(
+    row: dict[str, Any],
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
     current, baseline = metric_values(row, ("rate_429_pct", "rate_limited_pct"))
     if current is None or baseline is None:
-        return None, missing_feature("rate_429_delta_high", "crawler_governance", ["current_rate_429_pct", "baseline_rate_429_pct"])
+        return None, missing_feature(
+            "rate_429_delta_high",
+            "crawler_governance",
+            ["current_rate_429_pct", "baseline_rate_429_pct"],
+        )
     delta = current - baseline
     if delta >= 5:
         return make_feature(
@@ -745,13 +937,26 @@ def eval_rate_429_delta_high(row: dict[str, Any]) -> tuple[dict[str, Any] | None
             threshold=5,
             supporting_metrics={"absolute_delta_points": clean_number(delta)},
         ), None
-    return None, None
+    return evaluated_zero_feature(
+        "rate_429_delta_high",
+        "crawler_governance",
+        current=current,
+        baseline=baseline,
+        threshold=5,
+        supporting_metrics={"absolute_delta_points": clean_number(delta)},
+    ), None
 
 
-def eval_rate_5xx_delta_high(row: dict[str, Any]) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+def eval_rate_5xx_delta_high(
+    row: dict[str, Any],
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
     current, baseline = metric_values(row, ("rate_5xx_pct", "error_5xx_pct"))
     if current is None or baseline is None:
-        return None, missing_feature("rate_5xx_delta_high", "crawler_governance", ["current_rate_5xx_pct", "baseline_rate_5xx_pct"])
+        return None, missing_feature(
+            "rate_5xx_delta_high",
+            "crawler_governance",
+            ["current_rate_5xx_pct", "baseline_rate_5xx_pct"],
+        )
     delta = current - baseline
     if delta >= 5:
         return make_feature(
@@ -764,13 +969,26 @@ def eval_rate_5xx_delta_high(row: dict[str, Any]) -> tuple[dict[str, Any] | None
             threshold=5,
             supporting_metrics={"absolute_delta_points": clean_number(delta)},
         ), None
-    return None, None
+    return evaluated_zero_feature(
+        "rate_5xx_delta_high",
+        "crawler_governance",
+        current=current,
+        baseline=baseline,
+        threshold=5,
+        supporting_metrics={"absolute_delta_points": clean_number(delta)},
+    ), None
 
 
-def eval_good_bot_429_present(row: dict[str, Any]) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
-    good_429 = current_number(row, "good_bot_429_requests", "good_bot_rate_limited_429", "good_bot_429")
+def eval_good_bot_429_present(
+    row: dict[str, Any],
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    good_429 = current_number(
+        row, "good_bot_429_requests", "good_bot_rate_limited_429", "good_bot_429"
+    )
     if good_429 is None:
-        return None, missing_feature("good_bot_429_present", "crawler_governance", ["good_bot_429_requests"])
+        return None, missing_feature(
+            "good_bot_429_present", "crawler_governance", ["good_bot_429_requests"]
+        )
     if good_429 > 0:
         return make_feature(
             "good_bot_429_present",
@@ -780,13 +998,24 @@ def eval_good_bot_429_present(row: dict[str, Any]) -> tuple[dict[str, Any] | Non
             current=good_429,
             threshold=0,
         ), None
-    return None, None
+    return evaluated_zero_feature(
+        "good_bot_429_present",
+        "crawler_governance",
+        current=good_429,
+        threshold=0,
+    ), None
 
 
-def eval_good_bot_error_rate_high(row: dict[str, Any]) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+def eval_good_bot_error_rate_high(
+    row: dict[str, Any],
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
     rate = current_number(row, "good_bot_error_rate_pct", "good_bot_errors_pct")
     if rate is None:
-        return None, missing_feature("good_bot_error_rate_high", "crawler_governance", ["good_bot_error_rate_pct"])
+        return None, missing_feature(
+            "good_bot_error_rate_high",
+            "crawler_governance",
+            ["good_bot_error_rate_pct"],
+        )
     if rate >= 5:
         return make_feature(
             "good_bot_error_rate_high",
@@ -796,10 +1025,17 @@ def eval_good_bot_error_rate_high(row: dict[str, Any]) -> tuple[dict[str, Any] |
             current=rate,
             threshold=5,
         ), None
-    return None, None
+    return evaluated_zero_feature(
+        "good_bot_error_rate_high",
+        "crawler_governance",
+        current=rate,
+        threshold=5,
+    ), None
 
 
-def eval_policy_surface_failure_present(row: dict[str, Any]) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+def eval_policy_surface_failure_present(
+    row: dict[str, Any],
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
     failures = current_number(
         row,
         "policy_surface_failures",
@@ -807,7 +1043,11 @@ def eval_policy_surface_failure_present(row: dict[str, Any]) -> tuple[dict[str, 
         "robots_llms_failures",
     )
     if failures is None:
-        return None, missing_feature("policy_surface_failure_present", "crawler_governance", ["policy_surface_failures"])
+        return None, missing_feature(
+            "policy_surface_failure_present",
+            "crawler_governance",
+            ["policy_surface_failures"],
+        )
     if failures > 0:
         return make_feature(
             "policy_surface_failure_present",
@@ -817,13 +1057,26 @@ def eval_policy_surface_failure_present(row: dict[str, Any]) -> tuple[dict[str, 
             current=failures,
             threshold=0,
         ), None
-    return None, None
+    return evaluated_zero_feature(
+        "policy_surface_failure_present",
+        "crawler_governance",
+        current=failures,
+        threshold=0,
+    ), None
 
 
-def eval_ai_crawler_growth_high(row: dict[str, Any]) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
-    current, baseline = metric_values(row, ("ai_crawler_requests", "ai_requests", "ai_crawler_share_pct"))
+def eval_ai_crawler_growth_high(
+    row: dict[str, Any],
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    current, baseline = metric_values(
+        row, ("ai_crawler_requests", "ai_requests", "ai_crawler_share_pct")
+    )
     if current is None or baseline is None:
-        return None, missing_feature("ai_crawler_growth_high", "crawler_governance", ["current_ai_crawler_requests", "baseline_ai_crawler_requests"])
+        return None, missing_feature(
+            "ai_crawler_growth_high",
+            "crawler_governance",
+            ["current_ai_crawler_requests", "baseline_ai_crawler_requests"],
+        )
     delta = current - baseline
     change = pct_delta(current, baseline)
     if delta > 0 and change >= 100:
@@ -835,12 +1088,27 @@ def eval_ai_crawler_growth_high(row: dict[str, Any]) -> tuple[dict[str, Any] | N
             current=current,
             baseline=baseline,
             threshold=100,
-            supporting_metrics={"absolute_delta": clean_number(delta), "pct_change": clean_number(change)},
+            supporting_metrics={
+                "absolute_delta": clean_number(delta),
+                "pct_change": clean_number(change),
+            },
         ), None
-    return None, None
+    return evaluated_zero_feature(
+        "ai_crawler_growth_high",
+        "crawler_governance",
+        current=current,
+        baseline=baseline,
+        threshold=100,
+        supporting_metrics={
+            "absolute_delta": clean_number(delta),
+            "pct_change": clean_number(change),
+        },
+    ), None
 
 
-def eval_good_bot_policy_collateral_present(row: dict[str, Any]) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+def eval_good_bot_policy_collateral_present(
+    row: dict[str, Any],
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
     affected = current_number(
         row,
         "good_bot_collateral_429_requests",
@@ -864,10 +1132,17 @@ def eval_good_bot_policy_collateral_present(row: dict[str, Any]) -> tuple[dict[s
             current=affected,
             threshold=0,
         ), None
-    return None, None
+    return evaluated_zero_feature(
+        "good_bot_policy_collateral_present",
+        "policy_collateral",
+        current=affected,
+        threshold=0,
+    ), None
 
 
-def eval_policy_collateral_error_rate_high(row: dict[str, Any]) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+def eval_policy_collateral_error_rate_high(
+    row: dict[str, Any],
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
     rate = current_number(
         row,
         "policy_collateral_error_rate_pct",
@@ -891,7 +1166,12 @@ def eval_policy_collateral_error_rate_high(row: dict[str, Any]) -> tuple[dict[st
             current=rate,
             threshold=5,
         ), None
-    return None, None
+    return evaluated_zero_feature(
+        "policy_collateral_error_rate_high",
+        "policy_collateral",
+        current=rate,
+        threshold=5,
+    ), None
 
 
 def displacement_inputs_present(row: dict[str, Any]) -> bool:
@@ -904,9 +1184,15 @@ def displacement_inputs_present(row: dict[str, Any]) -> bool:
     return any(key in row for key in keys)
 
 
-def eval_displacement_delta_high(row: dict[str, Any]) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+def eval_displacement_delta_high(
+    row: dict[str, Any],
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
     if not displacement_inputs_present(row):
-        return None, None
+        return None, missing_feature(
+            "displacement_delta_high",
+            "policy_collateral",
+            ["current_displacement_requests", "baseline_displacement_requests"],
+        )
     current, baseline = metric_values(
         row,
         (
@@ -937,13 +1223,29 @@ def eval_displacement_delta_high(row: dict[str, Any]) -> tuple[dict[str, Any] | 
                 "pct_change": clean_number(change),
             },
         ), None
-    return None, None
+    return evaluated_zero_feature(
+        "displacement_delta_high",
+        "policy_collateral",
+        current=current,
+        baseline=baseline,
+        threshold=100,
+        supporting_metrics={
+            "absolute_delta": clean_number(delta),
+            "pct_change": clean_number(change),
+        },
+    ), None
 
 
-def eval_siem_blocked_present(row: dict[str, Any]) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
-    blocked = current_number(row, "siem_blocked_requests", "cnt_blocked", "blocked_requests")
+def eval_siem_blocked_present(
+    row: dict[str, Any],
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    blocked = current_number(
+        row, "siem_blocked_requests", "cnt_blocked", "blocked_requests"
+    )
     if blocked is None:
-        return None, missing_feature("siem_blocked_present", "security_evidence", ["siem_blocked_requests"])
+        return None, missing_feature(
+            "siem_blocked_present", "security_evidence", ["siem_blocked_requests"]
+        )
     if blocked > 0:
         return make_feature(
             "siem_blocked_present",
@@ -953,13 +1255,24 @@ def eval_siem_blocked_present(row: dict[str, Any]) -> tuple[dict[str, Any] | Non
             current=blocked,
             threshold=0,
         ), None
-    return None, None
+    return evaluated_zero_feature(
+        "siem_blocked_present",
+        "security_evidence",
+        current=blocked,
+        threshold=0,
+    ), None
 
 
-def eval_siem_auth_fail_present(row: dict[str, Any]) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
-    failures = current_number(row, "siem_auth_fail_requests", "cnt_auth_fail", "auth_fail_requests")
+def eval_siem_auth_fail_present(
+    row: dict[str, Any],
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    failures = current_number(
+        row, "siem_auth_fail_requests", "cnt_auth_fail", "auth_fail_requests"
+    )
     if failures is None:
-        return None, missing_feature("siem_auth_fail_present", "security_evidence", ["siem_auth_fail_requests"])
+        return None, missing_feature(
+            "siem_auth_fail_present", "security_evidence", ["siem_auth_fail_requests"]
+        )
     if failures > 0:
         return make_feature(
             "siem_auth_fail_present",
@@ -969,13 +1282,22 @@ def eval_siem_auth_fail_present(row: dict[str, Any]) -> tuple[dict[str, Any] | N
             current=failures,
             threshold=0,
         ), None
-    return None, None
+    return evaluated_zero_feature(
+        "siem_auth_fail_present",
+        "security_evidence",
+        current=failures,
+        threshold=0,
+    ), None
 
 
-def eval_bad_bot_share_high(row: dict[str, Any]) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+def eval_bad_bot_share_high(
+    row: dict[str, Any],
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
     share = current_number(row, "bad_bot_share_pct", "bad_bot_pct")
     if share is None:
-        return None, missing_feature("bad_bot_share_high", "security_evidence", ["bad_bot_share_pct"])
+        return None, missing_feature(
+            "bad_bot_share_high", "security_evidence", ["bad_bot_share_pct"]
+        )
     if share >= 50:
         return make_feature(
             "bad_bot_share_high",
@@ -985,10 +1307,17 @@ def eval_bad_bot_share_high(row: dict[str, Any]) -> tuple[dict[str, Any] | None,
             current=share,
             threshold=50,
         ), None
-    return None, None
+    return evaluated_zero_feature(
+        "bad_bot_share_high",
+        "security_evidence",
+        current=share,
+        threshold=50,
+    ), None
 
 
-FeatureEvaluator = Callable[[dict[str, Any]], tuple[dict[str, Any] | None, dict[str, Any] | None]]
+FeatureEvaluator = Callable[
+    [dict[str, Any]], tuple[dict[str, Any] | None, dict[str, Any] | None]
+]
 
 FEATURE_EVALUATORS: tuple[FeatureEvaluator, ...] = (
     eval_new_entity,
@@ -1015,17 +1344,66 @@ FEATURE_EVALUATORS: tuple[FeatureEvaluator, ...] = (
     eval_bad_bot_share_high,
 )
 
+BASELINE_POINT_IN_TIME_EVALUATORS: tuple[FeatureEvaluator, ...] = (
+    eval_cache_miss_rate_high,
+    eval_origin_cost_contribution_high,
+    eval_querystring_diversity_high,
+    eval_querystring_diversity_with_high_miss_rate,
+    eval_good_bot_429_present,
+    eval_good_bot_error_rate_high,
+    eval_policy_surface_failure_present,
+    eval_good_bot_policy_collateral_present,
+    eval_policy_collateral_error_rate_high,
+    eval_siem_blocked_present,
+    eval_siem_auth_fail_present,
+    eval_bad_bot_share_high,
+)
+
+BASELINE_SCORE_DELTA_BASIS = (
+    "Baseline score is recomputed from baseline-period point-in-time rule inputs; "
+    "rules requiring pre-baseline delta inputs are excluded."
+)
+
 
 def score_band(score: int) -> str:
-    if score >= 80:
+    if score <= 20:
         return "urgent_review"
-    if score >= 60:
+    if score <= 40:
         return "high_review"
-    if score >= 40:
+    if score <= 60:
         return "medium_review"
-    if score >= 20:
+    if score <= 80:
         return "low_review"
     return "observe"
+
+
+def baseline_period_row(row: dict[str, Any]) -> dict[str, Any]:
+    baseline: dict[str, Any] = {}
+    for key, value in row.items():
+        if key == "baseline":
+            baseline["current"] = value
+        elif key.startswith("baseline_"):
+            baseline[f"current_{key.removeprefix('baseline_')}"] = value
+        elif key.endswith("_baseline"):
+            baseline[f"{key.removesuffix('_baseline')}_current"] = value
+        elif key.startswith("baseline."):
+            baseline[f"current.{key.removeprefix('baseline.')}"] = value
+    return baseline
+
+
+def baseline_score(row: dict[str, Any], active_domains: tuple[str, ...]) -> int:
+    features: list[dict[str, Any]] = []
+    baseline_row = baseline_period_row(row)
+    for evaluator in BASELINE_POINT_IN_TIME_EVALUATORS:
+        feature, _missing = evaluator(baseline_row)
+        if (
+            feature is not None
+            and feature.get("domain") in active_domains
+            and int(feature.get("points") or 0) > 0
+        ):
+            features.append(feature)
+    risk_points = min(100, sum(int(feature["points"]) for feature in features))
+    return 100 - risk_points
 
 
 def siem_inputs_available(row: dict[str, Any]) -> bool:
@@ -1043,13 +1421,15 @@ def confidence(
     table_used = metadata_text(metadata.get("table_used", ""))
     summary_table_used = metadata.get("summary_table_used")
     if summary_table_used is None:
-        summary_table_used = bool(table_used and table_used not in {"bot_detection", "bot_detection_siem"})
+        summary_table_used = bool(
+            table_used and table_used not in {"bot_detection", "bot_detection_siem"}
+        )
 
     if summary_table_used:
         reasons.append("summary_table_used")
         reasons.append("retained_dimensions_fit")
     else:
-        reasons.append("raw_table_fallback")
+        reasons.append("request_level_query")
 
     current_count, baseline_count = count_values(row)
     sparse = False
@@ -1074,10 +1454,14 @@ def confidence(
     if not_evaluated:
         reasons.append("feature_input_missing")
 
-    low_reasons = {"raw_table_fallback", "sparse_counts"}
+    low_reasons = {"request_level_query", "sparse_counts"}
     if any(reason in reasons for reason in low_reasons):
         label = "low"
-    elif "source_coverage_caveat" in reasons or "siem_unavailable" in reasons or "feature_input_missing" in reasons:
+    elif (
+        "source_coverage_caveat" in reasons
+        or "siem_unavailable" in reasons
+        or "feature_input_missing" in reasons
+    ):
         label = "medium"
     else:
         label = "high"
@@ -1085,11 +1469,15 @@ def confidence(
     return label, reasons
 
 
-def evidence_summary(features: list[dict[str, Any]], not_evaluated: list[dict[str, Any]]) -> list[str]:
+def evidence_summary(
+    features: list[dict[str, Any]], not_evaluated: list[dict[str, Any]]
+) -> list[str]:
     if not features:
         summary = ["No evaluated scorecard rules crossed their thresholds."]
     else:
-        ordered = sorted(features, key=lambda item: (-int(item["points"]), item["name"]))
+        ordered = sorted(
+            features, key=lambda item: (-int(item["points"]), item["name"])
+        )
         summary = [str(feature["evidence"]) for feature in ordered[:5]]
     if not_evaluated:
         summary.append(
@@ -1098,26 +1486,136 @@ def evidence_summary(features: list[dict[str, Any]], not_evaluated: list[dict[st
     return summary
 
 
-def recommended_next_steps(features: list[dict[str, Any]], not_evaluated: list[dict[str, Any]]) -> list[str]:
+def recommended_next_steps(
+    features: list[dict[str, Any]], not_evaluated: list[dict[str, Any]]
+) -> list[dict[str, str]]:
+    """Recommended next steps as ``{"summary", "detail"}`` pairs.
+
+    ``summary`` is a director-readable imperative (~10 words); ``detail`` is
+    the analyst-grade text. Consumers pick the form that fits their lens —
+    executive summaries pull ``summary``, full action sections render
+    ``detail``.
+    """
     domains = {str(feature["domain"]) for feature in features}
-    steps: list[str] = []
+    steps: list[dict[str, str]] = []
     if "movement" in domains:
-        steps.append("Review mover attribution for the same scope and confirm comparable current/baseline windows.")
+        steps.append(
+            {
+                "summary": "Investigate the mover attribution.",
+                "detail": (
+                    "Review mover attribution for the same scope and confirm "
+                    "comparable current/baseline windows."
+                ),
+            }
+        )
     if "cache_busting" in domains:
-        steps.append("Inspect query-string diversity, cache-key behavior, and cache miss concentration by host and path.")
+        steps.append(
+            {
+                "summary": "Audit query-string and cache-key behavior.",
+                "detail": (
+                    "Inspect query-string diversity, cache-key behavior, and "
+                    "cache miss concentration by host and path."
+                ),
+            }
+        )
     if "origin_impact" in domains:
-        steps.append("Break down origin cost proxy by path, host, ASN, and bot class before changing origin-facing controls.")
+        steps.append(
+            {
+                "summary": "Break down origin cost by path and host.",
+                "detail": (
+                    "Break down origin cost proxy by path, host, ASN, and bot "
+                    "class before changing origin-facing controls."
+                ),
+            }
+        )
     if "crawler_governance" in domains:
-        steps.append("Check good crawler rate limits, 5xx exposure, robots.txt, llms.txt, and sitemap availability.")
+        steps.append(
+            {
+                "summary": "Check good-crawler limits and policy surfaces.",
+                "detail": (
+                    "Check good crawler rate limits, 5xx exposure, robots.txt, "
+                    "llms.txt, and sitemap availability."
+                ),
+            }
+        )
     if "security_evidence" in domains:
-        steps.append("Enrich with SIEM action, policy, auth-failure, and blocked-request summaries for the same entity.")
+        steps.append(
+            {
+                "summary": "Pull SIEM action and policy summaries for the entity.",
+                "detail": (
+                    "Enrich with SIEM action, policy, auth-failure, and "
+                    "blocked-request summaries for the same entity."
+                ),
+            }
+        )
     if "policy_collateral" in domains:
-        steps.append("Review collateral and displacement checks before declaring the policy change successful.")
+        steps.append(
+            {
+                "summary": "Check for policy displacement and collateral.",
+                "detail": (
+                    "Review collateral and displacement checks before declaring "
+                    "the policy change successful."
+                ),
+            }
+        )
     if not steps and not_evaluated:
-        steps.append("Regenerate aggregate rows with the missing scorecard feature inputs listed in not_evaluated_features.")
+        steps.append(
+            {
+                "summary": "Regenerate with the missing feature inputs.",
+                "detail": (
+                    "Regenerate aggregate rows with the missing scorecard "
+                    "feature inputs listed in not_evaluated_features."
+                ),
+            }
+        )
     if not steps:
-        steps.append("Continue observing with summary-table aggregates and compare against the next baseline window.")
+        steps.append(
+            {
+                "summary": "Continue observing.",
+                "detail": (
+                    "Continue observing with summary-table aggregates and "
+                    "compare against the next baseline window."
+                ),
+            }
+        )
     return steps
+
+
+def _entity_metrics(row: dict[str, Any]) -> dict[str, Any]:
+    """Project request volume and origin-impact signals from a row.
+
+    Pure projection — no recomputation. Every field is ``None`` when the
+    corresponding key is absent from the source row, so downstream views
+    can render "missing" rather than fabricating zeros.
+    """
+    current_requests, baseline_requests = count_values(row)
+    current_cache_misses = current_number(row, "cache_misses", "cnt_cache_miss")
+    current_cache_miss_pct, baseline_cache_miss_pct = metric_values(
+        row, ("cache_miss_pct", "miss_rate_pct")
+    )
+    if (
+        current_cache_miss_pct is None
+        and current_cache_misses is not None
+        and current_requests
+    ):
+        current_cache_miss_pct = current_cache_misses / current_requests * 100.0
+    current_origin_p95_ms, baseline_origin_p95_ms = metric_values(
+        row, ("origin_p95_ms", "p95_origin_ttfb", "origin_p95_ttfb_ms")
+    )
+    current_5xx_pct, baseline_5xx_pct = metric_values(
+        row, ("rate_5xx_pct", "error_5xx_pct")
+    )
+    return {
+        "current_requests": clean_number(current_requests),
+        "baseline_requests": clean_number(baseline_requests),
+        "current_cache_misses": clean_number(current_cache_misses),
+        "current_cache_miss_pct": clean_number(current_cache_miss_pct),
+        "baseline_cache_miss_pct": clean_number(baseline_cache_miss_pct),
+        "current_origin_p95_ms": clean_number(current_origin_p95_ms),
+        "baseline_origin_p95_ms": clean_number(baseline_origin_p95_ms),
+        "current_5xx_pct": clean_number(current_5xx_pct),
+        "baseline_5xx_pct": clean_number(baseline_5xx_pct),
+    }
 
 
 def score_entity(
@@ -1130,25 +1628,48 @@ def score_entity(
     active_domains = analysis_domains or tuple(DOMAINS)
     features: list[dict[str, Any]] = []
     not_evaluated: list[dict[str, Any]] = []
+    rule_results: list[dict[str, Any]] = []
     for evaluator in FEATURE_EVALUATORS:
         feature, missing = evaluator(row)
         if feature is not None and feature.get("domain") in active_domains:
-            features.append(feature)
+            result = dict(feature)
+            if int(result.get("points") or 0) > 0:
+                result["status"] = "triggered"
+                features.append(feature)
+            else:
+                result["status"] = "evaluated_zero"
+            rule_results.append(result)
         if missing is not None and missing.get("domain") in active_domains:
             not_evaluated.append(missing)
+            result = dict(missing)
+            result["points"] = 0
+            result["status"] = "missing_input"
+            rule_results.append(result)
 
-    domain_scores = {domain: 0 for domain in DOMAINS}
+    evaluated_domains = {
+        str(rule["domain"])
+        for rule in rule_results
+        if rule.get("status") in {"triggered", "evaluated_zero"}
+    }
+    domain_scores = {domain: 0 for domain in DOMAINS if domain in evaluated_domains}
     for feature in features:
         domain = str(feature["domain"])
         domain_scores[domain] = domain_scores.get(domain, 0) + int(feature["points"])
 
-    score = min(100, sum(int(feature["points"]) for feature in features))
+    risk_points = min(100, sum(int(feature["points"]) for feature in features))
+    score = 100 - risk_points
+    prior_score = baseline_score(row, active_domains)
     primary_domain = "none"
-    nonzero_domains = [(domain, points) for domain, points in domain_scores.items() if points > 0]
+    nonzero_domains = [
+        (domain, points) for domain, points in domain_scores.items() if points > 0
+    ]
     if nonzero_domains:
-        primary_domain = sorted(nonzero_domains, key=lambda item: (-item[1], item[0]))[0][0]
+        primary_domain = sorted(nonzero_domains, key=lambda item: (-item[1], item[0]))[
+            0
+        ][0]
 
     label, reasons = confidence(row, metadata, not_evaluated, min_count, active_domains)
+    entity_metrics = _entity_metrics(row)
     scorecard = {
         "schema_version": SCORECARD_SCHEMA,
         "entity_type": entity_type,
@@ -1158,15 +1679,26 @@ def score_entity(
         "granularity": metadata.get("granularity", ""),
         "table_used": metadata.get("table_used", ""),
         "score": score,
+        "baseline_score": prior_score,
+        "score_delta_points": score - prior_score,
+        "score_delta_basis": BASELINE_SCORE_DELTA_BASIS,
         "band": score_band(score),
         "primary_domain": primary_domain,
         "domain_scores": domain_scores,
-        "features": sorted(features, key=lambda item: (str(item["domain"]), str(item["name"]))),
-        "not_evaluated_features": sorted(not_evaluated, key=lambda item: (str(item["domain"]), str(item["name"]))),
+        "features": sorted(
+            features, key=lambda item: (str(item["domain"]), str(item["name"]))
+        ),
+        "not_evaluated_features": sorted(
+            not_evaluated, key=lambda item: (str(item["domain"]), str(item["name"]))
+        ),
+        "rule_results": sorted(
+            rule_results, key=lambda item: (str(item["domain"]), str(item["name"]))
+        ),
         "evidence_summary": evidence_summary(features, not_evaluated),
         "recommended_next_steps": recommended_next_steps(features, not_evaluated),
         "confidence": label,
         "confidence_reasons": reasons,
+        "entity_metrics": entity_metrics,
         "interpretation_constraints": INTERPRETATION_CONSTRAINTS,
     }
     if active_domains != tuple(DOMAINS):
@@ -1196,10 +1728,15 @@ def score_entity(
 
 
 def complete_contribution_scope(metadata: dict[str, Any]) -> bool:
-    return metadata.get("rowset_complete") is True or metadata.get("contribution_basis") == "complete_scope"
+    return (
+        metadata.get("rowset_complete") is True
+        or metadata.get("contribution_basis") == "complete_scope"
+    )
 
 
-def add_contribution_percentages(rows: list[dict[str, Any]], metadata: dict[str, Any]) -> None:
+def add_contribution_percentages(
+    rows: list[dict[str, Any]], metadata: dict[str, Any]
+) -> None:
     if not complete_contribution_scope(metadata):
         return
 
@@ -1208,7 +1745,10 @@ def add_contribution_percentages(rows: list[dict[str, Any]], metadata: dict[str,
         current, baseline = count_values(row)
         if current is None or baseline is None:
             continue
-        has_contribution = first_number(row, ("contribution_pct", "contribution_to_total_delta_pct")) is not None
+        has_contribution = (
+            first_number(row, ("contribution_pct", "contribution_to_total_delta_pct"))
+            is not None
+        )
         row_deltas.append((row, current - baseline, has_contribution))
 
     basis = sum(abs(delta) for _, delta, _ in row_deltas)
@@ -1239,7 +1779,11 @@ def build_index(
 ) -> dict[str, Any]:
     ranked = sorted(
         scorecards,
-        key=lambda card: (-int(card["score"]), str(card["entity_type"]), str(card["entity"])),
+        key=lambda card: (
+            int(card["score"]),
+            str(card["entity_type"]),
+            str(card["entity"]),
+        ),
     )
     if limit > 0:
         ranked = ranked[:limit]
@@ -1328,9 +1872,13 @@ def build_artifacts(
     if "rowset_scope" in metadata:
         validate_rowset_scope(metadata["rowset_scope"], "rowset_scope")
     if "feature_provenance" in metadata:
-        validate_feature_provenance(metadata["feature_provenance"], "feature_provenance")
+        validate_feature_provenance(
+            metadata["feature_provenance"], "feature_provenance"
+        )
     active_domains = normalize_analysis_domains(
-        analysis_domains if analysis_domains is not None else metadata.get("analysis_domains")
+        analysis_domains
+        if analysis_domains is not None
+        else metadata.get("analysis_domains")
     )
     if active_domains != tuple(DOMAINS):
         metadata["analysis_domains"] = list(active_domains)
@@ -1349,7 +1897,7 @@ def build_artifacts(
     ]
     scorecards = sorted(
         scorecards,
-        key=lambda card: (-int(card["score"]), str(card["entity"])),
+        key=lambda card: (int(card["score"]), str(card["entity"])),
     )
     total_scorecards = len(scorecards)
     if limit > 0:

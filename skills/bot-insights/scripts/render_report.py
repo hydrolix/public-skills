@@ -12,8 +12,10 @@ import argparse
 import copy
 import html
 import json
+import math
 import re
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -35,8 +37,9 @@ SUPPORTED_SCHEMAS = {
     SCORECARD_SCHEMA,
     INDEX_SCHEMA,
     SCORECARD_PACKET_SCHEMA,
+    TIMESERIES_SCHEMA,
 }
-KNOWN_UNSUPPORTED_SCHEMAS = {TIMESERIES_SCHEMA}
+KNOWN_UNSUPPORTED_SCHEMAS: set[str] = set()
 REPORT_TYPES = {
     "executive_posture",
     "soc_triage",
@@ -148,6 +151,240 @@ def stringify(value: Any) -> str:
     if isinstance(value, str):
         return value
     return json.dumps(value, sort_keys=True, separators=(",", ": "))
+
+
+METRIC_LABELS = {
+    "ai_requests": "AI requests",
+    "bot_like_requests": "Bot-like requests",
+    "cache_misses": "Cache misses",
+    "error_5xx_requests": "5xx errors",
+    "rate_limited_requests": "429 rate-limited requests",
+    "requests": "Total requests",
+    "avg_bot_score": "Average bot score",
+    "siem_auth_fail_requests": "SIEM auth failures",
+    "siem_blocked_requests": "SIEM blocked requests",
+    "unique_client_ips": "Unique client IPs",
+}
+
+
+def human_metric_name(value: Any) -> str:
+    text = stringify(value)
+    return METRIC_LABELS.get(text, text)
+
+
+def display_label(value: Any) -> str:
+    acronym_tokens = {"ai", "api", "asn", "cdn", "ip", "seo", "siem", "url"}
+    token_labels = {"querystring": "Query String"}
+    words: list[str] = []
+    for token in stringify(value).replace("_", " ").split():
+        lower = token.lower()
+        if lower in token_labels:
+            words.append(token_labels[lower])
+        elif lower in acronym_tokens:
+            words.append(lower.upper())
+        elif token and token[0].isdigit():
+            words.append(token)
+        else:
+            words.append(token[:1].upper() + token[1:].lower())
+    return " ".join(words)
+
+
+def rule_label_parts(value: Any) -> tuple[str, str]:
+    text = stringify(value)
+    known = {
+        "new_entity": ("Entity", "New"),
+        "volume_delta_high": ("Request Volume", "High Increase"),
+        "contribution_to_total_delta_high": ("Contribution To Total", "High Delta"),
+        "bot_share_delta_high": ("Bot Share", "High Increase"),
+        "cache_miss_rate_high": ("Cache Miss Rate", "High"),
+        "cache_miss_delta_high": ("Cache Miss Rate", "High Increase"),
+        "origin_p95_delta_high": ("Origin P95", "High Increase"),
+        "origin_cost_contribution_high": ("Origin Cost Contribution", "High"),
+        "querystring_diversity_high": ("Query String Diversity", "High"),
+        "querystring_diversity_with_high_miss_rate": (
+            "Query String Diversity",
+            "With High Miss Rate",
+        ),
+        "rate_429_delta_high": ("429 Rate", "High Increase"),
+        "rate_5xx_delta_high": ("5xx Rate", "High Increase"),
+        "good_bot_429_present": ("Good Bot 429 Responses", "Present"),
+        "good_bot_error_rate_high": ("Good Bot Error Rate", "High"),
+        "policy_surface_failure_present": ("Policy Surface Failures", "Present"),
+        "ai_crawler_growth_high": ("AI Crawler Growth", "High"),
+        "good_bot_policy_collateral_present": ("Good Bot Policy Collateral", "Present"),
+        "policy_collateral_error_rate_high": ("Policy Collateral Error Rate", "High"),
+        "displacement_delta_high": ("Displacement", "High Increase"),
+        "siem_blocked_present": ("SIEM Blocked Requests", "Present"),
+        "siem_auth_fail_present": ("SIEM Auth Failures", "Present"),
+        "bad_bot_share_high": ("Bad Bot Share", "High"),
+    }
+    return known.get(text, (display_label(text), ""))
+
+
+def human_number(value: Any, *, percent: bool = False) -> str:
+    number = to_float(value)
+    if number is None:
+        return stringify(value)
+    abs_number = abs(number)
+    if percent:
+        return f"{number:+.1f}%"
+    if abs_number >= 1_000_000_000:
+        return f"{number / 1_000_000_000:.2f}B"
+    if abs_number >= 1_000_000:
+        return f"{number / 1_000_000:.2f}M"
+    if abs_number >= 1_000:
+        return f"{number / 1_000:.2f}K"
+    if float(number).is_integer():
+        return f"{int(number):,}"
+    return f"{number:,.2f}"
+
+
+def human_delta(value: Any) -> str:
+    number = to_float(value)
+    if number is None:
+        return stringify(value)
+    sign = "+" if number > 0 else ""
+    return sign + human_number(number)
+
+
+def human_window_range(window: Any) -> str:
+    if not isinstance(window, dict):
+        return stringify(window)
+    start = human_timestamp(window.get("start") or "unknown")
+    end = human_timestamp(window.get("end") or "unknown")
+    return f"{start} to {end}"
+
+
+def compact_window_range(window: Any) -> str:
+    if not isinstance(window, dict):
+        return stringify(window)
+    start = parse_utc_timestamp(window.get("start"))
+    end = parse_utc_timestamp(window.get("end"))
+    if start is None or end is None:
+        return human_window_range(window)
+    start_date = start.strftime("%b %-d, %Y")
+    start_time = start.strftime("%H:%M")
+    end_time = end.strftime("%H:%M")
+    if end.date() == start.date():
+        return f"{start_date}, {start_time}-{end_time} UTC"
+    if (end - start).total_seconds() == 86400 and end_time == "00:00":
+        return f"{start_date}, {start_time}-24:00 UTC"
+    end_date = end.strftime("%b %-d, %Y")
+    return f"{start_date} {start_time} - {end_date} {end_time} UTC"
+
+
+def human_timestamp(value: Any) -> str:
+    if not isinstance(value, str):
+        return stringify(value)
+    match = re.fullmatch(
+        r"(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::\d{2})?Z",
+        value,
+    )
+    if not match:
+        return value
+    year, month, day, hour, minute = match.groups()
+    return f"{year}-{month}-{day} {hour}:{minute} UTC"
+
+
+def parse_utc_timestamp(value: Any) -> datetime | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+            return datetime.fromisoformat(value).replace(tzinfo=timezone.utc)
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+    except ValueError:
+        return None
+
+
+def human_windows(artifact: dict[str, Any]) -> str:
+    current = artifact.get("current_window")
+    baselines = artifact.get("baseline_windows")
+    parts: list[str] = []
+    if current:
+        parts.append(f"current {human_window_range(current)}")
+    if isinstance(baselines, list) and baselines:
+        parts.append(f"baseline {human_window_range(baselines[0])}")
+    return "; ".join(parts) if parts else "unavailable"
+
+
+def metric_by_name(metrics: list[Any], name: str) -> dict[str, Any] | None:
+    for metric in metrics:
+        if isinstance(metric, dict) and metric.get("name") == name:
+            return metric
+    return None
+
+
+def metric_sentence(metric: dict[str, Any]) -> str:
+    label = human_metric_name(metric.get("name"))
+    direction_text = {
+        "increase": "increased",
+        "decrease": "decreased",
+        "flat": "was flat",
+        "no_change": "did not change",
+    }.get(stringify(metric.get("direction")), "changed")
+    return (
+        f"{label} {direction_text} by {human_delta(metric.get('absolute_delta'))} "
+        f"({human_number(metric.get('pct_change'), percent=True)}), from "
+        f"{human_number(metric.get('baseline'))} baseline to "
+        f"{human_number(metric.get('current'))} current."
+    )
+
+
+def executive_summary_lines(metrics: list[Any]) -> list[str]:
+    usable = [metric for metric in metrics if isinstance(metric, dict)]
+    if not usable:
+        return [
+            "No posture metrics were available in the artifact; review the evidence limits before drawing conclusions.",
+            "This is a movement report, not a root-cause analysis.",
+        ]
+
+    lines: list[str] = []
+    total = metric_by_name(usable, "requests")
+    if total:
+        lines.append(metric_sentence(total))
+    else:
+        lines.append(
+            "The artifact does not include total request volume, so the summary is limited to supplied metric deltas."
+        )
+
+    ranked = sorted(
+        (
+            metric
+            for metric in usable
+            if to_float(metric.get("pct_change")) is not None
+            and metric.get("name") != "requests"
+        ),
+        key=lambda metric: abs(to_float(metric.get("pct_change")) or 0.0),
+        reverse=True,
+    )
+    if ranked:
+        leaders = ranked[:3]
+        fragments = [
+            f"{human_metric_name(metric.get('name'))} {human_number(metric.get('pct_change'), percent=True)}"
+            for metric in leaders
+        ]
+        lines.append("Largest relative movements: " + ", ".join(fragments) + ".")
+
+    review_metrics = [
+        metric
+        for name in ("cache_misses", "rate_limited_requests", "error_5xx_requests")
+        if (metric := metric_by_name(usable, name)) is not None
+    ]
+    if review_metrics:
+        fragments = [
+            f"{human_metric_name(metric.get('name'))} {human_delta(metric.get('absolute_delta'))}"
+            for metric in review_metrics
+        ]
+        lines.append("Operational signals to review: " + ", ".join(fragments) + ".")
+
+    lines.append(
+        "Treat these changes as evidence of movement only; this report does not identify root cause or malicious intent by itself."
+    )
+    return lines
 
 
 def to_float(value: Any) -> float | None:
@@ -632,8 +869,7 @@ def dedupe_artifact_bodies(
         duplicate_ids = [str(artifact["artifact_id"]) for artifact in group]
         schema = schema_of(kept)
         if any(
-            ctx.artifact_id_explicit.get(artifact_id)
-            for artifact_id in duplicate_ids
+            ctx.artifact_id_explicit.get(artifact_id) for artifact_id in duplicate_ids
         ):
             raise ReportError(
                 "Artifact bodies for "
@@ -775,14 +1011,25 @@ def validate_report_artifacts(
             "mover": filter_compatible_companion(control, mover, "mover", ctx),
         }
     if report_type == "scorecard_brief":
-        scorecard = require_one(artifacts, SCORECARD_SCHEMA, report_type)
+        scorecards = by_schema(artifacts, SCORECARD_SCHEMA)
+        if not scorecards:
+            raise ReportError(f"{report_type} requires {SCORECARD_SCHEMA}.")
         index = first_or_warn(artifacts, INDEX_SCHEMA, report_type, ctx)
+        index_order_usable = False
         if index:
-            compatible_scorecard = compatible_scorecards_for_index(
-                index, [scorecard], ctx, required=True
-            )[0]
-            scorecard = compatible_scorecard
-        return {"scorecard": scorecard, "index": index}
+            scorecards, index_order_usable = (
+                compatible_scorecards_for_index_with_order_status(
+                    index, scorecards, ctx, required=True
+                )
+            )
+        scorecard = scorecards[0]
+        return {
+            "scorecard": scorecard,
+            "scorecards": scorecards,
+            "index": index,
+            "index_order_usable": index_order_usable,
+            "is_fleet": bool(index or len(scorecards) > 1),
+        }
     if report_type == "crawler_governance":
         scorecards = by_schema(artifacts, SCORECARD_SCHEMA)
         if not scorecards:
@@ -1020,12 +1267,47 @@ def limited_rows(
 
 def window_text(artifact: dict[str, Any]) -> str:
     parts = []
+    labels = {
+        "current_window": "current",
+        "before_window": "before",
+        "after_window": "after",
+        "expected_window": "expected",
+    }
     for key in ("current_window", "before_window", "after_window", "expected_window"):
-        if artifact.get(key):
-            parts.append(f"{key}: {stringify(artifact[key])}")
-    if artifact.get("baseline_windows"):
-        parts.append(f"baseline_windows: {stringify(artifact['baseline_windows'])}")
+        value = artifact.get(key)
+        if isinstance(value, dict):
+            parts.append(f"{labels[key]} {human_window_range(value)}")
+        elif value:
+            parts.append(f"{labels[key]} {stringify(value)}")
+    baselines = artifact.get("baseline_windows")
+    if isinstance(baselines, list) and baselines and isinstance(baselines[0], dict):
+        parts.append(f"baseline {human_window_range(baselines[0])}")
+    elif baselines:
+        parts.append(f"baseline {stringify(baselines)}")
     return "; ".join(parts) if parts else "unavailable"
+
+
+def evidence_window_summary(artifact: dict[str, Any]) -> str:
+    current = artifact.get("current_window")
+    baselines = artifact.get("baseline_windows")
+    parts: list[str] = []
+    if isinstance(current, dict):
+        parts.append(f"current window {human_window_range(current)}")
+    if isinstance(baselines, list) and baselines and isinstance(baselines[0], dict):
+        parts.append(f"baseline window {human_window_range(baselines[0])}")
+    return "; ".join(parts) if parts else "unavailable"
+
+
+def artifact_display_name(artifact: dict[str, Any]) -> str:
+    title = artifact.get("title")
+    if isinstance(title, str) and title.strip():
+        return title
+    schema = artifact.get("schema_version")
+    if schema == POSTURE_SCHEMA:
+        return "Posture movement"
+    if schema == TIMESERIES_SCHEMA:
+        return "Hourly trend evidence"
+    return str(artifact.get("artifact_id") or "Artifact")
 
 
 def selected_artifacts(selected: dict[str, Any]) -> list[dict[str, Any]]:
@@ -1085,15 +1367,21 @@ def render_markdown(
     ctx: ReportContext,
     *,
     scope_label: str | None = None,
+    include_metadata: bool = True,
 ) -> str:
     scope_text = resolve_scope_display(scope_label, selected, ctx)
     parts = [
         f"# {md_escape(title)}",
-        "",
-        f"Report type: `{report_type}`",
-        f"Scope: {md_escape(scope_text)}",
-        "",
     ]
+    if include_metadata:
+        parts.extend(
+            [
+                f"Report type: `{report_type}`",
+                f"Scope: {md_escape(scope_text)}",
+                "",
+            ]
+        )
+    parts.append(md_analyst_notes(notes, all_artifacts, ctx))
     if report_type == "executive_posture":
         parts.append(md_executive(selected, limit, ctx))
     elif report_type == "soc_triage":
@@ -1114,7 +1402,6 @@ def render_markdown(
                 "Edge/Ops Impact", selected, limit, ctx, edge_ops_features_for_card
             )
         )
-    parts.append(md_analyst_notes(notes, all_artifacts, ctx))
     parts.append(md_evidence_limits(all_artifacts, ctx))
     if ctx.warnings:
         parts.append(
@@ -1130,11 +1417,11 @@ def md_executive(selected: dict[str, Any], limit: int, ctx: ReportContext) -> st
     scorecards = selected.get("scorecards") or []
     rows = [
         [
-            metric.get("name"),
-            metric.get("current"),
-            metric.get("baseline"),
-            metric.get("absolute_delta"),
-            metric.get("pct_change"),
+            human_metric_name(metric.get("name")),
+            human_number(metric.get("current")),
+            human_number(metric.get("baseline")),
+            human_delta(metric.get("absolute_delta")),
+            human_number(metric.get("pct_change"), percent=True),
             metric.get("direction"),
             metric.get("confidence"),
         ]
@@ -1142,7 +1429,7 @@ def md_executive(selected: dict[str, Any], limit: int, ctx: ReportContext) -> st
     ]
     parts = [
         "## Executive Summary",
-        "Movement-only posture report based on emitted artifact fields. It does not infer cause.",
+        "\n".join(f"- {md_escape(line)}" for line in executive_summary_lines(metrics)),
         "## Metric Deltas",
         md_table(
             [
@@ -1247,10 +1534,11 @@ def md_scorecard_analysis(
         if features:
             lines.extend(["", "**Evaluated Features**", "", md_feature_rows(features)])
         steps = [
-            step
+            step["detail"] if isinstance(step, dict) else step
             for step in card.get("recommended_next_steps", [])
             if step is not None and str(step) != ""
         ]
+        steps = [step for step in steps if step]
         if steps:
             lines.extend(
                 [
@@ -1322,12 +1610,12 @@ def md_control(selected: dict[str, Any], limit: int, ctx: ReportContext) -> str:
     ):
         rows.append(
             [
-                effect.get("metric"),
-                effect.get("before"),
-                effect.get("after"),
-                effect.get("expected"),
-                effect.get("absolute_delta_vs_expected"),
-                effect.get("pct_change_vs_expected"),
+                human_metric_name(effect.get("metric")),
+                human_number(effect.get("before")),
+                human_number(effect.get("after")),
+                human_number(effect.get("expected")),
+                human_delta(effect.get("absolute_delta_vs_expected")),
+                human_number(effect.get("pct_change_vs_expected"), percent=True),
                 effect.get("status"),
                 effect.get("confidence"),
             ]
@@ -1364,10 +1652,11 @@ def md_control(selected: dict[str, Any], limit: int, ctx: ReportContext) -> str:
     ]
     basis = control.get("expected_basis")
     if basis:
+        basis_label = stringify(basis).replace("_", " ")
         parts.extend(
             [
                 "## Confidence",
-                f"Expected basis: {md_escape(basis)}. This is an effectiveness review, not proof of cause.",
+                f"Expected basis: {md_escape(basis_label)}. This is an effectiveness review, not proof of cause.",
             ]
         )
     return "\n\n".join(parts)
@@ -1400,46 +1689,73 @@ def md_control_check_table(
 
 def md_scorecard_brief(selected: dict[str, Any], ctx: ReportContext) -> str:
     card = selected["scorecard"]
+    index = selected.get("index") or {}
+    rank = None
+    total_ranked = index.get("total_ranked_entities") or index.get("result_row_count")
+    entity_type_label = display_label(card.get("entity_type"))
+    for row in index.get("ranked_entities", []):
+        if (
+            isinstance(row, dict)
+            and row.get("entity_type") == card.get("entity_type")
+            and row.get("entity") == card.get("entity")
+        ):
+            rank = row.get("rank")
+            break
+    if rank is not None and total_ranked:
+        rank_display = (
+            f"{human_number(rank)} of {human_number(total_ranked)} scored "
+            f"{entity_type_label} entities"
+        )
+    elif rank is not None:
+        rank_display = f"{human_number(rank)} in scored entity set"
+    else:
+        rank_display = "unavailable"
+    summary_rows = [
+        ["Scored dimension", entity_type_label],
+        ["Selected entity", card.get("entity")],
+        ["Rank in scored set", rank_display],
+        ["Current health score", human_number(card.get("score"))],
+        ["Primary risk domain", display_label(card.get("primary_domain"))],
+        ["Evidence confidence", card.get("confidence")],
+    ]
     parts = [
-        "## Entity",
-        md_table(
-            ["Entity type", "Entity", "Score", "Band", "Primary domain", "Confidence"],
-            [
-                [
-                    card.get("entity_type"),
-                    card.get("entity"),
-                    card.get("score"),
-                    card.get("band"),
-                    card.get("primary_domain"),
-                    card.get("confidence"),
-                ]
-            ],
+        "## Selected Entity Context",
+        (
+            f"This brief explains one selected `{md_escape(entity_type_label)}` "
+            "from the larger scored entity set."
         ),
+        md_table(["Field", "Value"], summary_rows),
         "## Domain Scores",
         md_table(
             ["Domain", "Score"],
             [
-                [domain, score]
+                [display_label(domain), human_number(score)]
                 for domain, score in (card.get("domain_scores") or {}).items()
             ],
         ),
-        "## Feature Evidence",
+        "## Evaluated Feature Evidence",
         md_feature_rows(card.get("features", []))
         if card.get("features")
         else "No evaluated features crossed thresholds.",
-        "## Not Evaluated Features",
+        "## Missing Scorecard Inputs",
         md_missing_rows(card.get("not_evaluated_features", []))
         if card.get("not_evaluated_features")
         else "No missing feature inputs reported.",
     ]
     steps = card.get("recommended_next_steps")
     if isinstance(steps, list) and steps:
+        normalized = [
+            step["detail"] if isinstance(step, dict) else step for step in steps
+        ]
         parts.extend(
             [
                 "## Recommended Next Steps",
-                "\n".join(f"- {md_escape(step)}" for step in steps),
+                "\n".join(f"- {md_escape(step)}" for step in normalized),
             ]
         )
+    producer = _producer_limit_bullet(card) or _producer_limit_bullet(index)
+    if producer:
+        parts.extend(["## Rowset Limits", md_escape(producer)])
     return "\n\n".join(parts)
 
 
@@ -1602,7 +1918,9 @@ def md_executive_scorecard_rollup(
                 numeric = to_float(score)
                 if numeric is not None:
                     domain_text = str(domain)
-                    domain_totals[domain_text] = domain_totals.get(domain_text, 0.0) + numeric
+                    domain_totals[domain_text] = (
+                        domain_totals.get(domain_text, 0.0) + numeric
+                    )
         for reason in card.get("confidence_reasons") or []:
             reason_text = str(reason)
             if reason_text in {
@@ -1627,20 +1945,30 @@ def md_executive_scorecard_rollup(
     ]
     caveat_rows = [
         [reason, count]
-        for reason, count in sorted(caveats.items(), key=lambda item: (-item[1], item[0]))
+        for reason, count in sorted(
+            caveats.items(), key=lambda item: (-item[1], item[0])
+        )
     ]
     parts = [
         "Scorecard rollup uses emitted scorecard fields only; it does not create executive-only features.",
         "### Domain Totals",
-        md_table(["Domain", "Total score"], limited_rows(domain_rows, limit, "domain rollup rows", ctx))
+        md_table(
+            ["Domain", "Total score"],
+            limited_rows(domain_rows, limit, "domain rollup rows", ctx),
+        )
         if domain_rows
         else "No numeric domain scores available.",
         "### Primary Lens Counts",
-        md_table(["Primary domain", "Entities"], limited_rows(primary_rows, limit, "primary lens rows", ctx))
+        md_table(
+            ["Primary domain", "Entities"],
+            limited_rows(primary_rows, limit, "primary lens rows", ctx),
+        )
         if primary_rows
         else "No primary domain values available.",
         "### Caveats",
-        md_table(["Caveat", "Entities"], limited_rows(caveat_rows, limit, "caveat rows", ctx))
+        md_table(
+            ["Caveat", "Entities"], limited_rows(caveat_rows, limit, "caveat rows", ctx)
+        )
         if caveat_rows
         else "No scorecard caveats reported.",
     ]
@@ -1691,29 +2019,37 @@ def md_feature_list(
 
 
 def md_feature_rows(features: list[dict[str, Any]]) -> str:
-    rows = [
-        [
-            feature.get("domain"),
-            feature.get("name"),
-            feature.get("points"),
-            feature.get("evidence"),
-        ]
-        for feature in features
-    ]
-    return md_table(["Domain", "Feature", "Points", "Evidence"], rows)
+    rows = []
+    for feature in features:
+        feature_label, condition = rule_label_parts(feature.get("name"))
+        rows.append(
+            [
+                display_label(feature.get("domain")),
+                feature_label,
+                condition,
+                feature.get("points"),
+                feature.get("evidence"),
+            ]
+        )
+    return md_table(["Domain", "Feature", "Condition", "Points", "Evidence"], rows)
 
 
 def md_missing_rows(missing: list[dict[str, Any]]) -> str:
-    rows = [
-        [
-            feature.get("domain"),
-            feature.get("name"),
-            ", ".join(str(item) for item in feature.get("missing_inputs", [])),
-            feature.get("reason"),
-        ]
-        for feature in missing
-    ]
-    return md_table(["Domain", "Feature", "Missing inputs", "Reason"], rows)
+    rows = []
+    for feature in missing:
+        feature_label, condition = rule_label_parts(feature.get("name"))
+        rows.append(
+            [
+                display_label(feature.get("domain")),
+                feature_label,
+                condition,
+                ", ".join(str(item) for item in feature.get("missing_inputs", [])),
+                display_label(feature.get("reason")),
+            ]
+        )
+    return md_table(
+        ["Domain", "Feature", "Condition", "Missing inputs", "Reason"], rows
+    )
 
 
 def ordered_scorecards(
@@ -1862,6 +2198,39 @@ def md_evidence_limits(artifacts: list[dict[str, Any]], ctx: ReportContext) -> s
     for artifact in artifacts:
         aid = artifact.get("artifact_id") or "unavailable"
         schema = artifact.get("schema_version") or "unavailable"
+        if schema == POSTURE_SCHEMA:
+            bullets = [
+                "- This is a movement report. It does not identify root cause by itself.",
+            ]
+            sections.append(
+                f"### {md_escape(artifact_display_name(artifact))}\n\n"
+                + "\n".join(bullets)
+            )
+            continue
+        if schema == TIMESERIES_SCHEMA:
+            metrics = artifact.get("metrics")
+            metric_count = len(metrics) if isinstance(metrics, list) else 0
+            is_control_trend = (
+                artifact.get("title") == "Control Review Trends"
+                or artifact.get("report_type") == "control_review"
+            )
+            comparison_label = (
+                "after and expected windows"
+                if is_control_trend
+                else "current and prior windows"
+            )
+            exact_label = (
+                "control effects table" if is_control_trend else "metric deltas table"
+            )
+            bullets = [
+                f"- Trend cards: {metric_count} hourly metric series comparing {comparison_label}.",
+                f"- Trend cards show shape and direction; exact aggregate values are in the {exact_label}.",
+            ]
+            sections.append(
+                f"### {md_escape(artifact_display_name(artifact))}\n\n"
+                + "\n".join(bullets)
+            )
+            continue
         bullets: list[str] = [f"- Schema: {md_escape(schema)}"]
         parent_id = artifact.get("parent_artifact_id")
         if parent_id:
@@ -2086,6 +2455,8 @@ def md_analyst_notes(
         parts.append(
             f"### {md_escape(title)}\n\n_{label}._ {md_escape(note.get('text', ''))}"
         )
+        if note.get("show_data_sources") is False:
+            continue
         sources = note.get("data_sources")
         if not isinstance(sources, list) or not sources:
             ctx.warn(
@@ -2094,14 +2465,16 @@ def md_analyst_notes(
             continue
         citations = []
         for source in sources:
-            artifact, normalized_pointer, resolved = resolve_citation(source, artifacts)
-            artifact_label = artifact.get("artifact_id")
+            _artifact, normalized_pointer, resolved = resolve_citation(
+                source, artifacts
+            )
+            label = source.get("label") or "Supporting value"
+            percent = normalized_pointer.endswith("/pct_change")
             citations.append(
-                f"- {md_escape(source.get('label', normalized_pointer or 'citation'))}: "
-                f"{md_escape(artifact_label)} {md_escape(normalized_pointer)} = {md_escape(resolved)}"
+                f"- {md_escape(label)}: {md_escape(human_number(resolved, percent=percent))}"
             )
         if citations:
-            parts.append("\n".join(citations))
+            parts.append("Supporting evidence:\n\n" + "\n".join(citations))
     return "\n\n".join(parts)
 
 
@@ -2166,6 +2539,27 @@ def _horizontal_bars_svg(
     return "".join(parts)
 
 
+def _gauge_arc_path(
+    cx: float,
+    cy: float,
+    radius: float,
+    start_degrees: float,
+    end_degrees: float,
+) -> str:
+    start = math.radians(start_degrees)
+    end = math.radians(end_degrees)
+    start_x = cx + radius * math.cos(start)
+    start_y = cy + radius * math.sin(start)
+    end_x = cx + radius * math.cos(end)
+    end_y = cy + radius * math.sin(end)
+    large_arc = 1 if abs(end_degrees - start_degrees) > 180 else 0
+    sweep = 1 if end_degrees > start_degrees else 0
+    return (
+        f"M {start_x:.1f} {start_y:.1f} "
+        f"A {radius:.1f} {radius:.1f} 0 {large_arc} {sweep} {end_x:.1f} {end_y:.1f}"
+    )
+
+
 def html_metric_delta_cards(
     posture: dict[str, Any], limit: int, ctx: ReportContext
 ) -> str:
@@ -2191,23 +2585,23 @@ def html_metric_delta_cards(
         )
         parts.append(
             f'<text class="chart-label" x="{x + 12}" y="{y + 22}">'
-            f"{h_escape(metric.get('name'))}</text>"
+            f"{h_escape(human_metric_name(metric.get('name')))}</text>"
         )
         parts.append(
             f'<text class="chart-value" x="{x + 12}" y="{y + 46}">'
-            f"Current: {h_escape(metric.get('current'))}</text>"
+            f"Current: {h_escape(human_number(metric.get('current')))}</text>"
         )
         parts.append(
             f'<text class="chart-value" x="{x + 12}" y="{y + 64}">'
-            f"Baseline: {h_escape(metric.get('baseline'))}</text>"
+            f"Baseline: {h_escape(human_number(metric.get('baseline')))}</text>"
         )
         parts.append(
             f'<text class="chart-value" x="{x + 12}" y="{y + 82}">'
-            f"Delta: {h_escape(metric.get('absolute_delta'))}</text>"
+            f"Delta: {h_escape(human_delta(metric.get('absolute_delta')))}</text>"
         )
         parts.append(
             f'<text class="chart-value" x="{x + 12}" y="{y + 100}">'
-            f"Pct change: {h_escape(metric.get('pct_change'))}</text>"
+            f"Change: {h_escape(human_number(metric.get('pct_change'), percent=True))}</text>"
         )
         parts.append(
             f'<text class="chart-value" x="{x + 12}" y="{y + 120}">'
@@ -2245,7 +2639,7 @@ def html_current_baseline_bars(
         y = 32 + idx * row_height
         parts.append(
             f'<text class="chart-label" x="0" y="{y + 14}">'
-            f"{h_escape(metric.get('name'))}</text>"
+            f"{h_escape(human_metric_name(metric.get('name')))}</text>"
         )
         local_max = max(abs(current or 0.0), abs(baseline or 0.0)) or 1.0
         cur_w = (
@@ -2264,7 +2658,7 @@ def html_current_baseline_bars(
         )
         parts.append(
             f'<text class="chart-value" x="{label_w + cur_w + 8}" y="{y + 13}">'
-            f"current {h_escape(metric.get('current'))}</text>"
+            f"current {h_escape(human_number(metric.get('current')))}</text>"
         )
         parts.append(
             f'<rect class="chart-bar chart-baseline" x="{label_w}" y="{y + 22}"'
@@ -2272,7 +2666,7 @@ def html_current_baseline_bars(
         )
         parts.append(
             f'<text class="chart-value" x="{label_w + base_w + 8}" y="{y + 35}">'
-            f"baseline {h_escape(metric.get('baseline'))}</text>"
+            f"baseline {h_escape(human_number(metric.get('baseline')))}</text>"
         )
         parts.append(
             f'<text class="chart-value" x="{label_w}" y="{y + 57}">'
@@ -2320,11 +2714,10 @@ def html_scorecard_score_bars(
         if score is None:
             continue
         label = (
-            f"{stringify(card.get('entity'))} "
-            f"({stringify(card.get('entity_type'))})"
+            f"{stringify(card.get('entity'))} ({stringify(card.get('entity_type'))})"
         )
         display = (
-            f"sorted by emitted score · score {stringify(card.get('score'))}"
+            f"sorted by lower health score · score {stringify(card.get('score'))}"
             f" · band {stringify(card.get('band'))}"
             f" · primary {stringify(card.get('primary_domain'))}"
             f" · confidence {stringify(card.get('confidence'))}"
@@ -2332,9 +2725,504 @@ def html_scorecard_score_bars(
         rows.append((label, score, display))
     if not rows:
         return _chart_skip(heading, "no numeric scorecard scores available", ctx)
-    rows.sort(key=lambda item: (-item[1], item[0]))
+    rows.sort(key=lambda item: (item[1], item[0]))
     rows = rows[:limit] if limit else rows
     return _horizontal_bars_svg(heading, rows)
+
+
+def html_scorecard_overall_gauge(card: dict[str, Any], ctx: ReportContext) -> str:
+    score = _chart_numeric(card.get("score"))
+    if score is None:
+        return ""
+    baseline = _chart_numeric(card.get("baseline_score"))
+    delta = _chart_numeric(card.get("score_delta_points"))
+    if delta is None and baseline is not None:
+        delta = score - baseline
+    fill_pct = min(100.0, max(0.0, score))
+    start_degrees = 150.0
+    sweep_degrees = 240.0
+    end_degrees = start_degrees + sweep_degrees
+    fill_degrees = start_degrees + sweep_degrees * (fill_pct / 100.0)
+    track = _gauge_arc_path(100, 96, 78, start_degrees, end_degrees)
+    fill = (
+        _gauge_arc_path(100, 96, 78, start_degrees, fill_degrees)
+        if fill_pct > 0
+        else ""
+    )
+    fill_path = (
+        f'<path class="overall-gauge-fill" d="{h_escape(fill)}"></path>' if fill else ""
+    )
+    if delta is None:
+        delta_text = "Delta unavailable vs baseline"
+        delta_class = "score-delta-neutral"
+    else:
+        delta_class = (
+            "score-delta-up"
+            if delta > 0
+            else "score-delta-down"
+            if delta < 0
+            else "score-delta-neutral"
+        )
+        if delta == 0:
+            delta_text = "No Change"
+        else:
+            sign = "+" if delta > 0 else "-"
+            delta_text = f"{sign}{human_number(abs(delta))} pts vs baseline"
+    score_text = human_number(card.get("score"))
+    return (
+        '<section class="score-hero" aria-label="Overall Score">'
+        '<div class="score-hero-label">Overall Score</div>'
+        '<svg class="overall-gauge" viewBox="0 0 200 150" role="img" aria-label="Overall Score Gauge">'
+        f'<path class="overall-gauge-track" d="{h_escape(track)}"></path>'
+        f"{fill_path}"
+        f'<text class="overall-gauge-metric" x="100" y="96" text-anchor="middle">{h_escape(score_text)}</text>'
+        "</svg>"
+        f'<div class="{delta_class}">{h_escape(delta_text)}</div>'
+        "</section>"
+    )
+
+
+def html_scorecard_context_panel(selected: dict[str, Any]) -> str:
+    card = selected["scorecard"]
+    index = selected.get("index") or {}
+    rank = None
+    total_ranked = index.get("total_ranked_entities") or index.get("result_row_count")
+    for row in index.get("ranked_entities", []):
+        if (
+            isinstance(row, dict)
+            and row.get("entity_type") == card.get("entity_type")
+            and row.get("entity") == card.get("entity")
+        ):
+            rank = row.get("rank")
+            break
+    if rank is not None and total_ranked:
+        rank_display = f"{human_number(rank)} of {human_number(total_ranked)}"
+    elif rank is not None:
+        rank_display = human_number(rank)
+    else:
+        rank_display = "Unavailable"
+    entity_type = display_label(card.get("entity_type"))
+    metadata_items = [
+        ("Rank", rank_display),
+        ("Current Score", human_number(card.get("score"))),
+        ("Baseline Score", human_number(card.get("baseline_score"))),
+        ("Primary Domain", display_label(card.get("primary_domain"))),
+        ("Confidence", stringify(card.get("confidence"))),
+    ]
+    metadata_html = "".join(
+        '<span class="entity-metadata-item">'
+        f'<span class="entity-metadata-label">{h_escape(label)}</span>'
+        f'<span class="entity-metadata-value">{h_escape(value)}</span>'
+        "</span>"
+        for label, value in metadata_items
+    )
+    return (
+        "<h2>Selected Entity Context</h2>"
+        '<section class="entity-identity" aria-label="Selected Entity Context">'
+        f'<div class="entity-dimension">{h_escape(entity_type)}</div>'
+        f'<div class="entity-name">{h_escape(stringify(card.get("entity")))}</div>'
+        "<p>This brief explains the selected entity from the larger scored entity set.</p>"
+        f'<div class="entity-metadata-row">{metadata_html}</div>'
+        "</section>"
+    )
+
+
+CONFIDENCE_ORDER = {"low": 0, "medium": 1, "high": 2}
+
+
+def scorecard_triggered_rules(card: dict[str, Any]) -> list[dict[str, Any]]:
+    rules = [
+        rule
+        for rule in card.get("rule_results", [])
+        if isinstance(rule, dict) and rule.get("status") == "triggered"
+    ]
+    if rules:
+        return rules
+    return [
+        feature
+        for feature in card.get("features", [])
+        if isinstance(feature, dict) and (to_float(feature.get("points")) or 0) > 0
+    ]
+
+
+def scorecard_has_trigger(card: dict[str, Any]) -> bool:
+    return bool(scorecard_triggered_rules(card))
+
+
+def lowest_confidence(cards: list[dict[str, Any]]) -> str:
+    values = [stringify(card.get("confidence")).lower() for card in cards]
+    known_values = [value for value in values if value in CONFIDENCE_ORDER]
+    if not known_values:
+        return "unavailable"
+    return min(known_values, key=lambda value: CONFIDENCE_ORDER[value])
+
+
+def scorecard_rank_lookup(
+    index: dict[str, Any] | None,
+) -> dict[tuple[str, str], dict[str, Any]]:
+    if not isinstance(index, dict):
+        return {}
+    lookup: dict[tuple[str, str], dict[str, Any]] = {}
+    for row in index.get("ranked_entities", []):
+        if isinstance(row, dict):
+            lookup[
+                (stringify(row.get("entity_type")), stringify(row.get("entity")))
+            ] = row
+    return lookup
+
+
+def fleet_ordered_scorecards(
+    cards: list[dict[str, Any]], index: dict[str, Any] | None
+) -> list[tuple[int | None, dict[str, Any], dict[str, Any] | None]]:
+    ranks = scorecard_rank_lookup(index)
+    rows: list[tuple[int | None, int, dict[str, Any], dict[str, Any] | None]] = []
+    for position, card in enumerate(cards):
+        row = ranks.get(
+            (stringify(card.get("entity_type")), stringify(card.get("entity")))
+        )
+        rank_number = to_float(row.get("rank")) if row else None
+        rank = int(rank_number) if rank_number is not None else None
+        rows.append((rank, position, card, row))
+    rows.sort(key=lambda item: (item[0] is None, item[0] or item[1] + 1, item[1]))
+    return [(rank, card, row) for rank, _position, card, row in rows]
+
+
+def scorecard_primary_evidence(card: dict[str, Any]) -> str:
+    summary = card.get("evidence_summary")
+    if isinstance(summary, list):
+        for item in summary:
+            if item not in (None, ""):
+                return stringify(item)
+    for rule in scorecard_triggered_rules(card):
+        evidence = rule.get("evidence")
+        if evidence not in (None, ""):
+            return stringify(evidence)
+    return "No concise evidence emitted."
+
+
+def fleet_rule_coverage(cards: list[dict[str, Any]]) -> dict[str, dict[str, int]]:
+    coverage: dict[str, dict[str, int]] = {}
+    for card in cards:
+        for rule in card.get("rule_results", []):
+            if not isinstance(rule, dict):
+                continue
+            status = rule.get("status")
+            if status not in {"triggered", "evaluated_zero", "missing_input"}:
+                continue
+            domain = stringify(rule.get("domain"))
+            bucket = coverage.setdefault(
+                domain,
+                {"triggered": 0, "evaluated_zero": 0, "missing_input": 0},
+            )
+            bucket[status] += 1
+    return coverage
+
+
+def fleet_common_triggered_feature(cards: list[dict[str, Any]]) -> tuple[str, int]:
+    counts: dict[str, int] = {}
+    for card in cards:
+        seen_for_card: set[str] = set()
+        for rule in scorecard_triggered_rules(card):
+            name = stringify(rule.get("name"))
+            if name in seen_for_card:
+                continue
+            seen_for_card.add(name)
+            counts[name] = counts.get(name, 0) + 1
+    if not counts:
+        return "No triggered feature emitted", 0
+    name, count = sorted(counts.items(), key=lambda item: (-item[1], item[0]))[0]
+    return " ".join(part for part in rule_label_parts(name) if part), count
+
+
+def fleet_health_score(cards: list[dict[str, Any]]) -> float | None:
+    scores = [
+        score for card in cards if (score := to_float(card.get("score"))) is not None
+    ]
+    if not scores:
+        return None
+    return sum(scores) / len(scores)
+
+
+def html_fleet_kpis(cards: list[dict[str, Any]], index: dict[str, Any] | None) -> str:
+    entity_count = (
+        index.get("total_ranked_entities")
+        if isinstance(index, dict) and index.get("total_ranked_entities") is not None
+        else len(cards)
+    )
+    triggered_count = sum(1 for card in cards if scorecard_has_trigger(card))
+    movement_count = sum(
+        1 for card in cards if (to_float(card.get("score_delta_points")) or 0) != 0
+    )
+    confidence = lowest_confidence(cards)
+    health_score = fleet_health_score(cards)
+    kpis = [
+        (
+            "Fleet Health Score",
+            human_number(health_score) if health_score is not None else "unavailable",
+        ),
+        ("Entities Evaluated", human_number(entity_count)),
+        ("Entities With Triggered Rules", human_number(triggered_count)),
+        ("Score Movement Count", human_number(movement_count)),
+        ("Confidence Ceiling", confidence),
+    ]
+    return (
+        '<section class="fleet-kpis" aria-label="Fleet KPI Strip">'
+        + "".join(
+            '<div class="fleet-kpi">'
+            f'<div class="fleet-kpi-label">{h_escape(label)}</div>'
+            f'<div class="fleet-kpi-value">{h_escape(value)}</div>'
+            "</div>"
+            for label, value in kpis
+        )
+        + "</section>"
+    )
+
+
+def html_fleet_findings(cards: list[dict[str, Any]]) -> str:
+    triggered_count = sum(1 for card in cards if scorecard_has_trigger(card))
+    feature_label, feature_count = fleet_common_triggered_feature(cards)
+    coverage = fleet_rule_coverage(cards)
+    missing_total = sum(bucket["missing_input"] for bucket in coverage.values())
+    movement_count = sum(
+        1 for card in cards if (to_float(card.get("score_delta_points")) or 0) != 0
+    )
+    findings = [
+        f"{human_number(triggered_count)} of {human_number(len(cards))} entities have triggered scorecard rules or positive scored features.",
+        (
+            f"Most common triggered feature: {feature_label} "
+            f"across {human_number(feature_count)} entities."
+            if feature_count
+            else "No triggered feature was emitted by the scorecards."
+        ),
+        f"Missing-input coverage: {human_number(missing_total)} rule evaluations were unavailable across {human_number(len(coverage))} domains.",
+        f"Score movement count: {human_number(movement_count)} entities have nonzero score_delta_points.",
+    ]
+    return (
+        '<section class="fleet-findings" aria-label="What this report says">'
+        "<h2>What This Report Says</h2><ul>"
+        + "".join(f"<li>{h_escape(finding)}</li>" for finding in findings)
+        + "</ul></section>"
+    )
+
+
+def html_fleet_coverage(cards: list[dict[str, Any]]) -> str:
+    coverage = fleet_rule_coverage(cards)
+    if not coverage:
+        return "<section><h2>Rule Coverage By Domain</h2><p>No rule_results coverage emitted.</p></section>"
+    rows = []
+    for domain, counts in sorted(coverage.items()):
+        total = sum(counts.values()) or 1
+        bars = "".join(
+            f'<span class="coverage-segment coverage-{h_escape(status.replace("_", "-"))}" '
+            f'style="width:{counts[status] / total * 100:.1f}%"></span>'
+            for status in ("triggered", "evaluated_zero", "missing_input")
+            if counts[status]
+        )
+        rows.append(
+            "<tr>"
+            f"<td>{h_escape(display_label(domain))}</td>"
+            f"<td>{h_escape(human_number(counts['triggered']))}</td>"
+            f"<td>{h_escape(human_number(counts['evaluated_zero']))}</td>"
+            f"<td>{h_escape(human_number(counts['missing_input']))}</td>"
+            f'<td><div class="coverage-bar">{bars}</div></td>'
+            "</tr>"
+        )
+    return (
+        '<section class="fleet-coverage"><h2>Rule Coverage By Domain</h2>'
+        "<table><thead><tr><th>Domain</th><th>Triggered</th><th>Evaluated Zero</th>"
+        "<th>Missing Input</th><th>Coverage</th></tr></thead><tbody>"
+        + "".join(rows)
+        + "</tbody></table></section>"
+    )
+
+
+def html_fleet_ranked_entities(
+    cards: list[dict[str, Any]], index: dict[str, Any] | None, limit: int
+) -> str:
+    ordered = fleet_ordered_scorecards(cards, index)
+    if limit > 0:
+        ordered = ordered[:limit]
+    rows = []
+    for fallback_position, (rank, card, row) in enumerate(ordered, start=1):
+        effective_rank = rank if rank is not None else fallback_position
+        score = (
+            row.get("score")
+            if row and row.get("score") is not None
+            else card.get("score")
+        )
+        primary = (
+            row.get("primary_domain")
+            if row and row.get("primary_domain") is not None
+            else card.get("primary_domain")
+        )
+        confidence = (
+            row.get("confidence")
+            if row and row.get("confidence") is not None
+            else card.get("confidence")
+        )
+        rows.append(
+            "<tr>"
+            f"<td>{h_escape(human_number(effective_rank))}</td>"
+            f"<td>{h_escape(stringify(card.get('entity')))}</td>"
+            f"<td>{h_escape(human_number(score))}</td>"
+            f"<td>{h_escape(human_delta(card.get('score_delta_points')))}</td>"
+            f"<td>{h_escape(display_label(primary))}</td>"
+            f"<td>{h_escape(confidence)}</td>"
+            f"<td>{h_escape(scorecard_primary_evidence(card))}</td>"
+            "</tr>"
+        )
+    return (
+        '<section class="fleet-ranking"><h2>Ranked Entities</h2>'
+        "<table><thead><tr><th>Rank</th><th>Entity</th><th>Score</th>"
+        "<th>Score Delta</th><th>Primary Domain</th><th>Confidence</th>"
+        "<th>Concise Evidence</th></tr></thead><tbody>"
+        + "".join(rows)
+        + "</tbody></table></section>"
+    )
+
+
+def html_fleet_next_steps(cards: list[dict[str, Any]]) -> str:
+    groups: dict[str, list[str]] = {}
+    for card in cards:
+        for step in card.get("recommended_next_steps") or []:
+            if step in (None, ""):
+                continue
+            text = step["detail"] if isinstance(step, dict) else step
+            if not text:
+                continue
+            groups.setdefault(stringify(text), []).append(stringify(card.get("entity")))
+    if not groups:
+        return "<section><h2>Recommended Next Steps</h2><p>No recommended next steps emitted.</p></section>"
+    rows = [
+        "<tr>"
+        f"<td>{h_escape(step)}</td>"
+        f"<td>{h_escape(human_number(len(entities)))}</td>"
+        f"<td>{h_escape(', '.join(entities[:8]))}</td>"
+        "</tr>"
+        for step, entities in sorted(
+            groups.items(), key=lambda item: (-len(item[1]), item[0])
+        )
+    ]
+    return (
+        '<section class="fleet-next-steps"><h2>Recommended Next Steps</h2>'
+        "<table><thead><tr><th>Action</th><th>Affected Entities</th><th>Entities</th>"
+        "</tr></thead><tbody>" + "".join(rows) + "</tbody></table></section>"
+    )
+
+
+def html_fleet_method(
+    cards: list[dict[str, Any]], index: dict[str, Any] | None, scope_text: str
+) -> str:
+    reference = index or cards[0]
+    confidence_reasons = sorted(
+        {
+            stringify(reason)
+            for card in cards
+            for reason in (card.get("confidence_reasons") or [])
+            if reason not in (None, "")
+        }
+    )
+    constraints = sorted(
+        {
+            stringify(item)
+            for artifact in ([index] if index else []) + cards
+            if isinstance(artifact, dict)
+            for item in (artifact.get("interpretation_constraints") or [])
+            if item not in (None, "")
+        }
+    )
+    producer = (
+        _producer_limit_bullet(index or {})
+        or _producer_limit_bullet(cards[0])
+        or "unavailable"
+    )
+    rows = [
+        ["Scope", scope_text],
+        ["Current Window", compact_window_range(reference.get("current_window"))],
+        [
+            "Baseline Window",
+            compact_window_range((reference.get("baseline_windows") or [{}])[0])
+            if isinstance(reference.get("baseline_windows"), list)
+            else "unavailable",
+        ],
+        ["Table", reference.get("table_used")],
+        [
+            "Confidence Reasons",
+            ", ".join(confidence_reasons) if confidence_reasons else "unavailable",
+        ],
+        ["Producer Limits", producer],
+        [
+            "Interpretation Constraints",
+            ", ".join(constraints) if constraints else "unavailable",
+        ],
+    ]
+    return (
+        '<section class="fleet-method"><h2>Method And Caveats</h2>'
+        "<table><thead><tr><th>Field</th><th>Value</th></tr></thead><tbody>"
+        + "".join(
+            f"<tr><td>{h_escape(label)}</td><td>{h_escape(value)}</td></tr>"
+            for label, value in rows
+        )
+        + "</tbody></table></section>"
+    )
+
+
+def html_scorecard_fleet_report(
+    title: str,
+    selected: dict[str, Any],
+    all_artifacts: list[dict[str, Any]],
+    notes: list[dict[str, Any]],
+    limit: int,
+    ctx: ReportContext,
+    scope_label: str | None,
+) -> str:
+    cards = selected.get("scorecards") or [selected["scorecard"]]
+    index = selected.get("index")
+    reference = index or cards[0]
+    scope_text = resolve_scope_display(scope_label, selected, ctx)
+    entity_type = (
+        (reference.get("scope") or {}).get("entity_type")
+        or cards[0].get("entity_type")
+        or "entity"
+    )
+    header_items = [
+        ("Scope", scope_text),
+        ("Entity Type", display_label(entity_type)),
+        ("Current Window", compact_window_range(reference.get("current_window"))),
+        (
+            "Baseline Window",
+            compact_window_range((reference.get("baseline_windows") or [{}])[0])
+            if isinstance(reference.get("baseline_windows"), list)
+            else "unavailable",
+        ),
+    ]
+    header = (
+        f"<h1>{h_escape(title)}</h1>"
+        '<section class="fleet-header" aria-label="Report Header">'
+        + "".join(
+            '<span class="entity-metadata-item">'
+            f'<span class="entity-metadata-label">{h_escape(label)}</span>'
+            f'<span class="entity-metadata-value">{h_escape(value)}</span>'
+            "</span>"
+            for label, value in header_items
+        )
+        + "</section>"
+    )
+    notes_html = (
+        markdown_to_simple_html(md_analyst_notes(notes, all_artifacts, ctx))
+        if notes
+        else ""
+    )
+    return (
+        header
+        + html_fleet_kpis(cards, index)
+        + html_fleet_findings(cards)
+        + notes_html
+        + html_fleet_coverage(cards)
+        + html_fleet_ranked_entities(cards, index, limit)
+        + html_fleet_next_steps(cards)
+        + html_fleet_method(cards, index, scope_text)
+    )
 
 
 def html_mover_bars(mover: dict[str, Any], limit: int, ctx: ReportContext) -> str:
@@ -2398,6 +3286,171 @@ def html_scorecard_domain_bars(card: dict[str, Any], ctx: ReportContext) -> str:
     if not rows:
         return _chart_skip(heading, "no numeric domain scores available", ctx)
     return _horizontal_bars_svg(heading, rows)
+
+
+def scorecard_rule_results(card: dict[str, Any]) -> list[dict[str, Any]]:
+    rule_results = [
+        rule
+        for rule in card.get("rule_results", [])
+        if isinstance(rule, dict)
+        and rule.get("status") in {"triggered", "evaluated_zero"}
+    ]
+    if rule_results:
+        return rule_results
+    fallback: list[dict[str, Any]] = []
+    for feature in card.get("features", []):
+        if isinstance(feature, dict):
+            result = dict(feature)
+            result["status"] = "triggered"
+            fallback.append(result)
+    return fallback
+
+
+def html_scorecard_feature_cards(
+    card: dict[str, Any], limit: int, ctx: ReportContext
+) -> str:
+    heading = "Rule Score Matrix"
+    rules = scorecard_rule_results(card)
+    if not rules:
+        return _chart_skip(heading, "no evaluated scorecard rules available", ctx)
+    rules = sorted(
+        rules,
+        key=lambda rule: (str(rule.get("domain")), str(rule.get("name"))),
+    )
+
+    def is_percent_rule(rule: dict[str, Any]) -> bool:
+        text = str(rule.get("name", ""))
+        return any(token in text for token in ("pct", "rate", "share", "miss"))
+
+    def metric_text(rule: dict[str, Any], value: float | None) -> str:
+        if value is None:
+            return "N/A"
+        if is_percent_rule(rule):
+            return f"{value:.2f}%"
+        return human_number(value)
+
+    def delta_value(rule: dict[str, Any]) -> float | None:
+        supporting = rule.get("supporting_metrics")
+        if isinstance(supporting, dict):
+            for key in (
+                "absolute_delta_points",
+                "pct_change",
+                "absolute_delta",
+                "absolute_delta_ms",
+            ):
+                value = _chart_numeric(supporting.get(key))
+                if value is not None:
+                    return value
+        current = _chart_numeric(rule.get("current"))
+        baseline = _chart_numeric(rule.get("baseline"))
+        if current is not None and baseline is not None:
+            return current - baseline
+        return None
+
+    def gauge_value(rule: dict[str, Any], current: float | None) -> float | None:
+        if "delta" in stringify(rule.get("name")):
+            delta = delta_value(rule)
+            if delta is not None:
+                return abs(delta)
+        return current
+
+    def card_label(value: Any) -> str:
+        return display_label(value)
+
+    def points_badge_text(value: Any) -> str:
+        points = _chart_numeric(value)
+        if points is None:
+            return stringify(value)
+        if points > 0:
+            return f"-{human_number(points)}"
+        return human_number(points)
+
+    def delta_text(rule: dict[str, Any]) -> tuple[str, str]:
+        if rule.get("status") == "missing_input":
+            return "Missing inputs", "rule-delta-neutral"
+        delta = delta_value(rule)
+        if delta is None:
+            return "delta unavailable", "rule-delta-neutral"
+        symbol = "^" if delta > 0 else "v" if delta < 0 else "-"
+        css_class = (
+            "rule-delta-up"
+            if delta > 0
+            else "rule-delta-down"
+            if delta < 0
+            else "rule-delta-neutral"
+        )
+        display = (
+            f"{abs(delta):.2f}%" if is_percent_rule(rule) else human_number(abs(delta))
+        )
+        return f"{symbol} {display}", css_class
+
+    def gauge_html(rule: dict[str, Any], current: float | None, value: str) -> str:
+        if current is None:
+            return ""
+        threshold = _chart_numeric(rule.get("threshold"))
+        baseline = _chart_numeric(rule.get("baseline"))
+        if is_percent_rule(rule):
+            max_value = 100.0
+        elif threshold is not None and threshold > 0:
+            max_value = threshold * 1.25
+        elif baseline is not None and abs(baseline) > 0:
+            max_value = max(abs(current), abs(baseline))
+        else:
+            max_value = abs(current) if abs(current) > 0 else 1.0
+        fill_pct = min(100.0, max(0.0, abs(current) / max_value * 100.0))
+        start_degrees = 150.0
+        sweep_degrees = 240.0
+        end_degrees = start_degrees + sweep_degrees
+        fill_degrees = start_degrees + sweep_degrees * (fill_pct / 100.0)
+        track = _gauge_arc_path(60, 58, 44, start_degrees, end_degrees)
+        fill = (
+            _gauge_arc_path(60, 58, 44, start_degrees, fill_degrees)
+            if fill_pct > 0
+            else ""
+        )
+        fill_path = (
+            f'<path class="gauge-fill" d="{h_escape(fill)}"></path>' if fill else ""
+        )
+        return (
+            '<svg class="rule-gauge" viewBox="0 0 120 90" aria-hidden="true" focusable="false">'
+            f'<path class="gauge-track" d="{h_escape(track)}"></path>'
+            f"{fill_path}"
+            f'<text class="gauge-metric" x="60" y="57" text-anchor="middle">{h_escape(value)}</text>'
+            "</svg>"
+        )
+
+    cards: list[str] = []
+    for rule in rules:
+        domain = card_label(rule.get("domain"))
+        name, condition = rule_label_parts(rule.get("name"))
+        status = stringify(rule.get("status")).replace("_", " ")
+        current = _chart_numeric(rule.get("current"))
+        gauge_current = gauge_value(rule, current)
+        value = metric_text(rule, gauge_current)
+        delta, delta_class = delta_text(rule)
+        points = points_badge_text(rule.get("points") or 0)
+        gauge = gauge_html(rule, gauge_current, value)
+        status_class = (
+            "rule-status rule-status-triggered"
+            if rule.get("status") == "triggered"
+            else "rule-status"
+        )
+        cards.append(
+            '<div class="rule-card">'
+            f'<div class="rule-card-top"><span class="rule-domain">{h_escape(domain)}</span>'
+            f'<span class="rule-points">{h_escape(points)} pts</span></div>'
+            f'<div class="rule-name">{h_escape(name)}</div>'
+            f'<div class="rule-condition">{h_escape(condition)}</div>'
+            f"{gauge}"
+            f'<div class="{delta_class}">{h_escape(delta)}</div>'
+            f'<div class="{status_class}">{h_escape(status)}</div>'
+            "</div>"
+        )
+    return (
+        f'<section class="rule-matrix" aria-label="{h_escape(heading)}">'
+        f"<h2>{h_escape(heading)}</h2>"
+        '<div class="rule-grid">' + "".join(cards) + "</div></section>"
+    )
 
 
 def html_domain_matrix(
@@ -2489,7 +3542,7 @@ def html_control_bars(control: dict[str, Any], limit: int, ctx: ReportContext) -
         y = 32 + idx * row_height
         parts.append(
             f'<text class="chart-label" x="0" y="{y + 14}">'
-            f"{h_escape(effect.get('metric'))}</text>"
+            f"{h_escape(human_metric_name(effect.get('metric')))}</text>"
         )
         numeric_values = [v for v in (before, after, expected) if v is not None]
         local_max = max((abs(v) for v in numeric_values), default=1.0) or 1.0
@@ -2513,7 +3566,7 @@ def html_control_bars(control: dict[str, Any], limit: int, ctx: ReportContext) -
             )
             parts.append(
                 f'<text class="chart-value" x="{label_w + bar_w + 8}" y="{row_y + 12}">'
-                f"{sub_label} {h_escape(sub_raw)}</text>"
+                f"{sub_label} {h_escape(human_number(sub_raw))}</text>"
             )
         parts.append(
             f'<text class="chart-value" x="{label_w}" y="{y + 74}">'
@@ -2521,6 +3574,249 @@ def html_control_bars(control: dict[str, Any], limit: int, ctx: ReportContext) -
             f"confidence {h_escape(effect.get('confidence'))}</text>"
         )
     parts.append("</svg>")
+    return "".join(parts)
+
+
+def timeseries_artifacts(artifacts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        artifact
+        for artifact in artifacts
+        if artifact.get("schema_version") == TIMESERIES_SCHEMA
+        and isinstance(artifact.get("metrics"), list)
+    ]
+
+
+def spark_points(
+    values: list[float], *, x: int, y: int, width: int, height: int
+) -> str:
+    if not values:
+        return ""
+    if len(values) == 1:
+        return f"{x},{y + height / 2:.1f}"
+    min_value = min(values)
+    max_value = max(values)
+    span = max(max_value - min_value, 1.0)
+    points: list[str] = []
+    for index, value in enumerate(values):
+        px = x + (index / (len(values) - 1)) * width
+        py = y + height - ((value - min_value) / span) * height
+        points.append(f"{px:.1f},{py:.1f}")
+    return " ".join(points)
+
+
+def html_timeseries_cards(
+    artifacts: list[dict[str, Any]],
+    limit: int,
+    ctx: ReportContext,
+    report_type: str,
+) -> str:
+    metrics: list[dict[str, Any]] = []
+    for artifact in timeseries_artifacts(artifacts):
+        for metric in artifact.get("metrics", []):
+            if isinstance(metric, dict):
+                metrics.append(metric)
+    if not metrics:
+        return ""
+    metrics = metrics[:limit] if limit else metrics
+    card_w = 340
+    card_h = 138
+    gap = 16
+    cols = 2
+    rows = (len(metrics) + cols - 1) // cols
+    width = cols * card_w + (cols - 1) * gap
+    height = 40 + rows * card_h + (rows - 1) * gap
+    is_control = report_type == "control_review"
+    heading = "Control Review Trend Cards" if is_control else "Posture Trend Cards"
+    current_label = "After" if is_control else "Current"
+    baseline_label = "Expected" if is_control else "Prior"
+    section_label = (
+        "Control review trend cards" if is_control else "Posture trend cards"
+    )
+    parts = [_chart_open(heading, width, height)]
+    for index, metric in enumerate(metrics):
+        col = index % cols
+        row = index // cols
+        x = col * (card_w + gap)
+        y = 34 + row * (card_h + gap)
+        points = metric.get("points")
+        if not isinstance(points, list):
+            ctx.warn("Trend card skipped a metric because points were unavailable.")
+            continue
+        current_values = [
+            value
+            for point in points
+            if isinstance(point, dict)
+            and (value := _chart_numeric(point.get("current"))) is not None
+        ]
+        baseline_values = [
+            value
+            for point in points
+            if isinstance(point, dict)
+            and (value := _chart_numeric(point.get("baseline"))) is not None
+        ]
+        if not current_values and not baseline_values:
+            ctx.warn(
+                "Trend card skipped a metric because no numeric values were available."
+            )
+            continue
+        parts.append(
+            f'<rect class="chart-card" x="{x}" y="{y}" width="{card_w}" height="{card_h}" rx="4"></rect>'
+        )
+        label = metric.get("label") or human_metric_name(metric.get("name"))
+        parts.append(
+            f'<text class="chart-label" x="{x + 12}" y="{y + 22}">{h_escape(label)}</text>'
+        )
+        current_value = metric.get("current")
+        baseline_value = metric.get("baseline")
+        pct_change = metric.get("pct_change")
+        parts.append(
+            f'<text class="chart-value" x="{x + 12}" y="{y + 44}">'
+            f"{current_label} {h_escape(human_number(current_value))} vs "
+            f"{baseline_label.lower()} {h_escape(human_number(baseline_value))}"
+            "</text>"
+        )
+        parts.append(
+            f'<text class="chart-value" x="{x + 12}" y="{y + 62}">'
+            f"Delta vs {h_escape(baseline_label.lower())} "
+            f"{h_escape(human_number(pct_change, percent=True))}</text>"
+        )
+        spark_x = x + 14
+        spark_y = y + 78
+        spark_w = card_w - 28
+        spark_h = 42
+        all_values = current_values + baseline_values
+        min_value = min(all_values)
+        max_value = max(all_values)
+        span = max(max_value - min_value, 1.0)
+
+        def scaled(values: list[float]) -> str:
+            if not values:
+                return ""
+            if len(values) == 1:
+                return f"{spark_x},{spark_y + spark_h / 2:.1f}"
+            pts: list[str] = []
+            for idx, value in enumerate(values):
+                px = spark_x + (idx / (len(values) - 1)) * spark_w
+                py = spark_y + spark_h - ((value - min_value) / span) * spark_h
+                pts.append(f"{px:.1f},{py:.1f}")
+            return " ".join(pts)
+
+        parts.append(
+            f'<polyline points="{scaled(baseline_values)}" fill="none" stroke="#85c1e9" stroke-width="2"></polyline>'
+        )
+        parts.append(
+            f'<polyline points="{scaled(current_values)}" fill="none" stroke="#2474a6" stroke-width="2.5"></polyline>'
+        )
+    parts.append("</svg>")
+    return (
+        f'<section class="trend-cards" aria-label="{h_escape(section_label)}">'
+        + "".join(parts)
+        + "</section>"
+    )
+
+
+def html_window_timeline(artifacts: list[dict[str, Any]], report_type: str) -> str:
+    rows: list[dict[str, Any]] = []
+    is_control_report = report_type == "control_review"
+    for artifact in artifacts:
+        schema = artifact.get("schema_version")
+        if schema not in {
+            POSTURE_SCHEMA,
+            TIMESERIES_SCHEMA,
+            CONTROL_SCHEMA,
+            SCORECARD_SCHEMA,
+        }:
+            continue
+        if schema == CONTROL_SCHEMA:
+            current = artifact.get("after_window")
+            baseline = artifact.get("before_window")
+        else:
+            current = artifact.get("current_window")
+            baselines = artifact.get("baseline_windows")
+            if not isinstance(baselines, list) or not baselines:
+                continue
+            baseline = baselines[0]
+        if not isinstance(current, dict) or not isinstance(baseline, dict):
+            continue
+        current_start = parse_utc_timestamp(current.get("start"))
+        current_end = parse_utc_timestamp(current.get("end"))
+        baseline_start = parse_utc_timestamp(baseline.get("start"))
+        baseline_end = parse_utc_timestamp(baseline.get("end"))
+        if not all((current_start, current_end, baseline_start, baseline_end)):
+            continue
+        is_control_row = schema == CONTROL_SCHEMA or (
+            is_control_report and schema == TIMESERIES_SCHEMA
+        )
+        rows.append(
+            {
+                "label": artifact_display_name(artifact),
+                "baseline_start": baseline_start,
+                "baseline_end": baseline_end,
+                "current_start": current_start,
+                "current_end": current_end,
+                "baseline_label": "Expected" if is_control_row else "Baseline",
+                "current_label": "After" if is_control_row else "Current",
+            }
+        )
+    if not rows:
+        return ""
+    if len(rows) > 1:
+        endpoints = ("baseline_start", "baseline_end", "current_start", "current_end")
+        first = rows[0]
+        max_drift_seconds = max(
+            abs((row[field] - first[field]).total_seconds())
+            for row in rows[1:]
+            for field in endpoints
+        )
+        if max_drift_seconds < 3600:
+            rows = [
+                {
+                    "label": "Report comparison window",
+                    "baseline_start": min(row["baseline_start"] for row in rows),
+                    "baseline_end": max(row["baseline_end"] for row in rows),
+                    "current_start": min(row["current_start"] for row in rows),
+                    "current_end": max(row["current_end"] for row in rows),
+                    "baseline_label": rows[0].get("baseline_label", "Baseline"),
+                    "current_label": rows[0].get("current_label", "Current"),
+                }
+            ]
+    min_start = min(row["baseline_start"] for row in rows)
+    max_end = max(row["current_end"] for row in rows)
+    total_seconds = max((max_end - min_start).total_seconds(), 1.0)
+    width = 760
+    label_w = 150
+    plot_w = 560
+    row_h = 50
+    height = 54 + row_h * len(rows)
+
+    def x_for(moment: datetime) -> int:
+        return int(
+            label_w + ((moment - min_start).total_seconds() / total_seconds) * plot_w
+        )
+
+    parts = [
+        '<section class="window-timeline" aria-label="Evidence window timeline">',
+        _chart_open("Evidence Window Timeline", width, height),
+        f'<text class="chart-value" x="{label_w}" y="38">{h_escape(human_timestamp(min_start.isoformat().replace("+00:00", "Z")))}</text>',
+        f'<text class="chart-value" x="{label_w + plot_w}" y="38" text-anchor="end">{h_escape(human_timestamp(max_end.isoformat().replace("+00:00", "Z")))}</text>',
+    ]
+    for index, row in enumerate(rows):
+        y = 58 + index * row_h
+        base_x = x_for(row["baseline_start"])
+        base_w = max(2, x_for(row["baseline_end"]) - base_x)
+        cur_x = x_for(row["current_start"])
+        cur_w = max(2, x_for(row["current_end"]) - cur_x)
+        parts.extend(
+            [
+                f'<text class="chart-label" x="0" y="{y + 17}">{h_escape(row["label"])}</text>',
+                f'<line x1="{label_w}" y1="{y + 10}" x2="{label_w + plot_w}" y2="{y + 10}" stroke="#d8dee8" stroke-width="1"></line>',
+                f'<rect class="timeline-baseline" x="{base_x}" y="{y}" width="{base_w}" height="20" rx="3"></rect>',
+                f'<rect class="timeline-current" x="{cur_x}" y="{y}" width="{cur_w}" height="20" rx="3"></rect>',
+                f'<text class="chart-value" x="{base_x + base_w / 2:.1f}" y="{y + 36}" text-anchor="middle">{h_escape(row.get("baseline_label", "Baseline"))}</text>',
+                f'<text class="chart-value" x="{cur_x + cur_w / 2:.1f}" y="{y + 36}" text-anchor="middle">{h_escape(row.get("current_label", "Current"))}</text>',
+            ]
+        )
+    parts.append("</svg></section>")
     return "".join(parts)
 
 
@@ -2560,7 +3856,7 @@ def html_chart_sections(
     elif report_type == "control_review":
         pieces.append(html_control_bars(selected["control"], limit, ctx))
     elif report_type == "scorecard_brief":
-        pieces.append(html_scorecard_domain_bars(selected["scorecard"], ctx))
+        pieces.append(html_scorecard_feature_cards(selected["scorecard"], limit, ctx))
     elif report_type in {"crawler_governance", "edge_ops_impact"}:
         scorecards = selected.get("scorecards") or []
         if selected.get("index"):
@@ -2589,18 +3885,72 @@ def render_html(
     *,
     scope_label: str | None = None,
 ) -> str:
-    chart_html = html_chart_sections(report_type, selected, limit, ctx)
-    markdown = render_markdown(
-        title,
-        report_type,
-        selected,
-        all_artifacts,
-        notes,
-        limit,
-        ctx,
-        scope_label=scope_label,
+    fleet_scorecard_brief = report_type == "scorecard_brief" and selected.get(
+        "is_fleet"
     )
-    body = markdown_to_simple_html(markdown)
+    if fleet_scorecard_brief:
+        body = html_scorecard_fleet_report(
+            title,
+            selected,
+            all_artifacts,
+            notes,
+            limit,
+            ctx,
+            scope_label,
+        )
+        chart_html = ""
+    else:
+        chart_html = html_chart_sections(report_type, selected, limit, ctx)
+        markdown = render_markdown(
+            title,
+            report_type,
+            selected,
+            all_artifacts,
+            notes,
+            limit,
+            ctx,
+            scope_label=scope_label,
+            include_metadata=False,
+        )
+        body = markdown_to_simple_html(markdown)
+        timeline_html = html_window_timeline(all_artifacts, report_type)
+        trend_html = html_timeseries_cards(all_artifacts, limit, ctx, report_type)
+        trend_anchor = None
+        if "<h2>Executive Summary</h2>" in body:
+            trend_anchor = "<h2>Executive Summary</h2>"
+        elif "<h2>Control Review Summary</h2>" in body:
+            trend_anchor = "<h2>Control Review Summary</h2>"
+        elif (
+            report_type == "scorecard_brief"
+            and "<h2>Selected Entity Context</h2>" in body
+        ):
+            trend_anchor = "<h2>Selected Entity Context</h2>"
+        if (timeline_html or trend_html) and trend_anchor:
+            body = body.replace(
+                trend_anchor,
+                timeline_html + trend_html + trend_anchor,
+                1,
+            )
+        if report_type == "scorecard_brief":
+            hero_html = html_scorecard_overall_gauge(selected["scorecard"], ctx)
+            context_panel = html_scorecard_context_panel(selected)
+            body = re.sub(
+                r"<h2>Selected Entity Context</h2>.*?(?=<h2>Domain Scores</h2>)",
+                "",
+                body,
+                count=1,
+                flags=re.S,
+            )
+            if "</h1>" in body:
+                body = body.replace("</h1>", "</h1>" + hero_html + context_panel, 1)
+            if chart_html and "<h2>Domain Scores</h2>" in body:
+                body = body.replace(
+                    "<h2>Domain Scores</h2>", chart_html + "<h2>Domain Scores</h2>", 1
+                )
+                chart_html = ""
+        if report_type == "scorecard_brief" and chart_html and trend_anchor:
+            body = body.replace(trend_anchor, chart_html + trend_anchor, 1)
+            chart_html = ""
     css = """
 body{font-family:Arial,sans-serif;margin:0;color:#17202a;background:#f7f8fa}
 main{max-width:1120px;margin:0 auto;padding:32px}
@@ -2608,11 +3958,50 @@ h1{font-size:34px;margin:0 0 8px}h2{margin-top:32px;border-top:1px solid #d9dee7
 table{border-collapse:collapse;width:100%;margin:12px 0;background:#fff}
 th,td{border:1px solid #d8dee8;padding:8px;text-align:left;vertical-align:top}
 th{background:#eef2f7}code{background:#eef2f7;padding:2px 4px;border-radius:3px}
+.trend-cards{margin:20px 0 8px}
+.window-timeline{margin:12px 0 20px}
 .charts{display:grid;grid-gap:16px;margin:16px 0}
 .chart{width:100%;background:#fff;border:1px solid #d8dee8;padding:12px;box-sizing:border-box}
 .chart-title{font-weight:700;font-size:14px;fill:#17202a}
 .chart-label{font-size:12px;fill:#17202a}
 .chart-value{font-size:12px;fill:#2b3a4a}
+.chart-large{font-size:20px;font-weight:700;fill:#17202a}
+.score-hero{background:#fff;border:1px solid #d8dee8;margin:18px 0 24px;padding:18px;text-align:center}
+.score-hero-label{font-size:12px;color:#5d6d7e;text-transform:uppercase;font-weight:700;letter-spacing:0}
+.overall-gauge{width:220px;max-width:70vw;height:165px;margin:0 auto -8px;display:block}
+.overall-gauge-track{fill:none;stroke:#e5eaf1;stroke-width:14;stroke-linecap:round}
+.overall-gauge-fill{fill:none;stroke:#2474a6;stroke-width:14;stroke-linecap:round}
+.overall-gauge-metric{font-size:46px;font-weight:700;fill:#17202a;dominant-baseline:middle}
+.score-delta-up{font-size:15px;font-weight:700;color:#1f8f3a;text-align:center}
+.score-delta-down{font-size:15px;font-weight:700;color:#b4232f;text-align:center}
+.score-delta-neutral{font-size:15px;font-weight:700;color:#5d6d7e;text-align:center}
+.entity-identity{background:#fff;border:1px solid #d8dee8;padding:16px;margin:0 0 20px}
+.entity-dimension{font-size:12px;color:#5d6d7e;text-transform:uppercase;font-weight:700}
+.entity-name{font-size:26px;font-weight:700;color:#17202a;margin:4px 0;overflow-wrap:anywhere}
+.entity-identity p{margin:0 0 12px;color:#2b3a4a}
+.entity-metadata-row{display:flex;flex-wrap:wrap;align-items:center;row-gap:6px;margin-top:2px}
+.entity-metadata-item{display:inline-flex;gap:6px;align-items:baseline;padding:0 12px 0 0;margin-right:12px;color:#17202a}
+.entity-metadata-item + .entity-metadata-item{border-left:1px solid #cfd7e2;padding-left:12px}
+.entity-metadata-label{font-size:11px;color:#5d6d7e;text-transform:uppercase;font-weight:700}
+.entity-metadata-value{font-size:13px;color:#17202a;font-weight:700}
+.rule-matrix{background:#fff;border:1px solid #d8dee8;padding:16px}
+.rule-matrix h2{border:0;margin:0 0 14px;padding:0;font-size:18px}
+.rule-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}
+.rule-card{border:1px solid #d8dee8;border-radius:6px;padding:12px;min-height:132px;background:#fff;display:flex;flex-direction:column;gap:6px}
+.rule-card-top{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.rule-domain,.rule-status{font-size:11px;color:#5d6d7e;text-transform:uppercase}
+.rule-status{text-align:center}
+.rule-status-triggered{color:#b4232f;font-weight:700}
+.rule-name{font-size:13px;font-weight:700;color:#17202a}
+.rule-condition{font-size:12px;color:#5d6d7e;min-height:16px}
+.rule-gauge{width:120px;height:90px;margin:-6px 0 -10px;align-self:center}
+.gauge-track{fill:none;stroke:#e5eaf1;stroke-width:8;stroke-linecap:round}
+.gauge-fill{fill:none;stroke:#2474a6;stroke-width:8;stroke-linecap:round}
+.gauge-metric{font-size:20px;font-weight:700;fill:#17202a;dominant-baseline:middle}
+.rule-points{border:1px solid #cfd7e2;border-radius:999px;padding:2px 7px;font-size:12px;font-weight:700;color:#17202a;background:#f7f8fa;white-space:nowrap}
+.rule-delta-up{font-size:13px;font-weight:700;color:#1f8f3a;text-align:center}
+.rule-delta-down{font-size:13px;font-weight:700;color:#b4232f;text-align:center}
+.rule-delta-neutral{font-size:13px;font-weight:700;color:#5d6d7e;text-align:center}
 .chart-bar{fill:#2474a6}
 .chart-current{fill:#2474a6}
 .chart-baseline{fill:#85c1e9}
@@ -2621,13 +4010,26 @@ th{background:#eef2f7}code{background:#eef2f7;padding:2px 4px;border-radius:3px}
 .chart-expected{fill:#7fb3d5}
 .chart-card{fill:#fff;stroke:#d8dee8}
 .chart-cell{fill:#2474a6}
+.timeline-baseline{fill:#85c1e9}
+.timeline-current{fill:#2474a6}
 .chart-skip{background:#fff3cd;border:1px solid #f0d27a;padding:10px;color:#5a4412;margin:12px 0}
+.fleet-header{background:#fff;border:1px solid #d8dee8;padding:14px 16px;margin:14px 0 16px;display:flex;flex-wrap:wrap;gap:8px}
+.fleet-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin:16px 0 20px}
+.fleet-kpi{background:#fff;border:1px solid #d8dee8;padding:14px}
+.fleet-kpi-label{font-size:11px;color:#5d6d7e;text-transform:uppercase;font-weight:700}
+.fleet-kpi-value{font-size:24px;font-weight:700;color:#17202a;margin-top:4px}
+.fleet-findings ul{background:#fff;border:1px solid #d8dee8;padding:14px 18px 14px 32px}
+.coverage-bar{display:flex;height:14px;min-width:120px;background:#eef2f7;border:1px solid #d8dee8}
+.coverage-segment{display:block;height:14px}
+.coverage-triggered{background:#b4232f}
+.coverage-evaluated-zero{background:#85c1e9}
+.coverage-missing-input{background:#f5b041}
 """.strip()
     return (
         '<!doctype html><html><head><meta charset="utf-8">'
         f"<title>{h_escape(title)}</title><style>{css}</style></head><body><main>"
-        + chart_html
         + body
+        + chart_html
         + "</main></body></html>\n"
     )
 
@@ -2697,7 +4099,7 @@ def inline_html(text: str) -> str:
                 parts.append(h_escape(_demd(segment[cursor:])))
                 return
             parts.append(h_escape(_demd(segment[cursor:start])))
-            parts.append(f"<em>{h_escape(_demd(segment[start + 1:end]))}</em>")
+            parts.append(f"<em>{h_escape(_demd(segment[start + 1 : end]))}</em>")
             cursor = end + 1
 
     cursor = 0
@@ -2711,7 +4113,7 @@ def inline_html(text: str) -> str:
             append_text(text[cursor:])
             break
         append_text(text[cursor:start])
-        parts.append(f"<code>{h_escape(_demd(text[start + 1:end]))}</code>")
+        parts.append(f"<code>{h_escape(_demd(text[start + 1 : end]))}</code>")
         cursor = end + 1
     return "".join(parts)
 
@@ -2765,6 +4167,57 @@ def table_to_html(lines: list[str]) -> str:
     return "".join(output)
 
 
+def _render_executive_posture_via_engine(
+    value: Any,
+    artifacts: list[dict[str, Any]],
+    notes: list[dict[str, Any]],
+    ctx: ReportContext,
+) -> str | None:
+    """Route HTML rendering through the report_engine when the input is a
+    wrapper carrying ``executive_posture``. Returns None when the engine
+    can't accept this input (raw artifact mode, missing schema, etc.) so
+    the caller can fall back to the legacy markdown→HTML path.
+    """
+    try:
+        from report_engine import render as engine_render
+        from report_engine.contexts import REPORT_TYPE_REGISTRY
+    except ImportError:
+        return None
+
+    is_wrapper = (
+        isinstance(value, dict)
+        and value.get("schema_version") == "bot_report_input.v1"
+        and value.get("report_type") == "executive_posture"
+    )
+    if not is_wrapper:
+        return None
+
+    module = REPORT_TYPE_REGISTRY.get("executive_posture")
+    if module is None:
+        return None
+
+    try:
+        artifact = module.assemble(artifacts)
+    except (ValueError, KeyError) as exc:
+        ctx.warnings.append(
+            f"executive_posture report_engine assembly failed ({exc}); "
+            "falling back to legacy markdown path."
+        )
+        return None
+
+    notes_by_slot = engine_render._build_notes_by_slot(
+        notes,
+        getattr(module, "NOTE_ID_TO_SLOT", {}),
+    )
+    template_ctx = module.prepare(artifact)
+    template_ctx["notes_by_slot"] = notes_by_slot
+    template_ctx["mode"] = "full"
+
+    env = engine_render.build_env()
+    template = env.get_template(module.TEMPLATE)
+    return template.render(**template_ctx)
+
+
 def render(
     value: Any,
     args: argparse.Namespace,
@@ -2794,6 +4247,16 @@ def render(
     scan_metadata_warnings(artifacts, ctx)
     validate_analyst_notes(notes, artifacts)
     if args.format == "html":
+        # Dual-route: HTML for executive_posture goes through the new
+        # report_engine path so callers get the Bot & Edge Movement
+        # brief. Markdown callers (md_executive) stay on the legacy
+        # path. Other report types are unchanged.
+        if report_type == "executive_posture":
+            engine_html = _render_executive_posture_via_engine(
+                value, artifacts, notes, ctx
+            )
+            if engine_html is not None:
+                return engine_html, ctx.warnings
         return (
             render_html(
                 title,

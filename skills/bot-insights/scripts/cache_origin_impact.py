@@ -87,7 +87,7 @@ LOW_CONFIDENCE_REASONS = {
 }
 LOW_CONFIDENCE_LIMITATIONS = {
     "missing_baseline",
-    "broad_raw_table_fallback",
+    "broad_request_level_query",
     "source_limited_rowset",
 }
 MEDIUM_ONLY_CONFIDENCE_REASONS = {
@@ -1302,10 +1302,10 @@ def _table_confidence_reasons(
         reasons.append("summary_table_used")
     if (
         data.get("summary_table_used") is False
-        or data.get("raw_table_fallback") is True
+        or data.get("request_level_query") is True
         or table_used in {"bot_detection", "bot_detection_siem"}
     ):
-        reasons.append("raw_table_fallback")
+        reasons.append("request_level_query")
 
     if (
         table_used.startswith("bot_agg_path_")
@@ -1385,14 +1385,14 @@ def _response_bytes_optional_metadata(
     return metadata
 
 
-def _bot_summary_context_metadata(data: dict[str, Any]) -> dict[str, Any] | None:
-    context = data.get("bot_summary_context")
+def _summary_context_metadata(data: dict[str, Any]) -> dict[str, Any] | None:
+    context = data.get("summary_context")
     if context is None:
         return None
     if not isinstance(context, dict):
         return {
             "available": False,
-            "reason": "malformed_bot_summary_context",
+            "reason": "malformed_summary_context",
             "limitations": ["host_scope_context_not_path_level_evidence"],
         }
 
@@ -1415,8 +1415,8 @@ def _candidate_limitations(
     reason_set = set(confidence_reasons)
     if "query_string_cardinality_approximate" in reason_set:
         limitations.add("query_string_cardinality_approximate")
-    if "raw_table_fallback" in reason_set:
-        limitations.add("raw_table_fallback")
+    if "request_level_query" in reason_set:
+        limitations.add("request_level_query")
     if "missing_retained_dimension" in reason_set:
         limitations.add("missing_retained_dimension")
     if "contribution_withheld_source_limited" in reason_set:
@@ -1427,7 +1427,7 @@ def _candidate_limitations(
     response_metadata = optional_metadata.get("response_bytes")
     if isinstance(response_metadata, dict) and not response_metadata.get("available"):
         limitations.add("response_byte_metadata_not_available")
-    bot_context = optional_metadata.get("bot_summary_context")
+    bot_context = optional_metadata.get("summary_context")
     if isinstance(bot_context, dict):
         limitations.update(
             limitation
@@ -1453,9 +1453,9 @@ def _candidate_limitations(
         limitations.add("contribution_withheld_source_limited")
     if data.get("source_limited") is True or data.get("rowset_complete") is False:
         limitations.add("source_limited_rowset")
-    raw_fallback_scope = str(data.get("raw_fallback_scope") or "").lower()
-    if raw_fallback_scope == "broad" or data.get("broad_raw_fallback") is True:
-        limitations.add("broad_raw_table_fallback")
+    request_level_scope = str(data.get("request_level_scope") or "").lower()
+    if request_level_scope == "broad" or data.get("broad_request_level_query") is True:
+        limitations.add("broad_request_level_query")
     return sorted(limitations)
 
 
@@ -1841,7 +1841,7 @@ def _derive_candidates(
     )
     if trusted_context_complete:
         base_confidence_reasons.append("direct_mcp_trusted_context")
-    bot_summary_context_metadata = _bot_summary_context_metadata(data)
+    summary_context_metadata = _summary_context_metadata(data)
 
     metric_rows = _metric_rows(rows, dimensions, scope)
 
@@ -1923,8 +1923,8 @@ def _derive_candidates(
         optional_metadata: dict[str, Any] = {
             "response_bytes": _response_bytes_optional_metadata(current, baseline),
         }
-        if bot_summary_context_metadata is not None:
-            optional_metadata["bot_summary_context"] = bot_summary_context_metadata
+        if summary_context_metadata is not None:
+            optional_metadata["summary_context"] = summary_context_metadata
         candidate_reasons = sorted(
             set(
                 base_confidence_reasons
@@ -2031,9 +2031,9 @@ def build_report(
         }
     )
     optional_metadata: dict[str, Any] = {}
-    bot_summary_context_metadata = _bot_summary_context_metadata(data)
-    if bot_summary_context_metadata is not None:
-        optional_metadata["bot_summary_context"] = bot_summary_context_metadata
+    summary_context_metadata = _summary_context_metadata(data)
+    if summary_context_metadata is not None:
+        optional_metadata["summary_context"] = summary_context_metadata
 
     report_metric_semantics = {
         "origin_pressure_score": "proxy_misses_times_origin_p95_seconds",
