@@ -1,0 +1,21 @@
+{% macro triage_strip(strip, shared_signal=None) %}
+<header class="verdict-strip" aria-label="Fleet triage">
+  <div class="verdict-pills">
+    {% for pill in strip.pills %}
+      <span class="pill pill-{{ pill.tone }} triage-count{% if pill.count == 0 %} pill-muted{% endif %}">
+        <strong>{{ pill.count }}</strong>
+        <span class="triage-pill-label">{{ pill.label }}</span>
+      </span>
+    {% endfor %}
+  </div>
+  {% if strip.rationale %}
+    <p class="verdict-rationale">{{ strip.rationale }}</p>
+  {% endif %}
+  {% if shared_signal %}
+    <div class="shared-signal-banner" role="note">
+      <span class="shared-signal-eyebrow">Shared signal</span>
+      <p>{{ shared_signal.headline }}</p>
+    </div>
+  {% endif %}
+</header>
+{% endmacro %}

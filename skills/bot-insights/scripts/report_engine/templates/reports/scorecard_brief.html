@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% from "macros/triage_strip.html" import triage_strip as render_triage_strip %}
+{% from "macros/queue_table.html" import queue_table %}
+{% from "macros/volume_impact.html" import volume_impact as render_volume_impact %}
+{% from "macros/executive_summary.html" import executive_summary %}
+{% from "macros/findings.html" import findings_band %}
+{% from "macros/score_landscape.html" import score_landscape %}
+{% from "macros/score_movement.html" import score_movement %}
+{% from "macros/coverage_table.html" import coverage_table %}
+{% from "macros/actions.html" import actions_section %}
+{% from "macros/method.html" import method_section %}
+{% from "macros/report_purpose.html" import report_purpose %}
+
+{# Executive summary leads. It synthesizes the actionable take from the
+   deterministic data (queue split + dominant signal + recommended action).
+   The score landscape sits beneath it as the supporting distribution view. #}
+{% block hero %}
+  {{ executive_summary(notes_by_slot, findings) }}
+{% endblock %}
+
+{% block content %}
+  {% if mode == "brief" %}
+    {{ score_landscape(score_summary, lowest_host, triage_strip, compact=True) }}
+  {% else %}
+    {{ score_landscape(score_summary, lowest_host, triage_strip) }}
+  {% endif %}
+
+  {{ render_triage_strip(triage_strip, shared_signal) }}
+
+  {{ render_volume_impact(fleet_volume_impact) }}
+
+  {% if mode == "brief" %}
+    {{ findings_band(findings[:3]) }}
+    {{ queue_table(queue_rows[:5]) }}
+    {{ actions_section(actions, notes_by_slot.get("operational_interpretation") if notes_by_slot else None) }}
+    {{ method_section(method, scope, confidence.reasons, compact=True) }}
+  {% else %}
+    {{ findings_band(findings) }}
+    {% if kpis.n_moved > 0 %}{{ score_movement(entities, kpis) }}{% endif %}
+    {{ queue_table(queue_rows) }}
+    {{ actions_section(actions, notes_by_slot.get("operational_interpretation") if notes_by_slot else None) }}
+
+    {% if fleet_coverage_detail %}
+    <details class="disclosure">
+      <summary>
+        <span>Coverage detail</span>
+        <span class="disclosure-summary-stat">
+          {% set total_rules = 0 %}{% for g in fleet_coverage_detail.groups %}{% set total_rules = total_rules + (g.rules | length) %}{% endfor %}
+          {{ total_rules }} rule{{ "s" if total_rules != 1 else "" }} unscored on at least one host
+        </span>
+      </summary>
+      <div class="disclosure-body">
+        <p class="muted">
+          Rules listed below were not scored on the indicated hosts because
+          their inputs are absent from the source rows. They are not scored
+          as safe.
+        </p>
+        {% for group in fleet_coverage_detail.groups %}
+          <div class="coverage-group">
+            <h3 class="coverage-domain">{{ group.domain_label }}</h3>
+            <ul class="coverage-rules">
+              {% for r in group.rules %}
+                <li>
+                  <code>{{ r.name }}</code>
+                  <span class="muted-small">— missing on {{ r.host_count }} of {{ fleet_coverage_detail.n_total_hosts }} hosts</span>
+                  {% if r.missing_inputs %}
+                    <span class="muted-small">; needs {{ r.missing_inputs | join(", ") }}</span>
+                  {% endif %}
+                </li>
+              {% endfor %}
+            </ul>
+          </div>
+        {% endfor %}
+      </div>
+    </details>
+    {% endif %}
+
+    {{ coverage_table(coverage_rows, confidence) }}
+    {{ method_section(method, scope, confidence.reasons) }}
+  {% endif %}
+
+  {% if orientation %}
+  <details class="disclosure">
+    <summary>
+      <span>Orientation — what this report measures</span>
+    </summary>
+    <div class="disclosure-body">
+      {{ report_purpose(orientation, palette) }}
+    </div>
+  </details>
+  {% endif %}
+{% endblock %}

@@ -1,0 +1,26 @@
+{% macro score_landscape(summary, lowest_host, triage_strip, compact=False) %}
+<section>
+  <div class="section-eyebrow">Score landscape</div>
+  <h2>{% if compact %}Lowest host score{% else %}Where the work sits in the queue{% endif %}</h2>
+  <div class="landscape-grid {% if compact %}landscape-grid-compact{% endif %}">
+    <div class="lowest-host-card">
+      <div class="lowest-host-label">Lowest scoring host</div>
+      {% if lowest_host %}
+        <div class="lowest-host-entity">{{ lowest_host.entity }}</div>
+        <div class="lowest-host-meta">
+          <span class="lowest-host-score">Score {{ lowest_host.score }}</span>
+          <span class="pill pill-{{ lowest_host.verdict_tone }}">{{ lowest_host.verdict_label }}</span>
+        </div>
+      {% else %}
+        <div class="lowest-host-entity muted">—</div>
+      {% endif %}
+    </div>
+    {% if not compact %}
+    <div class="hist-card">
+      <div class="hist-label">Triage state distribution</div>
+      {{ triage_histogram(triage_strip.counts) }}
+    </div>
+    {% endif %}
+  </div>
+</section>
+{% endmacro %}

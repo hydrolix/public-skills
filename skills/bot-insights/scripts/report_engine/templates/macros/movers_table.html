@@ -1,0 +1,44 @@
+{% macro movers_table(top_mover) %}
+{% if top_mover %}
+<section>
+  <div class="section-eyebrow">Attribution</div>
+  <h2>Top movers — who drove the change</h2>
+  <p class="movers-headline">
+    <strong>{{ top_mover.dimension_label }} {{ top_mover.value }}</strong>
+    covers {{ "%.0f"|format(top_mover.contribution_pct) }}% of the
+    {{ top_mover.metric_label | lower }} move.
+  </p>
+  <table class="data-table movers-table">
+    <thead>
+      <tr>
+        <th>{{ top_mover.dimension_label }}</th>
+        <th class="num">Current</th>
+        <th class="num">Baseline</th>
+        <th class="num">Delta</th>
+        <th class="num">Covers</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for m in top_mover.movers %}
+      <tr>
+        <td class="mover-value">{{ m.value }}</td>
+        <td class="num">
+          {% if m.current is not none %}{{ m.current | big_number }}{% else %}—{% endif %}
+        </td>
+        <td class="num">
+          {% if m.baseline is not none %}{{ m.baseline | big_number }}{% else %}—{% endif %}
+        </td>
+        <td class="num">
+          {% set d = m.absolute_delta or 0 %}
+          {% if d > 0 %}+{% endif %}{{ d | big_number }}
+        </td>
+        <td class="num">
+          {% if m.contribution_pct is not none %}{{ "%.0f"|format(m.contribution_pct) }}%{% else %}—{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+{% endmacro %}

@@ -1,0 +1,51 @@
+{% macro movement_table(metrics) %}
+<section>
+  <div class="section-eyebrow">Movement detail</div>
+  <h2>Per-metric movement vs prior week</h2>
+  {% if metrics %}
+    <table class="data-table movement-table">
+      <thead>
+        <tr>
+          <th>Metric</th>
+          <th class="num">Current</th>
+          <th class="num">Baseline</th>
+          <th class="num">Delta</th>
+          <th class="num">% change</th>
+          <th>Verdict</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for m in metrics %}
+        <tr class="movement-row movement-row-{{ m.verdict_state }}">
+          <td class="metric-name">
+            <span class="metric-name-label">{{ m.label }}</span>
+            {% if m.confidence_chip %}
+              <span class="pill pill-sm pill-{{ m.confidence_chip.tone }}">{{ m.confidence_chip.label }}</span>
+            {% endif %}
+          </td>
+          <td class="num">
+            {% if m.current is not none %}{{ m.current | big_number }}{% else %}—{% endif %}
+          </td>
+          <td class="num">
+            {% if m.baseline is not none %}{{ m.baseline | big_number }}{% else %}—{% endif %}
+          </td>
+          <td class="num">
+            {% if m.is_volume %}
+              {% if m.absolute_delta > 0 %}+{% endif %}{{ m.absolute_delta | big_number }}
+            {% else %}
+              {{ m.absolute_delta | signed_pp }}
+            {% endif %}
+          </td>
+          <td class="num">{{ m.pct_change | signed_pct }}</td>
+          <td>
+            <span class="pill pill-sm pill-{{ m.verdict_tone }}">{{ m.verdict_label }}</span>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="muted">No metrics in this artifact.</p>
+  {% endif %}
+</section>
+{% endmacro %}

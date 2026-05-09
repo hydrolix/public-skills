@@ -1,0 +1,46 @@
+{% macro queue_table(rows) %}
+{% set ns = namespace(last_state="") %}
+<section>
+  <div class="section-eyebrow">Triage queue</div>
+  <h2>{{ rows | length }} host{{ "s" if rows | length != 1 else "" }}, ordered by what to do</h2>
+  <table class="data-table queue-table">
+    <thead>
+      <tr>
+        <th>Verdict</th>
+        <th>Host</th>
+        <th>Score</th>
+        <th>Δ</th>
+        <th>Primary domain</th>
+        <th>Top evidence</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+        {% if r.verdict_state != ns.last_state %}
+          {% set ns.last_state = r.verdict_state %}
+          <tr class="queue-state-divider">
+            <td colspan="6"><span class="pill pill-{{ r.verdict_tone }}">{{ r.verdict_label }}</span></td>
+          </tr>
+        {% endif %}
+        <tr>
+          <td><span class="pill pill-{{ r.verdict_tone }} pill-sm">{{ r.verdict_label }}</span></td>
+          <td class="entity">{{ r.entity }}</td>
+          <td class="score-cell">
+            <span class="score-num">{{ r.score }}</span>
+            {{ score_bar(r.score) }}
+          </td>
+          <td>
+            {% if r.delta == 0 %}<span class="delta-flat">±0</span>
+            {% elif r.delta > 0 %}<span class="delta-up">+{{ r.delta }}</span>
+            {% else %}<span class="delta-down">{{ r.delta }}</span>{% endif %}
+          </td>
+          <td>
+            <span class="domain-pill {% if r.primary_domain == 'none' %}primary-none{% else %}primary-active{% endif %}">{{ r.primary_domain_label }}</span>
+          </td>
+          <td class="evidence-cell">{{ r.evidence_top | normalize_percents }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endmacro %}

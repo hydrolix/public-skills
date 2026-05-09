@@ -1,0 +1,47 @@
+{% macro method_section(method, scope, confidence_reasons, compact=False) %}
+<section>
+  <div class="section-eyebrow">Method &amp; caveats</div>
+  {% if compact %}
+    <h2>Source</h2>
+    <p class="muted-small">
+      {{ scope.cluster | cluster_display }} · {{ scope.database | cluster_display }}
+      · table <code>{{ scope.table_used }}</code>.
+      Comparison: {{ (method.comparison_type or "") | humanize_comparison or "n/a" }}.
+      Rule-based scorecard from mechanical features only. Missing feature inputs are
+      reported as missing — not scored as safe.
+    </p>
+  {% else %}
+    <h2>What this report is and isn't</h2>
+    <p class="prose">
+      Rule-based scorecard for {{ scope.cluster | cluster_display }} ·
+      {{ scope.database | cluster_display }}, built from mechanical features
+      only{% if method.comparison_type %}, compared against
+      {{ method.comparison_type | humanize_comparison | lower }}{% endif %}.
+      It reports what was measured, not why. Missing feature inputs are
+      reported as such — they are not scored as safe.
+    </p>
+    <details class="disclosure method-disclosure">
+      <summary>Schema, source table, and constraints</summary>
+      <dl class="method">
+        <dt>Schema</dt><dd><code>{{ method.schema_version }}</code></dd>
+        {% if method.comparison_type %}
+          <dt>Comparison</dt><dd>{{ method.comparison_type | humanize_comparison }}</dd>
+        {% endif %}
+        {% if method.producer_limit is not none %}
+          <dt>Producer limit</dt><dd>{{ method.producer_limit }} (returned {{ method.result_row_count }}, truncated: {{ method.result_truncated | lower }})</dd>
+        {% endif %}
+        <dt>Tenant / database</dt><dd>{{ scope.cluster | cluster_display }} · {{ scope.database | cluster_display }}</dd>
+        <dt>Table</dt><dd><code>{{ scope.table_used }}</code></dd>
+        {% if method.interpretation_constraints %}
+          <dt>Constraints</dt>
+          <dd>{% for c in method.interpretation_constraints %}{{ c | humanize_constraint }}{% if not loop.last %}; {% endif %}{% endfor %}</dd>
+        {% endif %}
+        {% if confidence_reasons %}
+          <dt>Confidence reasons</dt>
+          <dd>{% for r in confidence_reasons %}{{ r | humanize_reason }}{% if not loop.last %}; {% endif %}{% endfor %}</dd>
+        {% endif %}
+      </dl>
+    </details>
+  {% endif %}
+</section>
+{% endmacro %}

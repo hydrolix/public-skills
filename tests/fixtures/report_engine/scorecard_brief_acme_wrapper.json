@@ -1,0 +1,672 @@
+{
+  "analyst_notes": [
+    {
+      "author_type": "llm",
+      "data_sources": [],
+      "note_id": "llm-interpretation",
+      "show_data_sources": false,
+      "text": "The selected scorecard entity is apihub.acme.com, ranked first among the 20 emitted request_host entities for the 2026-05-07 to 2026-05-08 current window. The health score is 90 after subtracting 10 triggered risk points. Treat this as a cache-busting investigation cue rather than a causal or malicious-traffic finding; the next step is to inspect query-string diversity, cache-key behavior, and cache miss concentration by host and path.",
+      "title": "Scorecard Interpretation"
+    }
+  ],
+  "artifacts": [
+    {
+      "band": "observe",
+      "baseline_score": 90,
+      "baseline_windows": [
+        {
+          "end": "2026-05-07T00:00:00Z",
+          "start": "2026-05-06T00:00:00Z"
+        }
+      ],
+      "comparison_type": "previous_window",
+      "confidence": "medium",
+      "confidence_reasons": [
+        "summary_table_used",
+        "retained_dimensions_fit",
+        "current_count_sufficient",
+        "baseline_count_sufficient",
+        "siem_unavailable",
+        "feature_input_missing"
+      ],
+      "current_window": {
+        "end": "2026-05-08T00:00:00Z",
+        "start": "2026-05-07T00:00:00Z"
+      },
+      "domain_scores": {
+        "cache_busting": 10,
+        "crawler_governance": 0,
+        "movement": 0
+      },
+      "entity": "apihub.acme.com",
+      "entity_type": "request_host",
+      "evidence_summary": [
+        "Cache miss rate is 99.992029%.",
+        "15 feature inputs were missing and were not scored as safe."
+      ],
+      "features": [
+        {
+          "baseline": 99.985365,
+          "current": 99.992029,
+          "domain": "cache_busting",
+          "evidence": "Cache miss rate is 99.992029%.",
+          "name": "cache_miss_rate_high",
+          "points": 10,
+          "supporting_metrics": {
+            "absolute_delta_points": 0.006665
+          },
+          "threshold": 50
+        }
+      ],
+      "granularity": "hour",
+      "interpretation_constraints": [
+        "rule_based_scorecard",
+        "mechanical_features_only",
+        "no_causal_claim",
+        "llm_may_summarize_structured_evidence_only"
+      ],
+      "not_evaluated_features": [
+        {
+          "domain": "cache_busting",
+          "missing_inputs": [
+            "qs_diversity_ratio"
+          ],
+          "name": "querystring_diversity_high",
+          "reason": "feature_input_missing"
+        },
+        {
+          "domain": "cache_busting",
+          "missing_inputs": [
+            "qs_diversity_ratio"
+          ],
+          "name": "querystring_diversity_with_high_miss_rate",
+          "reason": "feature_input_missing"
+        },
+        {
+          "domain": "crawler_governance",
+          "missing_inputs": [
+            "baseline_ai_crawler_requests",
+            "current_ai_crawler_requests"
+          ],
+          "name": "ai_crawler_growth_high",
+          "reason": "feature_input_missing"
+        },
+        {
+          "domain": "crawler_governance",
+          "missing_inputs": [
+            "good_bot_429_requests"
+          ],
+          "name": "good_bot_429_present",
+          "reason": "feature_input_missing"
+        },
+        {
+          "domain": "crawler_governance",
+          "missing_inputs": [
+            "good_bot_error_rate_pct"
+          ],
+          "name": "good_bot_error_rate_high",
+          "reason": "feature_input_missing"
+        },
+        {
+          "domain": "crawler_governance",
+          "missing_inputs": [
+            "policy_surface_failures"
+          ],
+          "name": "policy_surface_failure_present",
+          "reason": "feature_input_missing"
+        },
+        {
+          "domain": "movement",
+          "missing_inputs": [
+            "contribution_pct"
+          ],
+          "name": "contribution_to_total_delta_high",
+          "reason": "feature_input_missing"
+        },
+        {
+          "domain": "origin_impact",
+          "missing_inputs": [
+            "origin_cost_contribution_pct"
+          ],
+          "name": "origin_cost_contribution_high",
+          "reason": "feature_input_missing"
+        },
+        {
+          "domain": "origin_impact",
+          "missing_inputs": [
+            "baseline_origin_p95_ms",
+            "current_origin_p95_ms"
+          ],
+          "name": "origin_p95_delta_high",
+          "reason": "feature_input_missing"
+        },
+        {
+          "domain": "policy_collateral",
+          "missing_inputs": [
+            "baseline_displacement_requests",
+            "current_displacement_requests"
+          ],
+          "name": "displacement_delta_high",
+          "reason": "feature_input_missing"
+        },
+        {
+          "domain": "policy_collateral",
+          "missing_inputs": [
+            "good_bot_collateral_429_requests"
+          ],
+          "name": "good_bot_policy_collateral_present",
+          "reason": "feature_input_missing"
+        },
+        {
+          "domain": "policy_collateral",
+          "missing_inputs": [
+            "policy_collateral_error_rate_pct"
+          ],
+          "name": "policy_collateral_error_rate_high",
+          "reason": "feature_input_missing"
+        },
+        {
+          "domain": "security_evidence",
+          "missing_inputs": [
+            "bad_bot_share_pct"
+          ],
+          "name": "bad_bot_share_high",
+          "reason": "feature_input_missing"
+        },
+        {
+          "domain": "security_evidence",
+          "missing_inputs": [
+            "siem_auth_fail_requests"
+          ],
+          "name": "siem_auth_fail_present",
+          "reason": "feature_input_missing"
+        },
+        {
+          "domain": "security_evidence",
+          "missing_inputs": [
+            "siem_blocked_requests"
+          ],
+          "name": "siem_blocked_present",
+          "reason": "feature_input_missing"
+        }
+      ],
+      "primary_domain": "cache_busting",
+      "recommended_next_steps": [
+        {
+          "detail": "Inspect query-string diversity, cache-key behavior, and cache miss concentration by host and path.",
+          "summary": "Audit query-string and cache-key behavior."
+        }
+      ],
+      "rule_results": [
+        {
+          "baseline": 99.985365,
+          "current": 99.992029,
+          "domain": "cache_busting",
+          "evidence": "Rule evaluated below threshold.",
+          "name": "cache_miss_delta_high",
+          "points": 0,
+          "status": "evaluated_zero",
+          "supporting_metrics": {
+            "absolute_delta_points": 0.006665
+          },
+          "threshold": 15
+        },
+        {
+          "baseline": 99.985365,
+          "current": 99.992029,
+          "domain": "cache_busting",
+          "evidence": "Cache miss rate is 99.992029%.",
+          "name": "cache_miss_rate_high",
+          "points": 10,
+          "status": "triggered",
+          "supporting_metrics": {
+            "absolute_delta_points": 0.006665
+          },
+          "threshold": 50
+        },
+        {
+          "domain": "cache_busting",
+          "missing_inputs": [
+            "qs_diversity_ratio"
+          ],
+          "name": "querystring_diversity_high",
+          "points": 0,
+          "reason": "feature_input_missing",
+          "status": "missing_input"
+        },
+        {
+          "domain": "cache_busting",
+          "missing_inputs": [
+            "qs_diversity_ratio"
+          ],
+          "name": "querystring_diversity_with_high_miss_rate",
+          "points": 0,
+          "reason": "feature_input_missing",
+          "status": "missing_input"
+        },
+        {
+          "domain": "crawler_governance",
+          "missing_inputs": [
+            "baseline_ai_crawler_requests",
+            "current_ai_crawler_requests"
+          ],
+          "name": "ai_crawler_growth_high",
+          "points": 0,
+          "reason": "feature_input_missing",
+          "status": "missing_input"
+        },
+        {
+          "domain": "crawler_governance",
+          "missing_inputs": [
+            "good_bot_429_requests"
+          ],
+          "name": "good_bot_429_present",
+          "points": 0,
+          "reason": "feature_input_missing",
+          "status": "missing_input"
+        },
+        {
+          "domain": "crawler_governance",
+          "missing_inputs": [
+            "good_bot_error_rate_pct"
+          ],
+          "name": "good_bot_error_rate_high",
+          "points": 0,
+          "reason": "feature_input_missing",
+          "status": "missing_input"
+        },
+        {
+          "domain": "crawler_governance",
+          "missing_inputs": [
+            "policy_surface_failures"
+          ],
+          "name": "policy_surface_failure_present",
+          "points": 0,
+          "reason": "feature_input_missing",
+          "status": "missing_input"
+        },
+        {
+          "baseline": 0,
+          "current": 0,
+          "domain": "crawler_governance",
+          "evidence": "Rule evaluated below threshold.",
+          "name": "rate_429_delta_high",
+          "points": 0,
+          "status": "evaluated_zero",
+          "supporting_metrics": {
+            "absolute_delta_points": 0
+          },
+          "threshold": 5
+        },
+        {
+          "baseline": 0.341934,
+          "current": 0.345697,
+          "domain": "crawler_governance",
+          "evidence": "Rule evaluated below threshold.",
+          "name": "rate_5xx_delta_high",
+          "points": 0,
+          "status": "evaluated_zero",
+          "supporting_metrics": {
+            "absolute_delta_points": 0.003763
+          },
+          "threshold": 5
+        },
+        {
+          "baseline": 0.011087,
+          "current": 0.012694,
+          "domain": "movement",
+          "evidence": "Rule evaluated below threshold.",
+          "name": "bot_share_delta_high",
+          "points": 0,
+          "status": "evaluated_zero",
+          "supporting_metrics": {
+            "absolute_delta_points": 0.001607
+          },
+          "threshold": 10
+        },
+        {
+          "domain": "movement",
+          "missing_inputs": [
+            "contribution_pct"
+          ],
+          "name": "contribution_to_total_delta_high",
+          "points": 0,
+          "reason": "feature_input_missing",
+          "status": "missing_input"
+        },
+        {
+          "baseline": 225482,
+          "current": 338736,
+          "domain": "movement",
+          "evidence": "Rule evaluated below threshold.",
+          "name": "new_entity",
+          "points": 0,
+          "status": "evaluated_zero",
+          "threshold": 1
+        },
+        {
+          "baseline": 225482,
+          "current": 338736,
+          "domain": "movement",
+          "evidence": "Rule evaluated below threshold.",
+          "name": "volume_delta_high",
+          "points": 0,
+          "status": "evaluated_zero",
+          "supporting_metrics": {
+            "absolute_delta": 113254,
+            "pct_change": 50.227513
+          },
+          "threshold": 100
+        },
+        {
+          "domain": "origin_impact",
+          "missing_inputs": [
+            "origin_cost_contribution_pct"
+          ],
+          "name": "origin_cost_contribution_high",
+          "points": 0,
+          "reason": "feature_input_missing",
+          "status": "missing_input"
+        },
+        {
+          "domain": "origin_impact",
+          "missing_inputs": [
+            "baseline_origin_p95_ms",
+            "current_origin_p95_ms"
+          ],
+          "name": "origin_p95_delta_high",
+          "points": 0,
+          "reason": "feature_input_missing",
+          "status": "missing_input"
+        },
+        {
+          "domain": "policy_collateral",
+          "missing_inputs": [
+            "baseline_displacement_requests",
+            "current_displacement_requests"
+          ],
+          "name": "displacement_delta_high",
+          "points": 0,
+          "reason": "feature_input_missing",
+          "status": "missing_input"
+        },
+        {
+          "domain": "policy_collateral",
+          "missing_inputs": [
+            "good_bot_collateral_429_requests"
+          ],
+          "name": "good_bot_policy_collateral_present",
+          "points": 0,
+          "reason": "feature_input_missing",
+          "status": "missing_input"
+        },
+        {
+          "domain": "policy_collateral",
+          "missing_inputs": [
+            "policy_collateral_error_rate_pct"
+          ],
+          "name": "policy_collateral_error_rate_high",
+          "points": 0,
+          "reason": "feature_input_missing",
+          "status": "missing_input"
+        },
+        {
+          "domain": "security_evidence",
+          "missing_inputs": [
+            "bad_bot_share_pct"
+          ],
+          "name": "bad_bot_share_high",
+          "points": 0,
+          "reason": "feature_input_missing",
+          "status": "missing_input"
+        },
+        {
+          "domain": "security_evidence",
+          "missing_inputs": [
+            "siem_auth_fail_requests"
+          ],
+          "name": "siem_auth_fail_present",
+          "points": 0,
+          "reason": "feature_input_missing",
+          "status": "missing_input"
+        },
+        {
+          "domain": "security_evidence",
+          "missing_inputs": [
+            "siem_blocked_requests"
+          ],
+          "name": "siem_blocked_present",
+          "points": 0,
+          "reason": "feature_input_missing",
+          "status": "missing_input"
+        }
+      ],
+      "schema_version": "bot_entity_scorecard.v1",
+      "scope": {
+        "cluster": "acme",
+        "database": "akamai",
+        "entity_type": "request_host"
+      },
+      "score": 90,
+      "score_delta_basis": "Baseline score is recomputed from baseline-period point-in-time rule inputs; rules requiring pre-baseline delta inputs are excluded.",
+      "score_delta_points": 0,
+      "table_used": "akamai.bi_summary_hour"
+    },
+    {
+      "baseline_windows": [
+        {
+          "end": "2026-05-07T00:00:00Z",
+          "start": "2026-05-06T00:00:00Z"
+        }
+      ],
+      "comparison_type": "previous_window",
+      "current_window": {
+        "end": "2026-05-08T00:00:00Z",
+        "start": "2026-05-07T00:00:00Z"
+      },
+      "interpretation_constraints": [
+        "rule_based_scorecard",
+        "mechanical_features_only",
+        "no_causal_claim",
+        "llm_may_summarize_structured_evidence_only"
+      ],
+      "producer_limit": 20,
+      "ranked_entities": [
+        {
+          "band": "observe",
+          "confidence": "medium",
+          "entity": "apihub.acme.com",
+          "entity_type": "request_host",
+          "primary_domain": "cache_busting",
+          "rank": 1,
+          "score": 90
+        },
+        {
+          "band": "observe",
+          "confidence": "medium",
+          "entity": "b2b-api.acme.com",
+          "entity_type": "request_host",
+          "primary_domain": "cache_busting",
+          "rank": 2,
+          "score": 90
+        },
+        {
+          "band": "observe",
+          "confidence": "medium",
+          "entity": "chatbot.acme.com",
+          "entity_type": "request_host",
+          "primary_domain": "cache_busting",
+          "rank": 3,
+          "score": 90
+        },
+        {
+          "band": "observe",
+          "confidence": "medium",
+          "entity": "digital.acme.com",
+          "entity_type": "request_host",
+          "primary_domain": "cache_busting",
+          "rank": 4,
+          "score": 90
+        },
+        {
+          "band": "observe",
+          "confidence": "medium",
+          "entity": "digitalapps.acme.com",
+          "entity_type": "request_host",
+          "primary_domain": "cache_busting",
+          "rank": 5,
+          "score": 90
+        },
+        {
+          "band": "observe",
+          "confidence": "medium",
+          "entity": "digitalauth.acme.com",
+          "entity_type": "request_host",
+          "primary_domain": "cache_busting",
+          "rank": 6,
+          "score": 90
+        },
+        {
+          "band": "observe",
+          "confidence": "medium",
+          "entity": "digitalinvestor.acme.com",
+          "entity_type": "request_host",
+          "primary_domain": "cache_busting",
+          "rank": 7,
+          "score": 90
+        },
+        {
+          "band": "observe",
+          "confidence": "medium",
+          "entity": "digitalomni-intg.acme.com",
+          "entity_type": "request_host",
+          "primary_domain": "cache_busting",
+          "rank": 8,
+          "score": 90
+        },
+        {
+          "band": "observe",
+          "confidence": "medium",
+          "entity": "digitalomni-perf.acme.com",
+          "entity_type": "request_host",
+          "primary_domain": "cache_busting",
+          "rank": 9,
+          "score": 90
+        },
+        {
+          "band": "observe",
+          "confidence": "medium",
+          "entity": "digitalomni.acme.com",
+          "entity_type": "request_host",
+          "primary_domain": "cache_busting",
+          "rank": 10,
+          "score": 90
+        },
+        {
+          "band": "observe",
+          "confidence": "medium",
+          "entity": "mlosext.acme.com",
+          "entity_type": "request_host",
+          "primary_domain": "cache_busting",
+          "rank": 11,
+          "score": 90
+        },
+        {
+          "band": "observe",
+          "confidence": "medium",
+          "entity": "acme.com",
+          "entity_type": "request_host",
+          "primary_domain": "cache_busting",
+          "rank": 12,
+          "score": 90
+        },
+        {
+          "band": "observe",
+          "confidence": "medium",
+          "entity": "onlinechat-sso.acme.com",
+          "entity_type": "request_host",
+          "primary_domain": "cache_busting",
+          "rank": 13,
+          "score": 90
+        },
+        {
+          "band": "observe",
+          "confidence": "medium",
+          "entity": "signon.acme.com",
+          "entity_type": "request_host",
+          "primary_domain": "cache_busting",
+          "rank": 14,
+          "score": 90
+        },
+        {
+          "band": "observe",
+          "confidence": "medium",
+          "entity": "sso1.sd.acme.com",
+          "entity_type": "request_host",
+          "primary_domain": "cache_busting",
+          "rank": 15,
+          "score": 90
+        },
+        {
+          "band": "observe",
+          "confidence": "medium",
+          "entity": "ssoauth.acme.com",
+          "entity_type": "request_host",
+          "primary_domain": "cache_busting",
+          "rank": 16,
+          "score": 90
+        },
+        {
+          "band": "observe",
+          "confidence": "medium",
+          "entity": "links.acme.com",
+          "entity_type": "request_host",
+          "primary_domain": "none",
+          "rank": 17,
+          "score": 100
+        },
+        {
+          "band": "observe",
+          "confidence": "medium",
+          "entity": "vendoor.acme.com",
+          "entity_type": "request_host",
+          "primary_domain": "none",
+          "rank": 18,
+          "score": 100
+        },
+        {
+          "band": "observe",
+          "confidence": "medium",
+          "entity": "web.acme.com",
+          "entity_type": "request_host",
+          "primary_domain": "none",
+          "rank": 19,
+          "score": 100
+        },
+        {
+          "band": "observe",
+          "confidence": "medium",
+          "entity": "www.acme.com",
+          "entity_type": "request_host",
+          "primary_domain": "none",
+          "rank": 20,
+          "score": 100
+        }
+      ],
+      "result_row_count": 20,
+      "result_truncated": false,
+      "schema_version": "bot_scorecard_index.v1",
+      "scope": {
+        "cluster": "acme",
+        "database": "akamai",
+        "entity_type": "request_host"
+      },
+      "table_used": "akamai.bi_summary_hour",
+      "total_ranked_entities": 20
+    }
+  ],
+  "report_type": "scorecard_brief",
+  "schema_version": "bot_report_input.v1",
+  "scope_label": "acme/akamai",
+  "title": "Acme Bot Insights Scorecard Brief"
+}

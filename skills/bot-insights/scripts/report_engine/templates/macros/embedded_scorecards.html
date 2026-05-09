@@ -1,0 +1,34 @@
+{% macro embedded_scorecards(rows) %}
+{% if rows %}
+<section>
+  <div class="section-eyebrow">Hosts in scope</div>
+  <h2>Scorecard rollup</h2>
+  <p class="muted-small">
+    Per-host scoring detail lives in the scorecard brief. This rollup
+    only cross-references which hosts the movement applies to.
+  </p>
+  <table class="data-table embedded-scorecards-table">
+    <thead>
+      <tr>
+        <th>Host</th>
+        <th class="num">Score</th>
+        <th>Band</th>
+        <th>Verdict</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td class="entity">{{ r.entity }}</td>
+        <td class="num">{{ r.score if r.score is not none else "—" }}</td>
+        <td>{{ r.band | humanize_band }}</td>
+        <td>
+          <span class="pill pill-sm pill-{{ r.verdict_tone }}">{{ r.verdict_label }}</span>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+{% endmacro %}

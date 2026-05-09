@@ -1,0 +1,64 @@
+{% macro triggered_rules(triggered, entity_summary) %}
+<section>
+  <div class="section-eyebrow">What triggered</div>
+  {% if triggered %}
+    <h2>{{ triggered | length }} rule{{ "s" if triggered | length != 1 else "" }} crossed threshold</h2>
+    <ul class="triggered-rules">
+      {% for r in triggered %}
+        <li class="triggered-rule">
+          <div class="triggered-rule-head">
+            <span class="rule-name">{{ r.name_label }}</span>
+            <span class="domain-pill primary-active">{{ r.domain_label }}</span>
+            {% if r.points is not none %}
+              <span class="rule-points">−{{ r.points }} pts</span>
+            {% endif %}
+          </div>
+          <p class="rule-evidence">{{ r.evidence | normalize_percents }}</p>
+          {% if r.threshold is not none or r.current is not none %}
+            <dl class="rule-metrics">
+              {% if r.current is not none %}
+                <dt>Observed</dt><dd>{{ r.current | pct2 }}</dd>
+              {% endif %}
+              {% if r.threshold is not none %}
+                <dt>Threshold</dt><dd>{{ r.threshold | pct2 }}</dd>
+              {% endif %}
+              {% if r.baseline is not none %}
+                <dt>Prior window</dt><dd>{{ r.baseline | pct2 }}</dd>
+              {% endif %}
+              {% if r.supporting_metrics %}
+                {% for k, v in r.supporting_metrics.items() %}
+                  {# Rename the ambiguous "absolute delta points" label —
+                     "% points" reads like score points to lay readers.
+                     Suppress when below noise floor (|Δ| < 0.05 pp); the
+                     row added nothing in cases like apihub. #}
+                  {% if k == "absolute_delta_points" %}
+                    {% if v is not none and (v | abs) >= 0.05 %}
+                      <dt>Δ vs prior window</dt>
+                      <dd>{% if v >= 0 %}+{% endif %}{{ "%.2f"|format(v) }} pp</dd>
+                    {% endif %}
+                  {% elif k == "absolute_delta_ms" %}
+                    <dt>Δ vs prior window</dt>
+                    <dd>{% if v >= 0 %}+{% endif %}{{ "%.0f"|format(v) }} ms</dd>
+                  {% else %}
+                    <dt>{{ k | humanize }}</dt><dd>{{ v | pct2 }}</dd>
+                  {% endif %}
+                {% endfor %}
+              {% endif %}
+            </dl>
+          {% endif %}
+          <div class="rule-id"><code>{{ r.name }}</code></div>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <h2>No rules crossed threshold</h2>
+    <p class="muted">
+      {% if entity_summary.evidence_summary %}
+        {{ entity_summary.evidence_summary[0] | normalize_percents }}
+      {% else %}
+        No mechanical signals triggered for this host in the current window.
+      {% endif %}
+    </p>
+  {% endif %}
+</section>
+{% endmacro %}

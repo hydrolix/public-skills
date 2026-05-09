@@ -1,0 +1,139 @@
+{
+  "analyst_notes": [
+    {
+      "author_type": "llm",
+      "data_sources": [],
+      "note_id": "llm-interpretation",
+      "show_data_sources": false,
+      "text": "<script>alert('xss-script')</script>\n\nThe selected scorecard entity is apihub.acme.com.\n\n<img src=x onerror=alert('xss-onerror')>\n\nClick [here](javascript:alert('xss-href')) for details.\n\nVisit [the docs](https://example.com/docs) for safe links.\n\n<iframe src=\"https://attacker.test\"></iframe>\n\n# Top-level header (should demote to h2)",
+      "title": "Scorecard Interpretation"
+    },
+    {
+      "author_type": "llm",
+      "data_sources": [],
+      "note_id": "llm-operational",
+      "show_data_sources": false,
+      "text": "**Action**: inspect query-string diversity.\n\n<style>body{display:none}</style>",
+      "title": "Operational Interpretation"
+    }
+  ],
+  "artifacts": [
+    {
+      "band": "observe",
+      "baseline_score": 90,
+      "baseline_windows": [
+        {
+          "end": "2026-05-07T00:00:00Z",
+          "start": "2026-05-06T00:00:00Z"
+        }
+      ],
+      "comparison_type": "previous_window",
+      "confidence": "medium",
+      "confidence_reasons": [
+        "summary_table_used"
+      ],
+      "current_window": {
+        "end": "2026-05-08T00:00:00Z",
+        "start": "2026-05-07T00:00:00Z"
+      },
+      "domain_scores": {
+        "cache_busting": 10,
+        "crawler_governance": 0,
+        "movement": 0
+      },
+      "entity": "apihub.acme.com",
+      "entity_type": "request_host",
+      "evidence_summary": [
+        "Cache miss rate is 99.992029%."
+      ],
+      "features": [
+        {
+          "baseline": 99.985365,
+          "current": 99.992029,
+          "domain": "cache_busting",
+          "evidence": "Cache miss rate is 99.992029%.",
+          "name": "cache_miss_rate_high",
+          "points": 10,
+          "supporting_metrics": {
+            "absolute_delta_points": 0.006665
+          },
+          "threshold": 50
+        }
+      ],
+      "granularity": "day",
+      "interpretation_constraints": [
+        "rule_based_scorecard"
+      ],
+      "not_evaluated_features": [],
+      "primary_domain": "cache_busting",
+      "recommended_next_steps": [
+        {
+          "detail": "Inspect query-string diversity, cache-key behavior, and cache miss concentration by host and path.",
+          "summary": "Audit query-string and cache-key behavior."
+        }
+      ],
+      "rule_results": [
+        {
+          "baseline": 99.985365,
+          "current": 99.992029,
+          "domain": "cache_busting",
+          "evidence": "Cache miss rate is 99.992029%.",
+          "name": "cache_miss_rate_high",
+          "points": 10,
+          "status": "triggered",
+          "supporting_metrics": {
+            "absolute_delta_points": 0.006665
+          },
+          "threshold": 50
+        }
+      ],
+      "schema_version": "bot_entity_scorecard.v1",
+      "scope": {
+        "cluster": "acme",
+        "database": "akamai",
+        "entity_type": "request_host"
+      },
+      "score": 90,
+      "score_delta_basis": "previous_window",
+      "score_delta_points": 0,
+      "table_used": "akamai.bi_summary_day"
+    },
+    {
+      "baseline_windows": [
+        {
+          "end": "2026-05-07T00:00:00Z",
+          "start": "2026-05-06T00:00:00Z"
+        }
+      ],
+      "comparison_type": "previous_window",
+      "current_window": {
+        "end": "2026-05-08T00:00:00Z",
+        "start": "2026-05-07T00:00:00Z"
+      },
+      "interpretation_constraints": [
+        "rule_based_scorecard",
+        "no_causal_claim"
+      ],
+      "producer_limit": 20,
+      "ranked_entities": [
+        {
+          "band": "observe",
+          "confidence": "medium",
+          "entity": "apihub.acme.com",
+          "entity_type": "request_host",
+          "primary_domain": "cache_busting",
+          "rank": 1,
+          "score": 90
+        }
+      ],
+      "result_row_count": 1,
+      "result_truncated": false,
+      "schema_version": "bot_scorecard_index.v1",
+      "total_ranked_entities": 1
+    }
+  ],
+  "report_type": "scorecard_brief",
+  "schema_version": "bot_report_input.v1",
+  "scope_label": "acme/akamai",
+  "title": "XSS guard fixture \u2014 Acme Bot Insights Scorecard Brief"
+}

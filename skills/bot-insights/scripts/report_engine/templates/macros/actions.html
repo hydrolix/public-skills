@@ -1,0 +1,26 @@
+{% macro actions_section(actions, note=None) %}
+<section>
+  <div class="section-eyebrow">Recommended next steps</div>
+  <h2>Investigations to queue from this report</h2>
+  {% if note %}
+    <div class="prose actions-preamble">
+      {{ markdown_render(note.text) }}
+    </div>
+  {% endif %}
+  {% if actions %}
+    <ol class="actions">
+      {% for a in actions %}
+        <li class="action">
+          <div class="action-step">{{ a.detail if a.detail else a.step }}</div>
+          <div class="action-meta">
+            <strong>{{ a.host_count }}</strong> host{% if a.host_count != 1 %}s{% endif %} · {{ a.preview }}
+            {%- if a.extra %} (+{{ a.extra }} more){% endif %}
+          </div>
+        </li>
+      {% endfor %}
+    </ol>
+  {% else %}
+    <p class="muted">No recommended next steps in this artifact.</p>
+  {% endif %}
+</section>
+{% endmacro %}

@@ -1,0 +1,19 @@
+{% macro volume_impact(data) %}
+{% if data and data.rows %}
+<section>
+  <div class="section-eyebrow">Volume &amp; impact</div>
+  <h2>What this host actually did</h2>
+  <div class="kpis kpis-volume">
+    {% for row in data.rows %}
+      <div class="kpi">
+        <div class="kpi-label">{{ row.label }}</div>
+        <div class="kpi-value">{{ row.value }}</div>
+        {% if row.delta %}
+          <div class="kpi-sub">{{ row.delta }}</div>
+        {% endif %}
+      </div>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+{% endmacro %}

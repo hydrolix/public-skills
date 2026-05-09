@@ -1,0 +1,21 @@
+{% macro report_purpose(purpose, palette) %}
+<section class="purpose-strip" aria-label="Report orientation">
+  <div class="purpose-cell">
+    <div class="purpose-label">What this measures</div>
+    <p>{{ purpose.measures }}</p>
+  </div>
+  <div class="purpose-cell">
+    <div class="purpose-label">How to read the score</div>
+    <p>{{ purpose.score_legend }}</p>
+    <ul class="purpose-key">
+      <li><span class="key-dot" style="background: {{ palette.escalate }}"></span>escalate · 0–40</li>
+      <li><span class="key-dot" style="background: {{ palette.monitor }}"></span>monitor · 40–70</li>
+      <li><span class="key-dot" style="background: {{ palette.observe }}"></span>observe · 70–100</li>
+    </ul>
+  </div>
+  <div class="purpose-cell">
+    <div class="purpose-label">What this can't say</div>
+    <p>{{ purpose.cant_say }}</p>
+  </div>
+</section>
+{% endmacro %}

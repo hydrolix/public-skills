@@ -1,0 +1,82 @@
+{% macro entities_table(entity_rows) %}
+{% set ns = namespace(total=0) %}
+{% for r in entity_rows %}
+  {% if r.kind == "group" %}{% set ns.total = ns.total + r.count %}
+  {% else %}{% set ns.total = ns.total + 1 %}{% endif %}
+{% endfor %}
+<section>
+  <div class="section-eyebrow">Ranked hosts</div>
+  <h2>{{ ns.total }} entities, ordered by producer rank</h2>
+  <table class="data-table entities-table">
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Host</th>
+        <th>Score</th>
+        <th>Δ</th>
+        <th>Primary domain</th>
+        <th>Band</th>
+        <th>Confidence</th>
+        <th>Top evidence</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in entity_rows %}
+        {% if r.kind == "single" %}
+          {% set e = r.entity %}
+          <tr>
+            <td class="rank">{{ e.rank }}</td>
+            <td class="entity">{{ e.entity }}</td>
+            <td class="score-cell">
+              <span class="score-num">{{ e.score }}</span>
+              {{ score_bar(e.score) }}
+            </td>
+            <td>
+              {% if e.delta == 0 %}<span class="delta-flat">±0</span>
+              {% elif e.delta > 0 %}<span class="delta-up">+{{ e.delta }}</span>
+              {% else %}<span class="delta-down">{{ e.delta }}</span>{% endif %}
+            </td>
+            <td>
+              <span class="domain-pill {% if e.primary_domain == 'none' %}primary-none{% else %}primary-active{% endif %}">{{ e.primary_domain_label }}</span>
+            </td>
+            <td><span class="pill pill-{{ e.band }}">{{ e.band | humanize_band }}</span></td>
+            <td class="muted-small">{{ e.confidence | humanize_confidence }}</td>
+            <td class="evidence-cell">{{ e.evidence_top | normalize_percents }}</td>
+          </tr>
+        {% else %}
+          {% set rep = r.representative %}
+          <tr class="group-row">
+            <td class="rank">{{ r.first_rank }}–{{ r.last_rank }}</td>
+            <td class="entity">
+              <details class="host-list">
+                <summary>{{ r.count }} hosts</summary>
+                <ul class="host-list-items">
+                  {% for h in r.hosts %}<li>{{ h }}</li>{% endfor %}
+                </ul>
+              </details>
+            </td>
+            <td class="score-cell">
+              <span class="score-num">{{ rep.score }}</span>
+              {{ score_bar(rep.score) }}
+            </td>
+            <td>
+              {% if rep.delta == 0 %}<span class="delta-flat">±0</span>
+              {% elif rep.delta > 0 %}<span class="delta-up">+{{ rep.delta }}</span>
+              {% else %}<span class="delta-down">{{ rep.delta }}</span>{% endif %}
+            </td>
+            <td>
+              <span class="domain-pill {% if rep.primary_domain == 'none' %}primary-none{% else %}primary-active{% endif %}">{{ rep.primary_domain_label }}</span>
+            </td>
+            <td><span class="pill pill-{{ rep.band }}">{{ rep.band | humanize_band }}</span></td>
+            <td class="muted-small">{{ rep.confidence | humanize_confidence }}</td>
+            <td class="evidence-cell">
+              {{ rep.evidence_top | normalize_percents }}
+              {% if r.evidence_varies %}<span class="muted-small"> (varies across {{ r.count }} hosts)</span>{% endif %}
+            </td>
+          </tr>
+        {% endif %}
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endmacro %}
