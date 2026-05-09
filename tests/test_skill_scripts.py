@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import copy
+import ast
 import importlib.util
 import io
 import json
+import re
 import subprocess
 import sys
 import tempfile
 import unittest
+import urllib.error
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -96,6 +99,501 @@ class HydrolixQueryDebuggingScriptTests(unittest.TestCase):
         )
 
 
+class HydrolixCaptureScriptTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.capture_hydrolix_query = load_module(
+            "capture_hydrolix_query",
+            ROOT / "scripts/capture-hydrolix-query.py",
+        )
+
+    def test_appends_format_json_when_missing(self) -> None:
+        self.assertEqual(
+            self.capture_hydrolix_query.ensure_format_json("SELECT 1;"),
+            "SELECT 1 FORMAT JSON",
+        )
+        self.assertEqual(
+            self.capture_hydrolix_query.ensure_format_json("SELECT 1 FORMAT JSON"),
+            "SELECT 1 FORMAT JSON",
+        )
+
+    def test_writes_rows_without_printing_row_data(self) -> None:
+        response = {
+            "data": [{"secret_value": "do-not-print"}],
+            "rows": 1,
+            "statistics": {"elapsed": 0.01},
+        }
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output = Path(tmpdir) / "rows.json"
+            argv = [
+                "capture-hydrolix-query.py",
+                "--cluster",
+                "demo.trafficpeak.live",
+                "--sql",
+                "SELECT secret_value FROM akamai.example WHERE timestamp >= now() - INTERVAL 1 HOUR",
+                "--output",
+                str(output),
+                "--shape",
+                "rows",
+            ]
+            stdout = io.StringIO()
+            with (
+                mock.patch.object(sys, "argv", argv),
+                mock.patch.object(
+                    self.capture_hydrolix_query,
+                    "run_mux_export",
+                    side_effect=lambda _cluster, _sql, out: (
+                        Path(out).write_text(json.dumps(response)),
+                        {
+                            "cluster": "demo.trafficpeak.live",
+                            "bytes": Path(out).stat().st_size,
+                        },
+                    )[1],
+                ),
+                mock.patch("sys.stdout", stdout),
+            ):
+                self.assertEqual(self.capture_hydrolix_query.main(), 0)
+
+            self.assertEqual(json.loads(output.read_text()), response["data"])
+            printed = stdout.getvalue()
+            self.assertIn('"rows": 1', printed)
+            self.assertIn('"cluster": "demo.trafficpeak.live"', printed)
+            self.assertNotIn("do-not-print", printed)
+            self.assertNotIn("secret_value", printed)
+
+    def test_requires_time_predicate_for_custom_sql(self) -> None:
+        args = SimpleNamespace(
+            start=None,
+            end=None,
+            require_time_range=True,
+            table_surface="auto",
+            preset=None,
+            time_column="auto",
+            granularity="auto",
+            database="akamai",
+        )
+
+        with self.assertRaises(SystemExit):
+            self.capture_hydrolix_query.apply_time_window_to_sql("SELECT 1", args)
+
+    def test_auto_granularity_uses_standard_report_thresholds(self) -> None:
+        parse_time = self.capture_hydrolix_query.parse_time
+        select = self.capture_hydrolix_query.selected_granularity
+        start = parse_time("2026-05-01T00:00:00Z", label="start")
+
+        self.assertEqual(
+            select(
+                start,
+                parse_time("2026-05-01T02:59:00Z", label="end"),
+                "auto",
+                surface="posture",
+            ),
+            "minute",
+        )
+        self.assertEqual(
+            select(
+                start,
+                parse_time("2026-05-01T03:00:00Z", label="end"),
+                "auto",
+                surface="posture",
+            ),
+            "hour",
+        )
+        self.assertEqual(
+            select(
+                start,
+                parse_time("2026-05-02T23:59:00Z", label="end"),
+                "auto",
+                surface="siem-policy",
+            ),
+            "hour",
+        )
+        self.assertEqual(
+            select(
+                start,
+                parse_time("2026-05-03T00:00:00Z", label="end"),
+                "auto",
+                surface="siem-policy",
+            ),
+            "day",
+        )
+
+    def test_standard_presets_use_summary_tables_and_time_bounds(self) -> None:
+        args = SimpleNamespace(
+            preset="posture-by-asn",
+            start="2026-05-01T00:00:00Z",
+            end="2026-05-01T02:30:00Z",
+            granularity="auto",
+            database="akamai",
+            limit=25,
+        )
+
+        sql = self.capture_hydrolix_query.render_preset_sql(args)
+
+        self.assertIn("FROM akamai.bi_summary_minute", sql)
+        self.assertIn("WHERE reqTimeSec >=", sql)
+        self.assertIn("reqTimeSec <", sql)
+        self.assertNotIn("bot_detection", sql)
+
+        args.preset = "siem-policy"
+        args.end = "2026-05-03T00:00:00Z"
+        sql = self.capture_hydrolix_query.render_preset_sql(args)
+
+        self.assertIn("FROM akamai.bi_siem_policy_summary_day", sql)
+        self.assertIn("WHERE timestamp >=", sql)
+        self.assertIn("timestamp <", sql)
+        self.assertNotIn("bot_detection", sql)
+
+
+class BotInsightsCaptureScriptTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.capture = load_module(
+            "bot_insights_capture",
+            ROOT / "skills/bot-insights/scripts/bot_insights_capture.py",
+        )
+
+    def test_env_file_parsing_literal_values(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env_file = Path(tmpdir) / "demo.env"
+            env_file.write_text(
+                "\n".join(
+                    [
+                        "# comment",
+                        "export HDX_HOSTNAME='demo.example.com'",
+                        'HDX_USERNAME="analyst"',
+                        "HDX_PASSWORD=literal-password",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            parsed = self.capture.parse_env_file(env_file)
+
+        self.assertEqual(parsed["HDX_HOSTNAME"], "demo.example.com")
+        self.assertEqual(parsed["HDX_USERNAME"], "analyst")
+        self.assertEqual(parsed["HDX_PASSWORD"], "literal-password")
+
+    def test_op_reexec_decision_honors_sentinel(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env_file = Path(tmpdir) / "demo.env"
+            env_file.write_text(
+                "HDX_PASSWORD=op://vault/item/password\n", encoding="utf-8"
+            )
+
+            with mock.patch.object(
+                self.capture.shutil, "which", return_value="/usr/local/bin/op"
+            ):
+                self.assertTrue(self.capture.should_reexec_with_op(env_file, {}))
+                self.assertFalse(
+                    self.capture.should_reexec_with_op(
+                        env_file, {self.capture.SENTINEL_ENV: "1"}
+                    )
+                )
+
+            with mock.patch.object(self.capture.shutil, "which", return_value=None):
+                self.assertFalse(self.capture.should_reexec_with_op(env_file, {}))
+
+    def test_normalizes_query_url(self) -> None:
+        self.assertEqual(
+            self.capture.normalize_query_url("demo.example.com"),
+            "https://demo.example.com/query/",
+        )
+        self.assertEqual(
+            self.capture.normalize_query_url("http://demo.example.com/query"),
+            "http://demo.example.com/query/",
+        )
+        self.assertEqual(
+            self.capture.normalize_query_url("https://demo.example.com/root/"),
+            "https://demo.example.com/root/query/",
+        )
+
+    def test_auth_selection_does_not_expose_secret_in_config(self) -> None:
+        token_config = self.capture.build_query_config(
+            {"HDX_HOSTNAME": "demo.example.com", "HYDROLIX_TOKEN": "token-secret"}
+        )
+        self.assertEqual(token_config.auth_mode, "bearer")
+        self.assertEqual(token_config.headers["Authorization"], "Bearer token-secret")
+
+        basic_config = self.capture.build_query_config(
+            {
+                "HDX_HOSTNAME": "demo.example.com",
+                "HDX_USERNAME": "analyst",
+                "HDX_PASSWORD": "password-secret",
+                "HDX_INSECURE_TLS": "true",
+            }
+        )
+        self.assertEqual(basic_config.auth_mode, "basic")
+        self.assertFalse(basic_config.verify_tls)
+        self.assertTrue(basic_config.headers["Authorization"].startswith("Basic "))
+        self.assertNotIn("password-secret", basic_config.headers["Authorization"])
+
+    def test_credential_detection_from_env_and_cluster_file(self) -> None:
+        env_state = self.capture.credential_state(
+            {"HYDROLIX_HOST": "demo.example.com", "HDX_TOKEN": "token-secret"}
+        )
+        self.assertTrue(env_state.configured)
+        self.assertEqual(env_state.auth_mode, "bearer")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env_file = Path(tmpdir) / "acme.env"
+            env_file.write_text(
+                "\n".join(
+                    [
+                        "HDX_HOSTNAME=acme.example.com",
+                        "HDX_USERNAME=analyst",
+                        "HDX_PASSWORD=password-secret",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            with mock.patch.dict(
+                self.capture.os.environ,
+                {"BOT_INSIGHTS_CLUSTER_DIR": tmpdir},
+                clear=True,
+            ):
+                merged, path = self.capture.merged_environment("acme")
+
+        file_state = self.capture.credential_state(merged, path)
+        self.assertTrue(file_state.configured)
+        self.assertEqual(file_state.auth_mode, "basic")
+        self.assertEqual(file_state.env_file, str(env_file))
+
+    def test_unresolved_op_values_are_not_configured_without_op_resolution(
+        self,
+    ) -> None:
+        state = self.capture.credential_state(
+            {
+                "HDX_HOSTNAME": "demo.example.com",
+                "HDX_TOKEN": "op://vault/item/token",
+            }
+        )
+
+        self.assertFalse(state.configured)
+        self.assertIn("HYDROLIX_TOKEN/HDX_TOKEN", state.unresolved_op)
+        self.assertEqual(state.op_resolution, "unresolved")
+
+    def test_missing_host_and_auth_builds_handoff_without_secrets(self) -> None:
+        args = SimpleNamespace(
+            cluster="demo",
+            database="akamai",
+            preset="posture-overview",
+            start="2026-05-01T00:00:00Z",
+            end="2026-05-02T00:00:00Z",
+            granularity="day",
+            limit=100,
+            shape="clickhouse",
+        )
+        credentials = self.capture.credential_state({})
+        packet = self.capture.build_handoff_packet(
+            args,
+            "SELECT 1 FROM akamai.bi_summary_day WHERE reqTimeSec >= now() FORMAT JSON",
+            credentials,
+            Path("/tmp/raw.json"),
+        )
+        encoded = json.dumps(packet)
+
+        self.assertEqual(packet["schema_version"], "bot_hydrolix_mcp_query_request.v1")
+        self.assertFalse(packet["credential_status"]["configured"])
+        self.assertIn(
+            "HYDROLIX_HOST/HDX_HOSTNAME", packet["credential_status"]["missing"]
+        )
+        self.assertIn("run_select_query", packet["instruction"])
+        self.assertNotIn("password-secret", encoded)
+        self.assertNotIn("token-secret", encoded)
+
+    def test_appends_format_json_when_missing(self) -> None:
+        self.assertEqual(
+            self.capture.ensure_format_json("SELECT 1;"),
+            "SELECT 1 FORMAT JSON",
+        )
+        self.assertEqual(
+            self.capture.ensure_format_json("SELECT 1 FORMAT JSON"),
+            "SELECT 1 FORMAT JSON",
+        )
+
+    def test_presets_use_summary_tables_and_time_bounds(self) -> None:
+        args = SimpleNamespace(
+            preset="posture-by-path",
+            start="2026-05-01T00:00:00Z",
+            end="2026-05-01T02:30:00Z",
+            granularity="auto",
+            database="akamai",
+            limit=25,
+        )
+
+        sql = self.capture.render_preset_sql(args)
+
+        self.assertIn("FROM akamai.bi_summary_minute", sql)
+        self.assertIn("WHERE reqTimeSec >=", sql)
+        self.assertIn("reqTimeSec <", sql)
+        self.assertNotIn("bot_detection", sql)
+
+        args.preset = "siem-policy"
+        args.end = "2026-05-03T00:00:00Z"
+        sql = self.capture.render_preset_sql(args)
+
+        self.assertIn("FROM akamai.bi_siem_policy_summary_day", sql)
+        self.assertIn("WHERE timestamp >=", sql)
+        self.assertIn("timestamp <", sql)
+        self.assertNotIn("bot_detection", sql)
+
+    def test_guarded_sql_rejections(self) -> None:
+        invalid = [
+            "SELECT * FROM akamai.bi_summary_hour",
+            "SELECT * FROM akamai.bi_summary_hour WHERE reqTimeSec >= {{start}}",
+            "DELETE FROM akamai.bi_summary_hour WHERE reqTimeSec >= now()",
+            "SELECT 1; SELECT 2",
+        ]
+        for sql in invalid:
+            with self.subTest(sql=sql):
+                with self.assertRaises(SystemExit):
+                    self.capture.reject_invalid_sql(sql, require_time_range=True)
+
+        self.capture.reject_invalid_sql(
+            "SELECT 1 FROM akamai.bi_summary_hour WHERE reqTimeSec >= now() - INTERVAL 1 HOUR",
+            require_time_range=True,
+        )
+
+    def test_output_shaping(self) -> None:
+        response = {"data": [{"value": 1}], "rows": 1, "statistics": {"elapsed": 0.01}}
+
+        self.assertEqual(self.capture.shape_output(response, "clickhouse"), response)
+        self.assertEqual(self.capture.shape_output(response, "rows"), [{"value": 1}])
+
+    def test_http_success_posts_sql_and_parses_json(self) -> None:
+        class FakeResponse:
+            status = 200
+            headers = {"X-HDX-Query-Stats": json.dumps({"rows_read": 12})}
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self):
+                return json.dumps({"data": [{"value": 1}], "rows": 1}).encode("utf-8")
+
+        config = self.capture.QueryConfig(
+            url="https://demo.example.com/query/",
+            headers={"Authorization": "Bearer token-secret"},
+            verify_tls=True,
+            auth_mode="bearer",
+        )
+        with mock.patch.object(
+            self.capture.urllib.request, "urlopen", return_value=FakeResponse()
+        ) as urlopen:
+            response, meta = self.capture.query_hydrolix("SELECT 1 FORMAT JSON", config)
+
+        request = urlopen.call_args.args[0]
+        self.assertEqual(request.full_url, "https://demo.example.com/query/")
+        self.assertEqual(request.data, b"SELECT 1 FORMAT JSON")
+        self.assertEqual(response["data"], [{"value": 1}])
+        self.assertEqual(meta["status"], 200)
+
+    def test_http_failure_raises_without_row_data(self) -> None:
+        config = self.capture.QueryConfig(
+            url="https://demo.example.com/query/",
+            headers={"Authorization": "Bearer token-secret"},
+            verify_tls=True,
+            auth_mode="bearer",
+        )
+        error = urllib.error.HTTPError(
+            "https://demo.example.com/query/",
+            500,
+            "server error",
+            {},
+            io.BytesIO(b"query failed"),
+        )
+        with mock.patch.object(
+            self.capture.urllib.request, "urlopen", side_effect=error
+        ):
+            with self.assertRaisesRegex(SystemExit, "HTTP 500"):
+                self.capture.query_hydrolix("SELECT 1 FORMAT JSON", config)
+
+    def test_main_missing_credentials_prints_handoff_and_skips_http(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output = Path(tmpdir) / "raw.json"
+            argv = [
+                "bot_insights_capture.py",
+                "--cluster",
+                "demo",
+                "--database",
+                "akamai",
+                "--preset",
+                "posture-overview",
+                "--start",
+                "2026-05-01T00:00:00Z",
+                "--end",
+                "2026-05-02T00:00:00Z",
+                "--output",
+                str(output),
+            ]
+            stdout = io.StringIO()
+            with (
+                mock.patch.object(sys, "argv", argv),
+                mock.patch.dict(
+                    self.capture.os.environ,
+                    {},
+                    clear=True,
+                ),
+                mock.patch.object(
+                    self.capture,
+                    "query_hydrolix",
+                    side_effect=AssertionError("should not query"),
+                ),
+                mock.patch("sys.stdout", stdout),
+            ):
+                self.assertEqual(self.capture.main(), self.capture.NEEDS_MCP_EXIT)
+
+        packet = json.loads(stdout.getvalue())
+        self.assertEqual(packet["schema_version"], "bot_hydrolix_mcp_query_request.v1")
+        self.assertEqual(packet["target_raw_output_path"], str(output.resolve()))
+        self.assertFalse(output.exists())
+
+    def test_main_direct_http_execution_when_credentials_present(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output = Path(tmpdir) / "raw.json"
+            argv = [
+                "bot_insights_capture.py",
+                "--cluster",
+                "demo",
+                "--database",
+                "akamai",
+                "--sql",
+                "SELECT period, requests FROM akamai.bi_summary_day WHERE reqTimeSec >= now() - INTERVAL 1 HOUR",
+                "--output",
+                str(output),
+            ]
+            stdout = io.StringIO()
+            with (
+                mock.patch.object(sys, "argv", argv),
+                mock.patch.dict(
+                    self.capture.os.environ,
+                    {"HDX_HOSTNAME": "demo.example.com", "HDX_TOKEN": "token-secret"},
+                    clear=True,
+                ),
+                mock.patch.object(
+                    self.capture,
+                    "query_hydrolix",
+                    return_value=(
+                        {"data": [{"period": "current", "requests": 1}], "rows": 1},
+                        {"status": 200, "headers": {}, "response_bytes": 50},
+                    ),
+                ) as query,
+                mock.patch("sys.stdout", stdout),
+            ):
+                self.assertEqual(self.capture.main(), 0)
+
+            self.assertEqual(json.loads(output.read_text())["rows"], 1)
+            printed = json.loads(stdout.getvalue())
+            self.assertEqual(printed["auth_mode"], "bearer")
+            self.assertEqual(printed["rows"], 1)
+            query.assert_called_once()
+
+
 class BotInsightsScriptTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -123,6 +621,1083 @@ class BotInsightsScriptTests(unittest.TestCase):
             "render_report",
             ROOT / "skills/bot-insights/scripts/render_report.py",
         )
+        cls.bot_insights_report = load_module(
+            "bot_insights_report",
+            ROOT / "skills/bot-insights/scripts/bot_insights_report.py",
+        )
+
+    def test_bot_insights_artifact_scripts_are_offline_only(self) -> None:
+        scripts_dir = ROOT / "skills/bot-insights/scripts"
+        script_paths = sorted(scripts_dir.glob("*.py"))
+        artifact_script_paths = [
+            path
+            for path in script_paths
+            if path.name not in {"bot_insights_report.py", "bot_insights_capture.py"}
+        ]
+        blocked_import_roots = {
+            "clickhouse_connect",
+            "clickhouse_driver",
+            "http",
+            "hydrolix",
+            "requests",
+            "socket",
+            "subprocess",
+            "urllib",
+        }
+        blocked_text = re.compile(
+            r"\b("
+            r"GRAFANA_TOKEN|GRAFANA_URL|HYDROLIX_HOST|HDX_HOSTNAME|"
+            r"op\s+run|curl|run_select_query|get_table_info|"
+            r"dashboards\.trafficpeak\.live|demo\.trafficpeak\.live"
+            r")\b"
+        )
+
+        violations: list[str] = []
+        for path in artifact_script_paths:
+            source = path.read_text()
+            tree = ast.parse(source, filename=str(path))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    for alias in node.names:
+                        root = alias.name.split(".", 1)[0]
+                        if root in blocked_import_roots:
+                            violations.append(f"{path.name}: imports {alias.name}")
+                elif isinstance(node, ast.ImportFrom):
+                    if node.module:
+                        root = node.module.split(".", 1)[0]
+                        if root in blocked_import_roots:
+                            violations.append(
+                                f"{path.name}: imports from {node.module}"
+                            )
+
+            for match in blocked_text.finditer(source):
+                violations.append(f"{path.name}: contains {match.group(0)!r}")
+
+        self.assertEqual([], violations)
+
+    def test_bot_insights_report_invokes_skill_local_capture(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output = Path(tmpdir) / "evidence.json"
+            sample_dir = Path(tmpdir) / "sample"
+            calls = []
+
+            def fake_run(cmd, *, stdout_path=None, cwd=None, allowed_returncodes=()):
+                calls.append((cmd, stdout_path, cwd))
+                if "bot_insights_capture.py" in str(cmd[1]):
+                    raw_path = Path(cmd[cmd.index("--output") + 1])
+                    raw_path.write_text(
+                        json.dumps(
+                            {
+                                "data": [
+                                    {"period": "baseline", "requests": 100},
+                                    {"period": "current", "requests": 150},
+                                ],
+                                "rows": 2,
+                            }
+                        ),
+                        encoding="utf-8",
+                    )
+                    return json.dumps({"cluster": "demo", "rows": 2})
+                if stdout_path is not None:
+                    stdout_path.write_text(
+                        json.dumps(
+                            {
+                                "schema_version": "bot_posture_movement.v1",
+                                "current_window": {
+                                    "start": "2026-05-02T00:00:00Z",
+                                    "end": "2026-05-03T00:00:00Z",
+                                },
+                                "baseline_windows": [
+                                    {
+                                        "start": "2026-05-01T00:00:00Z",
+                                        "end": "2026-05-02T00:00:00Z",
+                                    }
+                                ],
+                                "metrics": [
+                                    {
+                                        "name": "requests",
+                                        "current": 150,
+                                        "baseline": 100,
+                                        "absolute_delta": 50,
+                                        "pct_change": 50,
+                                        "direction": "increase",
+                                        "confidence": "medium",
+                                    }
+                                ],
+                            }
+                        ),
+                        encoding="utf-8",
+                    )
+                    return ""
+                raise AssertionError(cmd)
+
+            argv = [
+                "bot-insights-report",
+                "--cluster",
+                "demo",
+                "--database",
+                "akamai",
+                "--mode",
+                "evidence",
+                "--start",
+                "2026-05-02T00:00:00Z",
+                "--end",
+                "2026-05-03T00:00:00Z",
+                "--output",
+                str(output),
+                "--sample-dir",
+                str(sample_dir),
+            ]
+            stdout = io.StringIO()
+            with (
+                mock.patch.object(sys, "argv", argv),
+                mock.patch.object(
+                    self.bot_insights_report, "run", side_effect=fake_run
+                ),
+                mock.patch("sys.stdout", stdout),
+            ):
+                self.assertEqual(self.bot_insights_report.main(), 0)
+            output_doc = json.loads(output.read_text())
+
+            first_cmd = calls[0][0]
+            self.assertIn("bot_insights_capture.py", str(first_cmd[1]))
+            self.assertNotIn("capture-hydrolix-query", " ".join(map(str, first_cmd)))
+            self.assertEqual(output_doc["schema_version"], "bot_report_evidence.v1")
+
+    def test_bot_insights_report_handoff_exits_with_needs_mcp_code(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output = Path(tmpdir) / "evidence.json"
+            sample_dir = Path(tmpdir) / "sample"
+            handoff = {
+                "schema_version": "bot_hydrolix_mcp_query_request.v1",
+                "cluster": "demo",
+                "database": "akamai",
+                "validated_sql": "SELECT 1 FROM akamai.bi_summary_day WHERE reqTimeSec >= now() FORMAT JSON",
+                "target_raw_output_path": str(
+                    sample_dir / "executive_posture-raw.json"
+                ),
+                "mcp": {
+                    "server": "hydrolix_mux",
+                    "tool": "run_select_query",
+                    "arguments": {
+                        "cluster": "demo",
+                        "query": "SELECT 1 FROM akamai.bi_summary_day WHERE reqTimeSec >= now() FORMAT JSON",
+                    },
+                },
+            }
+
+            def fake_run(cmd, *, stdout_path=None, cwd=None, allowed_returncodes=()):
+                if "bot_insights_capture.py" in str(cmd[1]):
+                    self.assertIn(
+                        self.bot_insights_report.NEEDS_MCP_EXIT, allowed_returncodes
+                    )
+                    return json.dumps(handoff)
+                raise AssertionError(cmd)
+
+            argv = [
+                "bot-insights-report",
+                "--cluster",
+                "demo",
+                "--database",
+                "akamai",
+                "--mode",
+                "evidence",
+                "--start",
+                "2026-05-02T00:00:00Z",
+                "--end",
+                "2026-05-03T00:00:00Z",
+                "--output",
+                str(output),
+                "--sample-dir",
+                str(sample_dir),
+            ]
+            stdout = io.StringIO()
+            with (
+                mock.patch.object(sys, "argv", argv),
+                mock.patch.object(
+                    self.bot_insights_report, "run", side_effect=fake_run
+                ),
+                mock.patch("sys.stdout", stdout),
+            ):
+                self.assertEqual(
+                    self.bot_insights_report.main(),
+                    self.bot_insights_report.NEEDS_MCP_EXIT,
+                )
+
+        printed = json.loads(stdout.getvalue())
+        self.assertEqual(printed["schema_version"], "bot_hydrolix_mcp_query_request.v1")
+        self.assertEqual(printed["mcp"]["tool"], "run_select_query")
+        self.assertEqual(printed["mcp"]["arguments"]["cluster"], "demo")
+        self.assertEqual(
+            printed["mcp"]["arguments"]["query"],
+            printed["validated_sql"],
+        )
+        self.assertEqual(
+            printed["report_context"]["report"],
+            "executive_posture",
+        )
+        self.assertEqual(printed["report_context"]["mode"], "evidence")
+        self.assertEqual(
+            printed["report_context"]["table_used"],
+            "akamai.bi_summary_hour",
+        )
+        self.assertFalse(output.exists())
+
+    def test_bot_insights_report_raw_input_resumes_without_capture(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output = Path(tmpdir) / "evidence.json"
+            sample_dir = Path(tmpdir) / "sample"
+            raw_input = Path(tmpdir) / "mcp-result.json"
+            raw_input.write_text(
+                json.dumps(
+                    {
+                        "data": [
+                            {"period": "baseline", "requests": 100},
+                            {"period": "current", "requests": 125},
+                        ],
+                        "rows": 2,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            calls = []
+
+            def fake_run(cmd, *, stdout_path=None, cwd=None, allowed_returncodes=()):
+                calls.append(cmd)
+                if "bot_insights_capture.py" in str(cmd[1]):
+                    raise AssertionError("capture should be skipped")
+                if stdout_path is not None:
+                    stdout_path.write_text(
+                        json.dumps(
+                            {
+                                "schema_version": "bot_posture_movement.v1",
+                                "current_window": {
+                                    "start": "2026-05-02T00:00:00Z",
+                                    "end": "2026-05-03T00:00:00Z",
+                                },
+                                "baseline_windows": [
+                                    {
+                                        "start": "2026-05-01T00:00:00Z",
+                                        "end": "2026-05-02T00:00:00Z",
+                                    }
+                                ],
+                                "metrics": [
+                                    {
+                                        "name": "requests",
+                                        "current": 125,
+                                        "baseline": 100,
+                                        "absolute_delta": 25,
+                                        "pct_change": 25,
+                                        "direction": "increase",
+                                        "confidence": "medium",
+                                    }
+                                ],
+                            }
+                        ),
+                        encoding="utf-8",
+                    )
+                    return ""
+                raise AssertionError(cmd)
+
+            argv = [
+                "bot-insights-report",
+                "--cluster",
+                "demo",
+                "--database",
+                "akamai",
+                "--mode",
+                "template",
+                "--start",
+                "2026-05-02T00:00:00Z",
+                "--end",
+                "2026-05-03T00:00:00Z",
+                "--output",
+                str(output),
+                "--sample-dir",
+                str(sample_dir),
+                "--raw-input",
+                str(raw_input),
+            ]
+            stdout = io.StringIO()
+            with (
+                mock.patch.object(sys, "argv", argv),
+                mock.patch.object(
+                    self.bot_insights_report, "run", side_effect=fake_run
+                ),
+                mock.patch("sys.stdout", stdout),
+            ):
+                self.assertEqual(self.bot_insights_report.main(), 0)
+
+            self.assertIn("# Bot & Edge Movement", output.read_text())
+            self.assertTrue(calls)
+            self.assertNotIn("bot_insights_capture.py", " ".join(map(str, calls)))
+
+    def test_bot_insights_report_control_review_evidence_packet(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output = Path(tmpdir) / "control-evidence.json"
+            sample_dir = Path(tmpdir) / "sample"
+            calls = []
+
+            def fake_run(cmd, *, stdout_path=None, cwd=None, allowed_returncodes=()):
+                calls.append((cmd, stdout_path, cwd))
+                joined = " ".join(map(str, cmd))
+                if "bot_insights_capture.py" in joined:
+                    self.assertIn("akamai.bi_siem_policy_summary_hour", joined)
+                    self.assertIn("policy-123", joined)
+                    raw_path = Path(cmd[cmd.index("--output") + 1])
+                    raw_path.write_text(
+                        json.dumps(
+                            {
+                                "data": [
+                                    {
+                                        "period": "before",
+                                        "requests": 1000,
+                                        "siem_blocked_requests": 90,
+                                        "siem_auth_fail_requests": 10,
+                                    },
+                                    {
+                                        "period": "after",
+                                        "requests": 900,
+                                        "siem_blocked_requests": 130,
+                                        "siem_auth_fail_requests": 20,
+                                    },
+                                ],
+                                "rows": 2,
+                            }
+                        ),
+                        encoding="utf-8",
+                    )
+                    return json.dumps({"cluster": "demo", "rows": 2})
+                if stdout_path is not None:
+                    self.assertIn("--schema control", joined)
+                    stdout_path.write_text(
+                        json.dumps(
+                            {
+                                "schema_version": "bot_control_review.v1",
+                                "change_time": "2026-05-02T00:00:00Z",
+                                "target": {"policy_id": "policy-123"},
+                                "before_window": {
+                                    "start": "2026-05-01T00:00:00Z",
+                                    "end": "2026-05-02T00:00:00Z",
+                                },
+                                "after_window": {
+                                    "start": "2026-05-02T00:00:00Z",
+                                    "end": "2026-05-03T00:00:00Z",
+                                },
+                                "expected_basis": "before_window",
+                                "target_effects": [
+                                    {
+                                        "metric": "siem_blocked_requests",
+                                        "before": 90,
+                                        "after": 130,
+                                        "expected": 90,
+                                        "absolute_delta_vs_expected": 40,
+                                        "pct_change_vs_expected": 44.4444,
+                                        "direction": "increase",
+                                        "status": "increased",
+                                        "confidence": "medium",
+                                    }
+                                ],
+                                "collateral_checks": [],
+                                "displacement_checks": [],
+                            }
+                        ),
+                        encoding="utf-8",
+                    )
+                    return ""
+                raise AssertionError(cmd)
+
+            argv = [
+                "bot-insights-report",
+                "--cluster",
+                "demo",
+                "--database",
+                "akamai",
+                "--report",
+                "control_review",
+                "--policy-id",
+                "policy-123",
+                "--mode",
+                "evidence",
+                "--start",
+                "2026-05-02T00:00:00Z",
+                "--end",
+                "2026-05-03T00:00:00Z",
+                "--output",
+                str(output),
+                "--sample-dir",
+                str(sample_dir),
+            ]
+            stdout = io.StringIO()
+            with (
+                mock.patch.object(sys, "argv", argv),
+                mock.patch.object(
+                    self.bot_insights_report, "run", side_effect=fake_run
+                ),
+                mock.patch("sys.stdout", stdout),
+            ):
+                self.assertEqual(self.bot_insights_report.main(), 0)
+
+            packet = json.loads(output.read_text())
+            self.assertEqual(packet["schema_version"], "bot_report_evidence.v1")
+            self.assertEqual(packet["report_type"], "control_review")
+            self.assertEqual(packet["target"]["policy_id"], "policy-123")
+            self.assertEqual(
+                packet["target_effects"][0]["metric"], "siem_blocked_requests"
+            )
+            self.assertEqual(
+                packet["metric_cards"][0]["label"], "SIEM blocked requests"
+            )
+            self.assertTrue(
+                any(
+                    rate["name"] == "bot_like_share_pct"
+                    for rate in packet["derived_rates"]
+                )
+            )
+            self.assertIn(
+                "Do not query Hydrolix",
+                " ".join(packet["interpretation_contract"]["forbidden"]),
+            )
+            self.assertTrue(calls)
+
+    def test_bot_insights_report_control_review_handoff_packet(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output = Path(tmpdir) / "control-evidence.json"
+            sample_dir = Path(tmpdir) / "sample"
+            handoff = {
+                "schema_version": "bot_hydrolix_mcp_query_request.v1",
+                "cluster": "demo",
+                "database": "akamai",
+                "validated_sql": (
+                    "SELECT 1 FROM akamai.bi_siem_policy_summary_day "
+                    "WHERE timestamp >= now() FORMAT JSON"
+                ),
+                "target_raw_output_path": str(sample_dir / "control_review-raw.json"),
+                "mcp": {
+                    "server": "hydrolix_mux",
+                    "tool": "run_select_query",
+                    "arguments": {
+                        "cluster": "demo",
+                        "query": "SELECT 1 FROM akamai.bi_siem_policy_summary_day WHERE timestamp >= now() FORMAT JSON",
+                    },
+                },
+            }
+
+            def fake_run(cmd, *, stdout_path=None, cwd=None, allowed_returncodes=()):
+                if "bot_insights_capture.py" in " ".join(map(str, cmd)):
+                    self.assertIn(
+                        self.bot_insights_report.NEEDS_MCP_EXIT, allowed_returncodes
+                    )
+                    return json.dumps(handoff)
+                raise AssertionError(cmd)
+
+            argv = [
+                "bot-insights-report",
+                "--cluster",
+                "demo",
+                "--database",
+                "akamai",
+                "--report",
+                "control_review",
+                "--mode",
+                "evidence",
+                "--start",
+                "2026-05-02T00:00:00Z",
+                "--end",
+                "2026-05-05T00:00:00Z",
+                "--output",
+                str(output),
+                "--sample-dir",
+                str(sample_dir),
+            ]
+            stdout = io.StringIO()
+            with (
+                mock.patch.object(sys, "argv", argv),
+                mock.patch.object(
+                    self.bot_insights_report, "run", side_effect=fake_run
+                ),
+                mock.patch("sys.stdout", stdout),
+            ):
+                self.assertEqual(
+                    self.bot_insights_report.main(),
+                    self.bot_insights_report.NEEDS_MCP_EXIT,
+                )
+
+            printed = json.loads(stdout.getvalue())
+            self.assertEqual(
+                printed["schema_version"], "bot_hydrolix_mcp_query_request.v1"
+            )
+            self.assertEqual(printed["mcp"]["tool"], "run_select_query")
+            self.assertEqual(printed["report_context"]["report"], "control_review")
+            self.assertEqual(
+                printed["report_context"]["table_used"],
+                "akamai.bi_siem_policy_summary_day",
+            )
+            self.assertFalse(output.exists())
+
+    def test_bot_insights_report_control_review_raw_input_builds_wrapper_for_render(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output = Path(tmpdir) / "control.html"
+            sample_dir = Path(tmpdir) / "sample"
+            raw_input = Path(tmpdir) / "mcp-result.json"
+            raw_input.write_text(
+                json.dumps(
+                    {
+                        "data": [
+                            {"period": "before", "siem_blocked_requests": 90},
+                            {"period": "after", "siem_blocked_requests": 130},
+                        ],
+                        "rows": 2,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            wrapper_seen = {}
+
+            def fake_run(cmd, *, stdout_path=None, cwd=None, allowed_returncodes=()):
+                joined = " ".join(map(str, cmd))
+                if "bot_insights_capture.py" in joined:
+                    raise AssertionError("capture should be skipped")
+                if stdout_path is not None:
+                    stdout_path.write_text(
+                        json.dumps(
+                            {
+                                "schema_version": "bot_control_review.v1",
+                                "target": {"policy_scope": "all_policies"},
+                                "before_window": {
+                                    "start": "2026-05-01T00:00:00Z",
+                                    "end": "2026-05-02T00:00:00Z",
+                                },
+                                "after_window": {
+                                    "start": "2026-05-02T00:00:00Z",
+                                    "end": "2026-05-03T00:00:00Z",
+                                },
+                                "expected_basis": "before_window",
+                                "target_effects": [
+                                    {
+                                        "metric": "siem_blocked_requests",
+                                        "before": 90,
+                                        "after": 130,
+                                        "expected": 90,
+                                        "absolute_delta_vs_expected": 40,
+                                        "pct_change_vs_expected": 44.4444,
+                                        "status": "increased",
+                                    }
+                                ],
+                            }
+                        ),
+                        encoding="utf-8",
+                    )
+                    return ""
+                if "render_report.py" in joined:
+                    wrapper_path = Path(cmd[cmd.index("--file") + 1])
+                    wrapper_seen.update(json.loads(wrapper_path.read_text()))
+                    Path(cmd[cmd.index("--output") + 1]).write_text(
+                        "<html>ok</html>", encoding="utf-8"
+                    )
+                    return ""
+                raise AssertionError(cmd)
+
+            argv = [
+                "bot-insights-report",
+                "--cluster",
+                "demo",
+                "--database",
+                "akamai",
+                "--report",
+                "control_review",
+                "--mode",
+                "report",
+                "--format",
+                "html",
+                "--start",
+                "2026-05-02T00:00:00Z",
+                "--end",
+                "2026-05-03T00:00:00Z",
+                "--output",
+                str(output),
+                "--sample-dir",
+                str(sample_dir),
+                "--raw-input",
+                str(raw_input),
+                "--analyst-notes",
+                "Blocked requests increased relative to the before-window expectation.",
+            ]
+            stdout = io.StringIO()
+            with (
+                mock.patch.object(sys, "argv", argv),
+                mock.patch.object(
+                    self.bot_insights_report, "run", side_effect=fake_run
+                ),
+                mock.patch("sys.stdout", stdout),
+            ):
+                self.assertEqual(self.bot_insights_report.main(), 0)
+
+            self.assertEqual(wrapper_seen["schema_version"], "bot_report_input.v1")
+            self.assertEqual(wrapper_seen["report_type"], "control_review")
+            self.assertEqual(
+                wrapper_seen["artifacts"][0]["schema_version"], "bot_control_review.v1"
+            )
+            self.assertEqual(wrapper_seen["analyst_notes"][0]["author_type"], "llm")
+            self.assertFalse(wrapper_seen["analyst_notes"][0]["show_data_sources"])
+            self.assertEqual(output.read_text(), "<html>ok</html>")
+
+    def test_bot_insights_report_scorecard_evidence_packet(self) -> None:
+        artifacts = {
+            "schema_version": "bot_scorecard_artifacts.v1",
+            "producer_limit": 20,
+            "result_row_count": 2,
+            "index": {
+                "schema_version": "bot_scorecard_index.v1",
+                "ranked_entities": [
+                    {
+                        "rank": 1,
+                        "entity_type": "request_host",
+                        "entity": "www.example.com",
+                        "score": 44,
+                        "band": "medium_review",
+                        "primary_domain": "cache_busting",
+                        "confidence": "medium",
+                    }
+                ],
+            },
+        }
+        card = {
+            "schema_version": "bot_entity_scorecard.v1",
+            "entity_type": "request_host",
+            "entity": "www.example.com",
+            "score": 44,
+            "band": "medium_review",
+            "primary_domain": "cache_busting",
+            "confidence": "medium",
+            "confidence_reasons": ["feature_input_missing"],
+            "domain_scores": {"cache_busting": 18, "movement": 12},
+            "features": [
+                {
+                    "domain": "cache_busting",
+                    "name": "querystring_diversity_high",
+                    "points": 16,
+                    "evidence": "Query-string diversity ratio is 0.8.",
+                }
+            ],
+            "not_evaluated_features": [
+                {
+                    "domain": "security_evidence",
+                    "name": "siem_blocked_present",
+                    "missing_inputs": ["siem_blocked_requests"],
+                }
+            ],
+            "recommended_next_steps": ["Inspect query-string diversity."],
+            "current_window": {
+                "start": "2026-05-02T00:00:00Z",
+                "end": "2026-05-03T00:00:00Z",
+            },
+            "baseline_windows": [
+                {"start": "2026-05-01T00:00:00Z", "end": "2026-05-02T00:00:00Z"}
+            ],
+        }
+        args = SimpleNamespace(
+            report="scorecard_brief",
+            title=None,
+            cluster="demo",
+            database="akamai",
+            scorecard_limit=20,
+            entity_value=None,
+        )
+
+        packet = self.bot_insights_report.build_scorecard_evidence_packet(
+            args=args,
+            artifacts=artifacts,
+            selected_card=card,
+            raw_path=Path("/tmp/raw.json"),
+            artifact_path=Path("/tmp/artifact.json"),
+            granularity="hour",
+            table_used="akamai.bi_summary_hour",
+            baseline_start=self.bot_insights_report.parse_time(
+                "2026-05-01T00:00:00Z", "baseline-start"
+            ),
+        )
+
+        self.assertEqual(packet["schema_version"], "bot_report_evidence.v1")
+        self.assertEqual(packet["report_type"], "scorecard_brief")
+        self.assertEqual(packet["selected_entity"]["rank"], 1)
+        self.assertEqual(packet["domain_scores"]["cache_busting"], 18)
+        self.assertEqual(packet["missing_inputs"], ["siem_blocked_requests"])
+        forbidden = " ".join(packet["interpretation_contract"]["forbidden"])
+        self.assertIn("Do not invent metrics", forbidden)
+        self.assertIn("Do not query Hydrolix", forbidden)
+        self.assertIn("Do not emit final HTML or Markdown", forbidden)
+
+    def test_bot_insights_report_scorecard_handoff_packet(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output = Path(tmpdir) / "scorecard-evidence.json"
+            sample_dir = Path(tmpdir) / "sample"
+            handoff = {
+                "schema_version": "bot_hydrolix_mcp_query_request.v1",
+                "cluster": "demo",
+                "database": "akamai",
+                "validated_sql": "SELECT 1 FROM akamai.bi_summary_hour WHERE reqTimeSec >= now() FORMAT JSON",
+                "target_raw_output_path": str(sample_dir / "scorecard_brief-raw.json"),
+                "mcp": {
+                    "server": "hydrolix_mux",
+                    "tool": "run_select_query",
+                    "arguments": {
+                        "cluster": "demo",
+                        "query": "SELECT 1 FROM akamai.bi_summary_hour WHERE reqTimeSec >= now() FORMAT JSON",
+                    },
+                },
+            }
+
+            def fake_run(cmd, *, stdout_path=None, cwd=None, allowed_returncodes=()):
+                if "bot_insights_capture.py" in " ".join(map(str, cmd)):
+                    self.assertIn(
+                        self.bot_insights_report.NEEDS_MCP_EXIT, allowed_returncodes
+                    )
+                    return json.dumps(handoff)
+                raise AssertionError(cmd)
+
+            argv = [
+                "bot-insights-report",
+                "--cluster",
+                "demo",
+                "--database",
+                "akamai",
+                "--report",
+                "scorecard_brief",
+                "--mode",
+                "evidence",
+                "--entity-type",
+                "request_host",
+                "--start",
+                "2026-05-02T00:00:00Z",
+                "--end",
+                "2026-05-03T00:00:00Z",
+                "--output",
+                str(output),
+                "--sample-dir",
+                str(sample_dir),
+            ]
+            stdout = io.StringIO()
+            with (
+                mock.patch.object(sys, "argv", argv),
+                mock.patch.object(
+                    self.bot_insights_report, "run", side_effect=fake_run
+                ),
+                mock.patch("sys.stdout", stdout),
+            ):
+                self.assertEqual(
+                    self.bot_insights_report.main(),
+                    self.bot_insights_report.NEEDS_MCP_EXIT,
+                )
+
+            printed = json.loads(stdout.getvalue())
+            self.assertEqual(
+                printed["schema_version"], "bot_hydrolix_mcp_query_request.v1"
+            )
+            self.assertEqual(printed["report_context"]["report"], "scorecard_brief")
+            self.assertEqual(
+                printed["report_context"]["table_used"], "akamai.bi_summary_hour"
+            )
+            self.assertFalse(output.exists())
+
+    def test_bot_insights_report_scorecard_raw_input_selects_top_ranked_entity(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output = Path(tmpdir) / "scorecard-evidence.json"
+            sample_dir = Path(tmpdir) / "sample"
+            raw_input = Path(tmpdir) / "mcp-result.json"
+            raw_input.write_text(
+                json.dumps(
+                    {
+                        "data": [
+                            {
+                                "request_host": "www.example.com",
+                                "current_requests": 200,
+                                "baseline_requests": 50,
+                            },
+                            {
+                                "request_host": "api.example.com",
+                                "current_requests": 100,
+                                "baseline_requests": 100,
+                            },
+                        ],
+                        "rows": 2,
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            def fake_run(cmd, *, stdout_path=None, cwd=None, allowed_returncodes=()):
+                joined = " ".join(map(str, cmd))
+                if "bot_insights_capture.py" in joined:
+                    raise AssertionError("capture should be skipped")
+                if "scorecard.py" in joined and stdout_path is not None:
+                    stdout_path.write_text(
+                        json.dumps(
+                            {
+                                "schema_version": "bot_scorecard_artifacts.v1",
+                                "scorecards": [
+                                    {
+                                        "schema_version": "bot_entity_scorecard.v1",
+                                        "entity_type": "request_host",
+                                        "entity": "www.example.com",
+                                        "score": 55,
+                                        "band": "medium_review",
+                                        "primary_domain": "movement",
+                                        "confidence": "high",
+                                        "domain_scores": {"movement": 55},
+                                        "features": [],
+                                        "not_evaluated_features": [],
+                                    },
+                                    {
+                                        "schema_version": "bot_entity_scorecard.v1",
+                                        "entity_type": "request_host",
+                                        "entity": "api.example.com",
+                                        "score": 15,
+                                        "band": "observe",
+                                        "primary_domain": "none",
+                                        "confidence": "high",
+                                        "domain_scores": {"movement": 15},
+                                        "features": [],
+                                        "not_evaluated_features": [],
+                                    },
+                                ],
+                                "index": {
+                                    "schema_version": "bot_scorecard_index.v1",
+                                    "ranked_entities": [
+                                        {
+                                            "rank": 1,
+                                            "entity_type": "request_host",
+                                            "entity": "www.example.com",
+                                            "score": 55,
+                                        },
+                                        {
+                                            "rank": 2,
+                                            "entity_type": "request_host",
+                                            "entity": "api.example.com",
+                                            "score": 15,
+                                        },
+                                    ],
+                                },
+                            }
+                        ),
+                        encoding="utf-8",
+                    )
+                    return ""
+                raise AssertionError(cmd)
+
+            argv = [
+                "bot-insights-report",
+                "--cluster",
+                "demo",
+                "--database",
+                "akamai",
+                "--report",
+                "scorecard_brief",
+                "--mode",
+                "evidence",
+                "--start",
+                "2026-05-02T00:00:00Z",
+                "--end",
+                "2026-05-03T00:00:00Z",
+                "--output",
+                str(output),
+                "--sample-dir",
+                str(sample_dir),
+                "--raw-input",
+                str(raw_input),
+            ]
+            stdout = io.StringIO()
+            with (
+                mock.patch.object(sys, "argv", argv),
+                mock.patch.object(
+                    self.bot_insights_report, "run", side_effect=fake_run
+                ),
+                mock.patch("sys.stdout", stdout),
+            ):
+                self.assertEqual(self.bot_insights_report.main(), 0)
+
+            packet = json.loads(output.read_text())
+            self.assertEqual(packet["selected_entity"]["entity"], "www.example.com")
+            self.assertEqual(packet["selected_entity"]["rank"], 1)
+
+    def test_bot_insights_report_scorecard_report_selects_explicit_entity_and_wraps_notes(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output = Path(tmpdir) / "scorecard.html"
+            sample_dir = Path(tmpdir) / "sample"
+            raw_input = Path(tmpdir) / "mcp-result.json"
+            raw_input.write_text(json.dumps({"data": [], "rows": 0}), encoding="utf-8")
+            wrapper_seen = {}
+
+            def fake_run(cmd, *, stdout_path=None, cwd=None, allowed_returncodes=()):
+                joined = " ".join(map(str, cmd))
+                if "bot_insights_capture.py" in joined:
+                    raise AssertionError("capture should be skipped")
+                if "scorecard.py" in joined and stdout_path is not None:
+                    stdout_path.write_text(
+                        json.dumps(
+                            {
+                                "schema_version": "bot_scorecard_artifacts.v1",
+                                "scorecards": [
+                                    {
+                                        "schema_version": "bot_entity_scorecard.v1",
+                                        "entity_type": "request_host",
+                                        "entity": "www.example.com",
+                                        "score": 55,
+                                        "band": "medium_review",
+                                        "primary_domain": "movement",
+                                        "confidence": "high",
+                                        "domain_scores": {"movement": 55},
+                                        "features": [],
+                                        "not_evaluated_features": [],
+                                        "current_window": {
+                                            "start": "2026-05-02T00:00:00Z",
+                                            "end": "2026-05-03T00:00:00Z",
+                                        },
+                                        "baseline_windows": [
+                                            {
+                                                "start": "2026-05-01T00:00:00Z",
+                                                "end": "2026-05-02T00:00:00Z",
+                                            }
+                                        ],
+                                        "scope": {
+                                            "cluster": "demo",
+                                            "database": "akamai",
+                                            "entity_type": "request_host",
+                                        },
+                                        "comparison_type": "previous_window",
+                                        "table_used": "akamai.bi_summary_hour",
+                                    },
+                                    {
+                                        "schema_version": "bot_entity_scorecard.v1",
+                                        "entity_type": "request_host",
+                                        "entity": "api.example.com",
+                                        "score": 70,
+                                        "band": "high_review",
+                                        "primary_domain": "cache_busting",
+                                        "confidence": "medium",
+                                        "domain_scores": {"cache_busting": 70},
+                                        "features": [],
+                                        "not_evaluated_features": [],
+                                        "current_window": {
+                                            "start": "2026-05-02T00:00:00Z",
+                                            "end": "2026-05-03T00:00:00Z",
+                                        },
+                                        "baseline_windows": [
+                                            {
+                                                "start": "2026-05-01T00:00:00Z",
+                                                "end": "2026-05-02T00:00:00Z",
+                                            }
+                                        ],
+                                        "scope": {
+                                            "cluster": "demo",
+                                            "database": "akamai",
+                                            "entity_type": "request_host",
+                                        },
+                                        "comparison_type": "previous_window",
+                                        "table_used": "akamai.bi_summary_hour",
+                                    },
+                                ],
+                                "index": {
+                                    "schema_version": "bot_scorecard_index.v1",
+                                    "scope": {
+                                        "cluster": "demo",
+                                        "database": "akamai",
+                                        "entity_type": "request_host",
+                                    },
+                                    "current_window": {
+                                        "start": "2026-05-02T00:00:00Z",
+                                        "end": "2026-05-03T00:00:00Z",
+                                    },
+                                    "baseline_windows": [
+                                        {
+                                            "start": "2026-05-01T00:00:00Z",
+                                            "end": "2026-05-02T00:00:00Z",
+                                        }
+                                    ],
+                                    "comparison_type": "previous_window",
+                                    "table_used": "akamai.bi_summary_hour",
+                                    "ranked_entities": [
+                                        {
+                                            "rank": 1,
+                                            "entity_type": "request_host",
+                                            "entity": "api.example.com",
+                                            "score": 70,
+                                        },
+                                        {
+                                            "rank": 2,
+                                            "entity_type": "request_host",
+                                            "entity": "www.example.com",
+                                            "score": 55,
+                                        },
+                                    ],
+                                },
+                            }
+                        ),
+                        encoding="utf-8",
+                    )
+                    return ""
+                if "render_report.py" in joined:
+                    wrapper_path = Path(cmd[cmd.index("--file") + 1])
+                    wrapper_seen.update(json.loads(wrapper_path.read_text()))
+                    Path(cmd[cmd.index("--output") + 1]).write_text(
+                        "<html>ok</html>", encoding="utf-8"
+                    )
+                    return ""
+                raise AssertionError(cmd)
+
+            argv = [
+                "bot-insights-report",
+                "--cluster",
+                "demo",
+                "--database",
+                "akamai",
+                "--report",
+                "scorecard_brief",
+                "--mode",
+                "report",
+                "--start",
+                "2026-05-02T00:00:00Z",
+                "--end",
+                "2026-05-03T00:00:00Z",
+                "--output",
+                str(output),
+                "--sample-dir",
+                str(sample_dir),
+                "--raw-input",
+                str(raw_input),
+                "--entity-type",
+                "request_host",
+                "--entity-value",
+                "www.example.com",
+                "--analyst-notes",
+                "The selected host has movement evidence but should be reviewed with missing-input caveats.",
+            ]
+            stdout = io.StringIO()
+            with (
+                mock.patch.object(sys, "argv", argv),
+                mock.patch.object(
+                    self.bot_insights_report, "run", side_effect=fake_run
+                ),
+                mock.patch("sys.stdout", stdout),
+            ):
+                self.assertEqual(self.bot_insights_report.main(), 0)
+
+            self.assertEqual(wrapper_seen["schema_version"], "bot_report_input.v1")
+            self.assertEqual(wrapper_seen["report_type"], "scorecard_brief")
+            self.assertEqual(wrapper_seen["artifacts"][0]["entity"], "www.example.com")
+            self.assertEqual(
+                wrapper_seen["artifacts"][1]["schema_version"], "bot_scorecard_index.v1"
+            )
+            self.assertEqual(
+                wrapper_seen["analyst_notes"][0]["title"], "Scorecard Interpretation"
+            )
+            self.assertFalse(wrapper_seen["analyst_notes"][0]["show_data_sources"])
 
     def render_args(self, **overrides):
         defaults = {
@@ -208,7 +1783,7 @@ class BotInsightsScriptTests(unittest.TestCase):
                 "origin_p99_ms": "metadata_merged_quantile",
                 "contribution_fields": "complete_scope_pre_limit",
             },
-            bot_summary_context={
+            summary_context={
                 "scope": {"request_host": "www.example.com"},
                 "metrics": {
                     "host_bot_traffic_share_pct": 42.1,
@@ -252,7 +1827,7 @@ class BotInsightsScriptTests(unittest.TestCase):
         return {
             "metric": "requests",
             "dimensions": ["client_asn"],
-            "table_used": "bot_summary_day",
+            "table_used": "bi_summary_day",
             "summary_table_used": True,
             "scope": {"request_host": "www.example.com"},
             "current_window": {
@@ -273,11 +1848,16 @@ class BotInsightsScriptTests(unittest.TestCase):
                 "generator_version": "1.0.0",
                 "template_id": "full_scope_joined_pre_limit_v1",
                 "query_fingerprint": "sha256:" + "1" * 64,
-                "selected_table": "bot_summary_day",
-                "selected_columns": ["timestamp", "client_asn", "request_host", "sum(cnt_all)"],
+                "selected_table": "bi_summary_day",
+                "selected_columns": [
+                    "timestamp",
+                    "client_asn",
+                    "request_host",
+                    "sum(cnt_all)",
+                ],
                 "metadata_origin": "direct_hydrolix_table_metadata",
                 "metadata_fingerprint": "sha256:" + "2" * 64,
-                "metadata_retrieval_identity": "hydrolix-mcp:get_table_info:bot_summary_day:2026-04-02T00:00:00Z",
+                "metadata_retrieval_identity": "hydrolix-mcp:get_table_info:bi_summary_day:2026-04-02T00:00:00Z",
                 "merge_expressions": {"sum(cnt_all)": "sumMerge(`sum(cnt_all)`)"},
                 "baseline_normalization": {
                     "method": "scale_baseline_to_current_window_duration",
@@ -417,7 +1997,9 @@ class BotInsightsScriptTests(unittest.TestCase):
         self.assertEqual(result[0]["pct_change"], 200)
         json.dumps(result, allow_nan=False)
 
-    def test_baseline_scripts_load_sibling_helper_when_sys_path_is_shadowed(self) -> None:
+    def test_baseline_scripts_load_sibling_helper_when_sys_path_is_shadowed(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             fake_baselines = Path(temp_dir) / "baselines.py"
             fake_baselines.write_text(
@@ -444,7 +2026,7 @@ class BotInsightsScriptTests(unittest.TestCase):
             {
                 "comparison_type": "previous_window",
                 "granularity": "hour",
-                "table_used": "bot_summary_hour",
+                "table_used": "bi_summary_hour",
                 "current": {"requests": 2},
                 "baseline": {"requests": 1},
             }
@@ -458,7 +2040,7 @@ class BotInsightsScriptTests(unittest.TestCase):
             {
                 "comparison_type": "month_over_month",
                 "granularity": "day",
-                "table_used": "bot_summary_day",
+                "table_used": "bi_summary_day",
                 "scope": {"request_host": "www.example.com"},
                 "columns": ["period", "requests", "bot_share_pct"],
                 "rows": [
@@ -480,7 +2062,7 @@ class BotInsightsScriptTests(unittest.TestCase):
             {
                 "comparison_type": "previous_window",
                 "granularity": "hour",
-                "table_used": "bot_summary_hour",
+                "table_used": "bi_summary_hour",
                 "current": {"requests": 5},
                 "baseline": {"requests": 0},
             }
@@ -495,7 +2077,7 @@ class BotInsightsScriptTests(unittest.TestCase):
             {
                 "comparison_type": "week_over_week",
                 "granularity": "day",
-                "table_used": "bot_summary_day",
+                "table_used": "bi_summary_day",
                 "current": {"requests": 50},
                 "baseline": {"requests": 40},
             }
@@ -510,7 +2092,7 @@ class BotInsightsScriptTests(unittest.TestCase):
             {
                 "comparison_type": "previous_window",
                 "granularity": "hour",
-                "table_used": "bot_summary_hour",
+                "table_used": "bi_summary_hour",
                 "current": {"requests": float("nan")},
                 "baseline": {"requests": 1},
             }
@@ -525,7 +2107,10 @@ class BotInsightsScriptTests(unittest.TestCase):
                 "comparison_type": float("nan"),
                 "granularity": float("inf"),
                 "table_used": float("-inf"),
-                "scope": {"request_host": "www.example.com", "sample_rate": float("nan")},
+                "scope": {
+                    "request_host": "www.example.com",
+                    "sample_rate": float("nan"),
+                },
                 "current_window": {"start": "2026-04-01", "weight": float("inf")},
                 "baseline_windows": [
                     {
@@ -575,7 +2160,7 @@ class BotInsightsScriptTests(unittest.TestCase):
             {
                 "comparison_type": "month_over_month",
                 "granularity": "day",
-                "table_used": "bot_summary_day",
+                "table_used": "bi_summary_day",
                 "dimension": "client_asn",
                 "metric": "requests",
                 "total_delta": 100,
@@ -591,12 +2176,14 @@ class BotInsightsScriptTests(unittest.TestCase):
         self.assertEqual(result["movers"][0]["absolute_delta"], 80)
         self.assertEqual(result["movers"][0]["contribution_pct"], 80)
 
-    def test_mover_uses_absolute_delta_denominator_for_unqualified_total_delta(self) -> None:
+    def test_mover_uses_absolute_delta_denominator_for_unqualified_total_delta(
+        self,
+    ) -> None:
         result = self.compare_posture.compare(
             {
                 "comparison_type": "week_over_week",
                 "granularity": "day",
-                "table_used": "bot_summary_day",
+                "table_used": "bi_summary_day",
                 "dimension": "client_asn",
                 "metric": "requests",
                 "total_delta": 250,
@@ -620,7 +2207,7 @@ class BotInsightsScriptTests(unittest.TestCase):
             {
                 "comparison_type": "week_over_week",
                 "granularity": "day",
-                "table_used": "bot_summary_day",
+                "table_used": "bi_summary_day",
                 "dimension": "client_asn",
                 "metric": "requests",
                 "total_delta": 500,
@@ -634,9 +2221,7 @@ class BotInsightsScriptTests(unittest.TestCase):
         )
 
         self.assertEqual(result["total_delta"], 500)
-        self.assertEqual(
-            result["total_delta_basis"], "complete_scope_total_abs_delta"
-        )
+        self.assertEqual(result["total_delta_basis"], "complete_scope_total_abs_delta")
         self.assertEqual(result["movers"][0]["contribution_pct"], 20)
         self.assertEqual(result["movers"][1]["contribution_pct"], 10)
 
@@ -644,7 +2229,7 @@ class BotInsightsScriptTests(unittest.TestCase):
         payload = {
             "comparison_type": "month_over_month",
             "granularity": "day",
-            "table_used": "bot_summary_day",
+            "table_used": "bi_summary_day",
             "scope": {"request_host": "www.example.com"},
             "current_window": {"start": "2026-04-01", "end": "2026-04-08"},
             "baseline_windows": [{"start": "2026-03-25", "end": "2026-04-01"}],
@@ -679,7 +2264,10 @@ class BotInsightsScriptTests(unittest.TestCase):
                 "table_used": float("-inf"),
                 "dimension": float("nan"),
                 "metric": float("inf"),
-                "scope": {"request_host": "www.example.com", "sample_rate": float("nan")},
+                "scope": {
+                    "request_host": "www.example.com",
+                    "sample_rate": float("nan"),
+                },
                 "current_window": {"start": "2026-04-01", "weight": float("inf")},
                 "baseline_windows": [
                     {
@@ -711,7 +2299,7 @@ class BotInsightsScriptTests(unittest.TestCase):
             {
                 "comparison_type": "post_change_vs_expected",
                 "granularity": "day",
-                "table_used": "bot_siem_summary_day",
+                "table_used": "bi_siem_policy_summary_day",
                 "change_time": "2026-04-01T00:00:00Z",
                 "target": {"policy_id": "policy-123"},
                 "scope": {"request_host": "www.example.com"},
@@ -742,7 +2330,10 @@ class BotInsightsScriptTests(unittest.TestCase):
                 "change_time": float("nan"),
                 "table_used": float("inf"),
                 "target": {"policy_id": "policy-123", "sample_rate": float("nan")},
-                "scope": {"request_host": "www.example.com", "sample_rate": float("inf")},
+                "scope": {
+                    "request_host": "www.example.com",
+                    "sample_rate": float("inf"),
+                },
                 "before_window": {"start": "2026-03-25", "weight": float("-inf")},
                 "after_window": {"start": "2026-04-01", "weight": float("inf")},
                 "expected_window": {"start": "2026-03-25", "weight": float("nan")},
@@ -931,7 +2522,7 @@ class BotInsightsScriptTests(unittest.TestCase):
             {
                 "current": {"requests": 150},
                 "baseline": {"requests": 100},
-                "table_used": "bot_summary_hour",
+                "table_used": "bi_summary_hour",
             }
         )
 
@@ -969,7 +2560,9 @@ class BotInsightsScriptTests(unittest.TestCase):
         self.assertEqual(result["movers"][0]["values"]["client_asn"], "64500")
         self.assertEqual(result["movers"][0]["absolute_delta"], 80)
         self.assertEqual(result["movers"][0]["presence_lifecycle"], "existing")
-        self.assertEqual(result["movers"][0]["support_change_label"], "support_increase")
+        self.assertEqual(
+            result["movers"][0]["support_change_label"], "support_increase"
+        )
         self.assertEqual(result["total_current"], 300)
         self.assertIn("trusted_context_missing", result["confidence_reasons"])
 
@@ -992,7 +2585,9 @@ class BotInsightsScriptTests(unittest.TestCase):
         self.assertEqual(result["metric"], "requests")
         self.assertEqual(result["metric_kind"], "additive_count")
         self.assertEqual(result["row_shape"], "combined")
-        self.assertEqual(result["canonical_rows"][0]["dimensions"], {"client_asn": "64500"})
+        self.assertEqual(
+            result["canonical_rows"][0]["dimensions"], {"client_asn": "64500"}
+        )
         self.assertEqual(result["canonical_rows"][0]["current"], 180)
         self.assertEqual(result["canonical_rows"][0]["baseline"], 100)
         self.assertEqual(
@@ -1054,7 +2649,9 @@ class BotInsightsScriptTests(unittest.TestCase):
         )
 
         self.assertEqual(result["row_shape"], "combined")
-        self.assertEqual(result["canonical_rows"][0]["dimensions"]["client_asn"], "64500")
+        self.assertEqual(
+            result["canonical_rows"][0]["dimensions"]["client_asn"], "64500"
+        )
         self.assertEqual(result["baseline_method"], "single_previous_window")
         self.assertEqual(result["baseline_value_semantic"], "raw_total_window")
 
@@ -1099,7 +2696,7 @@ class BotInsightsScriptTests(unittest.TestCase):
                     "metric": "blocked_requests",
                     "direction": "increase",
                 },
-                "table_used": "bot_summary_hour",
+                "table_used": "bi_summary_hour",
                 "rows": [
                     {
                         "request_host": "api.example.com",
@@ -1118,7 +2715,9 @@ class BotInsightsScriptTests(unittest.TestCase):
         self.assertEqual(result["schema_version"], "bot_attribution_report.v1")
         self.assertEqual(result["analysis_type"], "policy_displacement")
         self.assertEqual(result["method"], "policy_displacement_attribution")
-        self.assertEqual(result["policy_change"]["name"], "block suspicious crawler policy")
+        self.assertEqual(
+            result["policy_change"]["name"], "block suspicious crawler policy"
+        )
         self.assertEqual(result["target_effect"]["metric"], "blocked_requests")
         self.assertIn("policy_displacement_review", result["confidence_reasons"])
         self.assertIn(
@@ -1263,7 +2862,9 @@ class BotInsightsScriptTests(unittest.TestCase):
         )
         self.assertEqual([mover["rank"] for mover in result["movers"]], [1, 2, 3])
 
-    def test_attribution_excludes_unsafe_one_sided_rows_from_ranked_output(self) -> None:
+    def test_attribution_excludes_unsafe_one_sided_rows_from_ranked_output(
+        self,
+    ) -> None:
         result = self.attribution.normalize_attribution(
             {
                 "metric": "requests",
@@ -1293,7 +2894,9 @@ class BotInsightsScriptTests(unittest.TestCase):
         )
         self.assertEqual(result["not_evaluated_components"][1]["skipped_count"], 1)
 
-    def test_attribution_withholds_contribution_for_assertion_only_metadata(self) -> None:
+    def test_attribution_withholds_contribution_for_assertion_only_metadata(
+        self,
+    ) -> None:
         result = self.attribution.normalize_attribution(
             {
                 "metric": "requests",
@@ -1322,7 +2925,9 @@ class BotInsightsScriptTests(unittest.TestCase):
         )
         self.assertNotIn("contribution_pct", result["movers"][0])
 
-    def test_attribution_non_volume_metric_without_support_is_not_evaluated(self) -> None:
+    def test_attribution_non_volume_metric_without_support_is_not_evaluated(
+        self,
+    ) -> None:
         result = self.attribution.normalize_attribution(
             {
                 "metric": "bot_share_pct",
@@ -1340,13 +2945,17 @@ class BotInsightsScriptTests(unittest.TestCase):
         self.assertEqual(result["confidence"], "low")
         self.assertEqual(result["movers"][0]["presence_lifecycle"], "not_evaluated")
         self.assertEqual(result["movers"][0]["support_change_label"], "not_evaluated")
-        self.assertIn("lifecycle_support_missing", result["movers"][0]["confidence_reasons"])
+        self.assertIn(
+            "lifecycle_support_missing", result["movers"][0]["confidence_reasons"]
+        )
         self.assertEqual(
             result["not_evaluated_components"][1]["reason"],
             "lifecycle_support_missing",
         )
 
-    def test_attribution_non_volume_metric_with_explicit_support_uses_lifecycle_labels(self) -> None:
+    def test_attribution_non_volume_metric_with_explicit_support_uses_lifecycle_labels(
+        self,
+    ) -> None:
         result = self.attribution.normalize_attribution(
             {
                 "metric": "bot_share_pct",
@@ -1370,7 +2979,9 @@ class BotInsightsScriptTests(unittest.TestCase):
         self.assertEqual(mover["support_change_label"], "support_increase")
         self.assertNotIn("lifecycle_support_missing", mover["confidence_reasons"])
 
-    def test_attribution_additive_metric_prefers_explicit_support_for_lifecycle(self) -> None:
+    def test_attribution_additive_metric_prefers_explicit_support_for_lifecycle(
+        self,
+    ) -> None:
         result = self.attribution.normalize_attribution(
             {
                 "metric": "requests",
@@ -1401,7 +3012,9 @@ class BotInsightsScriptTests(unittest.TestCase):
         )
         self.assertEqual(result["not_evaluated_components"][1]["skipped_count"], 1)
 
-    def test_attribution_emits_sparse_candidate_for_low_support_one_sided_row(self) -> None:
+    def test_attribution_emits_sparse_candidate_for_low_support_one_sided_row(
+        self,
+    ) -> None:
         result = self.attribution.normalize_attribution(
             {
                 "metric": "requests",
@@ -1419,10 +3032,14 @@ class BotInsightsScriptTests(unittest.TestCase):
         self.assertEqual(result["returned_rows"], 1)
         self.assertEqual(result["movers"][0]["presence_lifecycle"], "not_evaluated")
         self.assertEqual(result["movers"][0]["support_change_label"], "not_evaluated")
-        self.assertEqual(result["movers"][0]["candidate_flags"], ["sparse_new_candidate"])
+        self.assertEqual(
+            result["movers"][0]["candidate_flags"], ["sparse_new_candidate"]
+        )
         self.assertEqual(result["buckets"]["not_evaluated_count"], 1)
 
-    def test_attribution_zero_baseline_guard_uses_metric_math_not_lifecycle_absence(self) -> None:
+    def test_attribution_zero_baseline_guard_uses_metric_math_not_lifecycle_absence(
+        self,
+    ) -> None:
         result = self.attribution.normalize_attribution(
             {
                 "metric": "bot_share_pct",
@@ -1464,7 +3081,9 @@ class BotInsightsScriptTests(unittest.TestCase):
         self.assertNotIn("scorecard_export_safe", result)
         self.assertNotEqual(result.get("schema_version"), "bot_scorecard_input.v1")
 
-    def test_attribution_scorecard_safe_assertions_do_not_raise_report_confidence(self) -> None:
+    def test_attribution_scorecard_safe_assertions_do_not_raise_report_confidence(
+        self,
+    ) -> None:
         result = self.attribution.normalize_attribution(
             {
                 "schema_version": "bot_scorecard_input.v1",
@@ -1506,7 +3125,9 @@ class BotInsightsScriptTests(unittest.TestCase):
         self.assertNotEqual(result["confidence"], "high")
         self.assertNotEqual(mover["confidence"], "high")
 
-    def test_attribution_summary_support_validates_single_dimension_tables(self) -> None:
+    def test_attribution_summary_support_validates_single_dimension_tables(
+        self,
+    ) -> None:
         host_only = self.attribution.validate_summary_table_support(
             "bot_agg_hour",
             ["request_host"],
@@ -1526,7 +3147,9 @@ class BotInsightsScriptTests(unittest.TestCase):
         self.assertEqual(host_only["limitations"], [])
         self.assertEqual(host_only["retained_dimensions"], ["request_host"])
 
-    def test_attribution_summary_support_validates_composite_dimension_sets(self) -> None:
+    def test_attribution_summary_support_validates_composite_dimension_sets(
+        self,
+    ) -> None:
         path_class = self.attribution.validate_summary_table_support(
             "bot_agg_path_hour",
             ["request_path_norm", "bot_class"],
@@ -1547,7 +3170,7 @@ class BotInsightsScriptTests(unittest.TestCase):
             {
                 "metric": "blocked_requests",
                 "grouped_dimensions": ["client_asn"],
-                "table_used": "bot_siem_filter_summary_hour",
+                "table_used": "bi_siem_policy_summary_hour",
                 "summary_table_used": True,
                 "scope": {"request_host": "www.example.com"},
                 "filters": {"resource_category": "login"},
@@ -1604,14 +3227,16 @@ class BotInsightsScriptTests(unittest.TestCase):
         ]
         self.assertEqual(result["confidence"], "low")
         self.assertIn("unsupported_summary_filter", limitation_codes)
-        self.assertEqual(unsupported_components[0]["unsupported_columns"], ["client_asn"])
+        self.assertEqual(
+            unsupported_components[0]["unsupported_columns"], ["client_asn"]
+        )
         self.assertEqual(unsupported_components[0]["selected_table"], "bot_agg_hour")
 
     def test_attribution_rejects_unsupported_siem_dimension_and_filter(self) -> None:
         validation = self.attribution.validate_summary_table_support(
-            "bot_siem_summary_hour",
+            "bi_siem_policy_summary_hour",
             ["akamai_canonical_bot_class"],
-            filters={"resource_category": "api"},
+            filters={"hdx_cdn": "akamai"},
         )
 
         self.assertFalse(validation["supported"])
@@ -1619,11 +3244,13 @@ class BotInsightsScriptTests(unittest.TestCase):
             validation["unsupported_grouped_dimensions"],
             ["akamai_canonical_bot_class"],
         )
-        self.assertEqual(validation["unsupported_filter_columns"], ["resource_category"])
+        self.assertEqual(validation["unsupported_filter_columns"], ["hdx_cdn"])
         self.assertIn("unsupported_summary_dimension_set", validation["limitations"])
         self.assertIn("unsupported_summary_filter", validation["limitations"])
 
-    def test_attribution_raw_fallback_and_fixture_metadata_stay_below_high(self) -> None:
+    def test_attribution_request_level_and_fixture_metadata_stay_below_high(
+        self,
+    ) -> None:
         raw_result = self.attribution.normalize_attribution(
             {
                 "metric": "requests",
@@ -1646,10 +3273,10 @@ class BotInsightsScriptTests(unittest.TestCase):
             {
                 "metric": "requests",
                 "dimensions": ["client_asn"],
-                "table_used": "bot_summary_hour",
+                "table_used": "bi_summary_hour",
                 "summary_table_used": True,
                 "generator_name": "bot-insights-attribution-sql",
-                "metadata_fixture_identity": "fixture:bot_summary_hour:v1",
+                "metadata_fixture_identity": "fixture:bi_summary_hour:v1",
                 "metadata_fingerprint": "sha256:fixture",
                 "rows": [
                     {
@@ -1663,7 +3290,7 @@ class BotInsightsScriptTests(unittest.TestCase):
         )
 
         self.assertEqual(raw_result["confidence"], "low")
-        self.assertIn("raw_table_fallback", raw_result["confidence_reasons"])
+        self.assertIn("request_level_query", raw_result["confidence_reasons"])
         self.assertEqual(fixture_result["confidence"], "medium")
         self.assertIn(
             "trusted_context_reserved_for_future_tasks",
@@ -1672,7 +3299,9 @@ class BotInsightsScriptTests(unittest.TestCase):
         self.assertNotEqual(raw_result["confidence"], "high")
         self.assertNotEqual(fixture_result["confidence"], "high")
 
-    def test_attribution_result_digest_is_deterministic_and_rejects_nonfinite_values(self) -> None:
+    def test_attribution_result_digest_is_deterministic_and_rejects_nonfinite_values(
+        self,
+    ) -> None:
         first = self.trusted_attribution_input(
             rows=[
                 {
@@ -1737,9 +3366,13 @@ class BotInsightsScriptTests(unittest.TestCase):
 
     def test_attribution_trusted_context_digest_mismatch_degrades(self) -> None:
         input_doc = self.trusted_attribution_input()
-        context = self.trusted_context_for(input_doc, result_digest="sha256:" + "9" * 64)
+        context = self.trusted_context_for(
+            input_doc, result_digest="sha256:" + "9" * 64
+        )
 
-        result = self.attribution.normalize_attribution(input_doc, trusted_context=context)
+        result = self.attribution.normalize_attribution(
+            input_doc, trusted_context=context
+        )
 
         self.assertEqual(result["contribution_basis"], "none")
         self.assertNotEqual(result["confidence"], "high")
@@ -1753,7 +3386,9 @@ class BotInsightsScriptTests(unittest.TestCase):
         context.pop("query_fingerprint")
         context.pop("result_digest")
 
-        result = self.attribution.normalize_attribution(input_doc, trusted_context=context)
+        result = self.attribution.normalize_attribution(
+            input_doc, trusted_context=context
+        )
 
         self.assertIn("query_fingerprint_missing", result["confidence_reasons"])
         self.assertIn("result_digest_missing", result["confidence_reasons"])
@@ -1765,30 +3400,40 @@ class BotInsightsScriptTests(unittest.TestCase):
         context = self.trusted_context_for(input_doc)
         context["result_origin"] = "manual_paste"
 
-        result = self.attribution.normalize_attribution(input_doc, trusted_context=context)
+        result = self.attribution.normalize_attribution(
+            input_doc, trusted_context=context
+        )
 
         self.assertIn("trusted_context_invalid", result["confidence_reasons"])
         self.assertFalse(result["trusted_context_validation"]["valid"])
         self.assertEqual(result["contribution_basis"], "none")
 
-    def test_attribution_duplicate_evidence_ids_invalidate_trusted_context(self) -> None:
+    def test_attribution_duplicate_evidence_ids_invalidate_trusted_context(
+        self,
+    ) -> None:
         input_doc = self.trusted_attribution_input()
         context = self.trusted_context_for(input_doc)
         duplicate = dict(context["trusted_evidence"][0])
         context["trusted_evidence"].append(duplicate)
 
-        result = self.attribution.normalize_attribution(input_doc, trusted_context=context)
+        result = self.attribution.normalize_attribution(
+            input_doc, trusted_context=context
+        )
 
         self.assertIn("trusted_evidence_mismatch", result["confidence_reasons"])
         self.assertFalse(result["trusted_context_validation"]["valid"])
         self.assertEqual(result["contribution_basis"], "none")
 
-    def test_attribution_evidence_contract_mismatch_degrades_to_no_contribution(self) -> None:
+    def test_attribution_evidence_contract_mismatch_degrades_to_no_contribution(
+        self,
+    ) -> None:
         input_doc = self.trusted_attribution_input()
         context = self.trusted_context_for(input_doc)
         context["trusted_evidence"][0]["metric"] = "blocked_requests"
 
-        result = self.attribution.normalize_attribution(input_doc, trusted_context=context)
+        result = self.attribution.normalize_attribution(
+            input_doc, trusted_context=context
+        )
 
         self.assertIn("trusted_evidence_mismatch", result["confidence_reasons"])
         self.assertEqual(result["contribution_basis"], "none")
@@ -1799,7 +3444,9 @@ class BotInsightsScriptTests(unittest.TestCase):
         context = self.trusted_context_for(input_doc)
         context["trusted_evidence"][0].pop("baseline_value_semantic")
 
-        result = self.attribution.normalize_attribution(input_doc, trusted_context=context)
+        result = self.attribution.normalize_attribution(
+            input_doc, trusted_context=context
+        )
 
         self.assertIn("trusted_evidence_mismatch", result["confidence_reasons"])
         self.assertFalse(result["trusted_context_validation"]["valid"])
@@ -1811,15 +3458,21 @@ class BotInsightsScriptTests(unittest.TestCase):
         context["trusted_evidence"][0]["baseline_normalization"] = dict(
             context["trusted_evidence"][0]["baseline_normalization"]
         )
-        context["trusted_evidence"][0]["baseline_normalization"]["factor"] = float("nan")
+        context["trusted_evidence"][0]["baseline_normalization"]["factor"] = float(
+            "nan"
+        )
 
-        result = self.attribution.normalize_attribution(input_doc, trusted_context=context)
+        result = self.attribution.normalize_attribution(
+            input_doc, trusted_context=context
+        )
 
         self.assertIn("trusted_evidence_mismatch", result["confidence_reasons"])
         self.assertEqual(result["contribution_basis"], "none")
         self.assertNotEqual(result["confidence"], "high")
 
-    def test_attribution_valid_provided_contribution_fixture_remains_disabled_without_wrapper(self) -> None:
+    def test_attribution_valid_provided_contribution_fixture_remains_disabled_without_wrapper(
+        self,
+    ) -> None:
         input_doc = self.trusted_attribution_input(
             rows=[
                 {
@@ -1846,29 +3499,42 @@ class BotInsightsScriptTests(unittest.TestCase):
         )
         context = self.provided_contribution_context_for(input_doc)
 
-        result = self.attribution.normalize_attribution(input_doc, trusted_context=context)
+        result = self.attribution.normalize_attribution(
+            input_doc, trusted_context=context
+        )
 
         self.assertTrue(result["trusted_context_validation"]["valid"])
         self.assertFalse(result["trusted_context_validation"]["trusted"])
-        self.assertEqual(result["trusted_context_validation"]["evidence_types"], ["provided_contribution_evidence"])
+        self.assertEqual(
+            result["trusted_context_validation"]["evidence_types"],
+            ["provided_contribution_evidence"],
+        )
         self.assertIn("trusted_wrapper_unavailable", result["confidence_reasons"])
         self.assertEqual(result["contribution_basis"], "none")
         self.assertNotIn("contribution_pct", result["movers"][0])
 
-    def test_attribution_provided_contribution_evidence_requires_matching_field_identity(self) -> None:
+    def test_attribution_provided_contribution_evidence_requires_matching_field_identity(
+        self,
+    ) -> None:
         input_doc = self.trusted_attribution_input()
         context = self.provided_contribution_context_for(input_doc)
         context["trusted_evidence"][0]["denominator_field"] = "caller_total_abs_delta"
 
-        result = self.attribution.normalize_attribution(input_doc, trusted_context=context)
+        result = self.attribution.normalize_attribution(
+            input_doc, trusted_context=context
+        )
 
-        self.assertIn("provided_contribution_inconsistent", result["confidence_reasons"])
+        self.assertIn(
+            "provided_contribution_inconsistent", result["confidence_reasons"]
+        )
         self.assertFalse(result["trusted_context_validation"]["valid"])
         self.assertFalse(result["trusted_context_validation"]["trusted"])
         self.assertEqual(result["contribution_basis"], "none")
         self.assertNotIn("contribution_pct", result["movers"][0])
 
-    def test_attribution_invalid_provided_contribution_entry_invalidates_evidence_list(self) -> None:
+    def test_attribution_invalid_provided_contribution_entry_invalidates_evidence_list(
+        self,
+    ) -> None:
         input_doc = self.trusted_attribution_input()
         context = self.trusted_context_for(input_doc)
         provided = dict(context["trusted_evidence"][0])
@@ -1886,9 +3552,13 @@ class BotInsightsScriptTests(unittest.TestCase):
         )
         context["trusted_evidence"].append(provided)
 
-        result = self.attribution.normalize_attribution(input_doc, trusted_context=context)
+        result = self.attribution.normalize_attribution(
+            input_doc, trusted_context=context
+        )
 
-        self.assertIn("provided_contribution_inconsistent", result["confidence_reasons"])
+        self.assertIn(
+            "provided_contribution_inconsistent", result["confidence_reasons"]
+        )
         self.assertFalse(result["trusted_context_validation"]["valid"])
         self.assertFalse(result["trusted_context_validation"]["trusted"])
         self.assertEqual(
@@ -1898,7 +3568,9 @@ class BotInsightsScriptTests(unittest.TestCase):
         self.assertEqual(result["contribution_basis"], "none")
         self.assertNotIn("contribution_pct", result["movers"][0])
 
-    def test_attribution_provided_contribution_evidence_requires_row_math_consistency(self) -> None:
+    def test_attribution_provided_contribution_evidence_requires_row_math_consistency(
+        self,
+    ) -> None:
         input_doc = self.trusted_attribution_input(
             rows=[
                 {
@@ -1925,23 +3597,34 @@ class BotInsightsScriptTests(unittest.TestCase):
         )
         context = self.provided_contribution_context_for(input_doc)
 
-        result = self.attribution.normalize_attribution(input_doc, trusted_context=context)
+        result = self.attribution.normalize_attribution(
+            input_doc, trusted_context=context
+        )
 
-        self.assertIn("provided_contribution_inconsistent", result["confidence_reasons"])
+        self.assertIn(
+            "provided_contribution_inconsistent", result["confidence_reasons"]
+        )
         self.assertFalse(result["trusted_context_validation"]["valid"])
         self.assertFalse(result["trusted_context_validation"]["trusted"])
         self.assertEqual(result["contribution_basis"], "none")
         self.assertNotIn("contribution_pct", result["movers"][0])
 
-    def test_attribution_valid_future_wrapper_fixture_remains_disabled_without_wrapper(self) -> None:
+    def test_attribution_valid_future_wrapper_fixture_remains_disabled_without_wrapper(
+        self,
+    ) -> None:
         input_doc = self.trusted_attribution_input()
         context = self.trusted_context_for(input_doc)
 
-        result = self.attribution.normalize_attribution(input_doc, trusted_context=context)
+        result = self.attribution.normalize_attribution(
+            input_doc, trusted_context=context
+        )
 
         self.assertTrue(result["trusted_context_validation"]["valid"])
         self.assertFalse(result["trusted_context_validation"]["trusted"])
-        self.assertEqual(result["trusted_context_validation"]["evidence_types"], ["complete_scope_pre_limit_evidence"])
+        self.assertEqual(
+            result["trusted_context_validation"]["evidence_types"],
+            ["complete_scope_pre_limit_evidence"],
+        )
         self.assertIn("trusted_wrapper_unavailable", result["confidence_reasons"])
         self.assertIn(
             "trusted_context_reserved_for_future_tasks",
@@ -1971,7 +3654,9 @@ class BotInsightsScriptTests(unittest.TestCase):
         self.assertIn("trusted_evidence", result["input_assertions"])
         self.assertNotIn("contribution_pct", result["movers"][0])
 
-    def test_attribution_duplicate_aggregation_evidence_does_not_unlock_local_aggregation(self) -> None:
+    def test_attribution_duplicate_aggregation_evidence_does_not_unlock_local_aggregation(
+        self,
+    ) -> None:
         input_doc = self.trusted_attribution_input(
             rows=[
                 {"period": "current", "client_asn": "64500", "requests": 100},
@@ -1997,7 +3682,7 @@ class BotInsightsScriptTests(unittest.TestCase):
 
     def test_attribution_metadata_fingerprint_is_stable_across_key_order(self) -> None:
         first = {
-            "table": "bot_summary_hour",
+            "table": "bi_summary_hour",
             "database": "bot_insights",
             "is_summary_table": True,
             "columns": [
@@ -2022,18 +3707,18 @@ class BotInsightsScriptTests(unittest.TestCase):
             ],
             "is_summary_table": True,
             "database": "bot_insights",
-            "table": "bot_summary_hour",
+            "table": "bi_summary_hour",
         }
 
         first_hash = self.attribution.metadata_fingerprint(
             first,
             selected_columns=["request_host", "cnt_all"],
-            metadata_fixture_identity="fixture:bot_summary_hour:v1",
+            metadata_fixture_identity="fixture:bi_summary_hour:v1",
         )
         second_hash = self.attribution.metadata_fingerprint(
             second,
             selected_columns=["cnt_all", "request_host"],
-            metadata_fixture_identity="fixture:bot_summary_hour:v1",
+            metadata_fixture_identity="fixture:bi_summary_hour:v1",
         )
 
         self.assertEqual(first_hash, second_hash)
@@ -2043,13 +3728,25 @@ class BotInsightsScriptTests(unittest.TestCase):
         with self.assertRaises(self.attribution.InvalidInputError) as exc:
             self.attribution.render_attribution_sql_template(
                 table_metadata={
-                    "table": "bot_summary_hour",
+                    "table": "bi_summary_hour",
                     "database": "bot_insights",
                     "is_summary_table": False,
                     "columns": [
-                        {"name": "timestamp", "type": "DateTime", "column_category": "Column"},
-                        {"name": "request_host", "type": "String", "column_category": "Column"},
-                        {"name": "client_asn", "type": "String", "column_category": "Column"},
+                        {
+                            "name": "timestamp",
+                            "type": "DateTime",
+                            "column_category": "Column",
+                        },
+                        {
+                            "name": "request_host",
+                            "type": "String",
+                            "column_category": "Column",
+                        },
+                        {
+                            "name": "client_asn",
+                            "type": "String",
+                            "column_category": "Column",
+                        },
                         {
                             "name": "sum(cnt_all)",
                             "type": "AggregateFunction(sum, UInt64)",
@@ -2075,11 +3772,13 @@ class BotInsightsScriptTests(unittest.TestCase):
                 output_limit=25,
             )
 
-        self.assert_invalid_input_code(exc.exception, "table_metadata_not_summary_table")
+        self.assert_invalid_input_code(
+            exc.exception, "table_metadata_not_summary_table"
+        )
 
     def test_attribution_sql_template_uses_metadata_merge_expressions(self) -> None:
         table_metadata = {
-            "table": "bot_summary_hour",
+            "table": "bi_summary_hour",
             "database": "bot_insights",
             "is_summary_table": True,
             "columns": [
@@ -2113,7 +3812,7 @@ class BotInsightsScriptTests(unittest.TestCase):
             ],
             baseline_method="single_previous_window",
             output_limit=25,
-            metadata_fixture_identity="fixture:bot_summary_hour:v1",
+            metadata_fixture_identity="fixture:bi_summary_hour:v1",
         )
 
         sql = result["sql"]
@@ -2131,8 +3830,12 @@ class BotInsightsScriptTests(unittest.TestCase):
         self.assertIn("`timestamp` < current_end", sql)
         self.assertIn("`timestamp` >= baseline_start_1", sql)
         self.assertIn("`timestamp` < baseline_end_1", sql)
-        self.assertNotIn("`timestamp` >= baseline_start_1\n      AND `timestamp` < current_end", sql)
-        self.assertIn("FULL OUTER JOIN baseline_by_entity AS b USING (`client_asn`)", sql)
+        self.assertNotIn(
+            "`timestamp` >= baseline_start_1\n      AND `timestamp` < current_end", sql
+        )
+        self.assertIn(
+            "FULL OUTER JOIN baseline_by_entity AS b USING (`client_asn`)", sql
+        )
         self.assertIn(
             "sum(abs(current_requests - baseline_requests)) OVER () AS complete_scope_total_abs_delta",
             sql,
@@ -2157,9 +3860,13 @@ class BotInsightsScriptTests(unittest.TestCase):
             {"complete_scope_pre_limit_evidence", "zero_fill_evidence"},
         )
         complete_evidence = [
-            item for item in evidence if item["evidence_type"] == "complete_scope_pre_limit_evidence"
+            item
+            for item in evidence
+            if item["evidence_type"] == "complete_scope_pre_limit_evidence"
         ][0]
-        zero_fill = [item for item in evidence if item["evidence_type"] == "zero_fill_evidence"][0]
+        zero_fill = [
+            item for item in evidence if item["evidence_type"] == "zero_fill_evidence"
+        ][0]
         self.assertTrue(complete_evidence["computed_before_output_limit"])
         self.assertFalse(complete_evidence["source_limit_applied_before_denominator"])
         self.assertEqual(
@@ -2183,15 +3890,23 @@ class BotInsightsScriptTests(unittest.TestCase):
         self.assertNotIn(("result_digest", mock.ANY), flattened)
         self.assertFalse(any(value == "high" for _, value in flattened))
         self.assertFalse(any(key == "scorecard_export_safe" for key, _ in flattened))
-        self.assertFalse(any(value == "bot_scorecard_input.v1" for _, value in flattened))
+        self.assertFalse(
+            any(value == "bot_scorecard_input.v1" for _, value in flattened)
+        )
 
-    def test_attribution_sql_template_supports_akamai_source_field_aliases(self) -> None:
+    def test_attribution_sql_template_supports_akamai_source_field_aliases(
+        self,
+    ) -> None:
         table_metadata = {
-            "table": "bot_summary_day",
+            "table": "bi_summary_day",
             "database": "akamai",
             "is_summary_table": True,
             "columns": [
-                {"name": "timestamp", "type": "DateTime", "column_category": "AliasColumn"},
+                {
+                    "name": "timestamp",
+                    "type": "DateTime",
+                    "column_category": "AliasColumn",
+                },
                 {"name": "reqHost", "type": "String", "column_category": "Column"},
                 {"name": "asn", "type": "String", "column_category": "Column"},
                 {"name": "country", "type": "String", "column_category": "Column"},
@@ -2222,7 +3937,7 @@ class BotInsightsScriptTests(unittest.TestCase):
             ],
             baseline_method="single_previous_window",
             output_limit=25,
-            metadata_fixture_identity="fixture:akamai_bot_summary_day:v1",
+            metadata_fixture_identity="fixture:akamai_bi_summary_day:v1",
         )
 
         sql = result["sql"]
@@ -2231,7 +3946,9 @@ class BotInsightsScriptTests(unittest.TestCase):
         self.assertIn("`asn` AS `client_asn`", sql)
         self.assertIn("`reqHost` = 'www.example.com'", sql)
         self.assertIn("`country` = 'US'", sql)
-        self.assertIn("FULL OUTER JOIN baseline_by_entity AS b USING (`client_asn`)", sql)
+        self.assertIn(
+            "FULL OUTER JOIN baseline_by_entity AS b USING (`client_asn`)", sql
+        )
         self.assertIn("ORDER BY abs_delta DESC, toString(`client_asn`) ASC", sql)
         self.assertEqual(
             provenance["column_aliases"],
@@ -2250,7 +3967,13 @@ class BotInsightsScriptTests(unittest.TestCase):
         self.assertIn("country", provenance["selected_columns"])
         self.assertEqual(
             provenance["requested_columns"],
-            ["timestamp", "client_asn", "request_host", "client_country_iso_code", "count()"],
+            [
+                "timestamp",
+                "client_asn",
+                "request_host",
+                "client_country_iso_code",
+                "count()",
+            ],
         )
 
     def test_attribution_catalog_supports_bi_summary_tables(self) -> None:
@@ -2258,16 +3981,10 @@ class BotInsightsScriptTests(unittest.TestCase):
             "bi_summary_day",
             ["client_asn"],
             scope={"request_host": "www.example.com"},
-            filters={"bot_class": "crawler"},
+            filters={"traffic_cohort": "AI"},
         )
         siem = self.attribution.validate_summary_table_support(
-            "bi_siem_summary_day",
-            ["client_asn"],
-            scope={"request_host": "www.example.com"},
-            filters={"policy_id": "policy-1"},
-        )
-        alternate_siem = self.attribution.validate_summary_table_support(
-            "bi_summary_siem_day",
+            "bi_siem_policy_summary_day",
             ["client_asn"],
             scope={"request_host": "www.example.com"},
             filters={"policy_id": "policy-1"},
@@ -2275,23 +3992,14 @@ class BotInsightsScriptTests(unittest.TestCase):
 
         self.assertTrue(posture["supported"])
         self.assertTrue(siem["supported"])
-        self.assertTrue(alternate_siem["supported"])
-        catalog_names = list(self.attribution.SUMMARY_TABLE_CATALOG)
-        self.assertLess(
-            catalog_names.index("bi_summary_day"),
-            catalog_names.index("bot_summary_day"),
-        )
-        self.assertLess(
-            catalog_names.index("bi_siem_summary_day"),
-            catalog_names.index("bot_siem_summary_day"),
-        )
         self.assertIn("bi_summary_day", self.attribution.SUMMARY_TABLE_CATALOG)
-        self.assertIn("bi_siem_summary_day", self.attribution.SUMMARY_TABLE_CATALOG)
-        self.assertIn("bi_summary_siem_day", self.attribution.SUMMARY_TABLE_CATALOG)
+        self.assertIn(
+            "bi_siem_policy_summary_day", self.attribution.SUMMARY_TABLE_CATALOG
+        )
 
     def test_attribution_sql_template_applies_filters_to_all_period_ctes(self) -> None:
         table_metadata = {
-            "table": "bot_summary_hour",
+            "table": "bi_summary_hour",
             "database": "bot_insights",
             "is_summary_table": True,
             "columns": [
@@ -2342,7 +4050,9 @@ class BotInsightsScriptTests(unittest.TestCase):
         self.assertIn("bot_class", provenance["selected_columns"])
         self.assertIn("ai_category", provenance["selected_columns"])
         self.assertEqual(provenance["filters"], {"bot_class": "good"})
-        self.assertEqual(provenance["applied_scope_filters"], {"ai_category": ["search", "training"]})
+        self.assertEqual(
+            provenance["applied_scope_filters"], {"ai_category": ["search", "training"]}
+        )
         self.assertEqual(
             provenance["sql_predicates"],
             {
@@ -2356,9 +4066,11 @@ class BotInsightsScriptTests(unittest.TestCase):
             changed_filter["provenance"]["query_fingerprint"],
         )
 
-    def test_attribution_sql_template_rejects_conflicting_filter_predicates(self) -> None:
+    def test_attribution_sql_template_rejects_conflicting_filter_predicates(
+        self,
+    ) -> None:
         table_metadata = {
-            "table": "bot_summary_hour",
+            "table": "bi_summary_hour",
             "database": "bot_insights",
             "is_summary_table": True,
             "columns": [
@@ -2398,7 +4110,9 @@ class BotInsightsScriptTests(unittest.TestCase):
 
         self.assert_invalid_input_code(exc.exception, "scope_filter_conflict")
 
-    def test_attribution_sql_template_multiple_baselines_are_explicit_and_deterministic(self) -> None:
+    def test_attribution_sql_template_multiple_baselines_are_explicit_and_deterministic(
+        self,
+    ) -> None:
         table_metadata = {
             "table": "bot_agg_path_day",
             "database": "bot_insights",
@@ -2406,7 +4120,11 @@ class BotInsightsScriptTests(unittest.TestCase):
             "columns": [
                 {"name": "timestamp", "type": "DateTime", "column_category": "Column"},
                 {"name": "request_host", "type": "String", "column_category": "Column"},
-                {"name": "request_path_norm", "type": "String", "column_category": "Column"},
+                {
+                    "name": "request_path_norm",
+                    "type": "String",
+                    "column_category": "Column",
+                },
                 {"name": "bot_class", "type": "String", "column_category": "Column"},
                 {
                     "name": "sum(cnt_all)",
@@ -2475,7 +4193,9 @@ class BotInsightsScriptTests(unittest.TestCase):
         self.assertEqual(len(first["provenance"]["baseline_windows"]), 2)
         self.assertEqual(first["provenance"]["limit_stage"], "after_denominator")
 
-    def test_attribution_sql_template_mean_baseline_normalizes_average_window_duration(self) -> None:
+    def test_attribution_sql_template_mean_baseline_normalizes_average_window_duration(
+        self,
+    ) -> None:
         table_metadata = {
             "table": "bot_agg_path_day",
             "database": "bot_insights",
@@ -2483,7 +4203,11 @@ class BotInsightsScriptTests(unittest.TestCase):
             "columns": [
                 {"name": "timestamp", "type": "DateTime", "column_category": "Column"},
                 {"name": "request_host", "type": "String", "column_category": "Column"},
-                {"name": "request_path_norm", "type": "String", "column_category": "Column"},
+                {
+                    "name": "request_path_norm",
+                    "type": "String",
+                    "column_category": "Column",
+                },
                 {"name": "bot_class", "type": "String", "column_category": "Column"},
                 {
                     "name": "sum(cnt_all)",
@@ -2700,7 +4424,9 @@ class BotInsightsScriptTests(unittest.TestCase):
 
         self.assert_invalid_input_code(exc.exception, "duplicate_entity_key")
 
-    def test_attribution_rejects_duplicate_period_split_entity_period_keys(self) -> None:
+    def test_attribution_rejects_duplicate_period_split_entity_period_keys(
+        self,
+    ) -> None:
         with self.assertRaises(self.attribution.InvalidInputError) as exc:
             self.attribution.normalize_input_rows(
                 {
@@ -2716,22 +4442,34 @@ class BotInsightsScriptTests(unittest.TestCase):
 
         self.assert_invalid_input_code(exc.exception, "duplicate_entity_period_key")
 
-    def test_attribution_rejects_period_split_rows_with_combined_metric_aliases(self) -> None:
+    def test_attribution_rejects_period_split_rows_with_combined_metric_aliases(
+        self,
+    ) -> None:
         with self.assertRaises(self.attribution.InvalidInputError) as exc:
             self.attribution.normalize_input_rows(
                 {
                     "metric": "requests",
                     "dimensions": ["client_asn"],
                     "rows": [
-                        {"period": "current", "client_asn": "64500", "current_requests": 180},
-                        {"period": "baseline", "client_asn": "64500", "baseline_requests": 100},
+                        {
+                            "period": "current",
+                            "client_asn": "64500",
+                            "current_requests": 180,
+                        },
+                        {
+                            "period": "baseline",
+                            "client_asn": "64500",
+                            "baseline_requests": 100,
+                        },
                     ],
                 }
             )
 
         self.assert_invalid_input_code(exc.exception, "no_usable_metric_values")
 
-    def test_attribution_rejects_labeled_multi_baseline_rows_even_without_duplicates(self) -> None:
+    def test_attribution_rejects_labeled_multi_baseline_rows_even_without_duplicates(
+        self,
+    ) -> None:
         with self.assertRaises(self.attribution.InvalidInputError) as exc:
             self.attribution.normalize_input_rows(
                 {
@@ -3091,7 +4829,9 @@ class BotInsightsScriptTests(unittest.TestCase):
             approximate_candidate["limitations"],
         )
 
-    def test_cache_origin_qs_semantics_aliases_control_exact_ratio_clamping(self) -> None:
+    def test_cache_origin_qs_semantics_aliases_control_exact_ratio_clamping(
+        self,
+    ) -> None:
         rows = [
             {
                 "request_path_norm": "/api/search",
@@ -3141,7 +4881,9 @@ class BotInsightsScriptTests(unittest.TestCase):
         self.assertIn("cache_miss_delta", missing_names)
         self.assertIn("origin_pressure_delta", missing_names)
         self.assertIn("contribution_denominator_absent", candidate["limitations"])
-        self.assertNotIn("contribution_withheld_source_limited", candidate["limitations"])
+        self.assertNotIn(
+            "contribution_withheld_source_limited", candidate["limitations"]
+        )
         self.assertNotIn(
             "contribution_withheld_source_limited",
             result["limitations"],
@@ -3211,7 +4953,9 @@ class BotInsightsScriptTests(unittest.TestCase):
         self.assertEqual(result["scope"], {})
         self.assertEqual(result["dimensions"][0], "request_host")
 
-    def test_cache_origin_accepts_row_level_host_context_without_host_dimension(self) -> None:
+    def test_cache_origin_accepts_row_level_host_context_without_host_dimension(
+        self,
+    ) -> None:
         payload = self.cache_origin_payload(
             scope={},
             dimensions=["request_path_norm", "asn_type"],
@@ -3384,7 +5128,9 @@ class BotInsightsScriptTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "metric_semantics"):
             self.cache_origin_impact.build_report(payload)
 
-    def test_cache_origin_requires_metric_semantics_for_contribution_denominator(self) -> None:
+    def test_cache_origin_requires_metric_semantics_for_contribution_denominator(
+        self,
+    ) -> None:
         payload = self.cache_origin_payload(
             metric_semantics=None,
             rows=[
@@ -3443,7 +5189,7 @@ class BotInsightsScriptTests(unittest.TestCase):
                     "cache_miss_contribution_pct": 25,
                 }
             ],
-            trusted_context={"direct_mcp_trusted_context": True}
+            trusted_context={"direct_mcp_trusted_context": True},
         )
 
         result = self.cache_origin_impact.build_report(payload)
@@ -3589,7 +5335,9 @@ class BotInsightsScriptTests(unittest.TestCase):
         self.assertEqual(result["schema_version"], "cache_origin_impact_report.v1")
         self.assertEqual(candidate["candidate_score"], 100)
         self.assertEqual(candidate["candidate_band"], "high")
-        self.assertEqual(sum(feature["points"] for feature in candidate["features"]), 105)
+        self.assertEqual(
+            sum(feature["points"] for feature in candidate["features"]), 105
+        )
         self.assertIn("high_query_string_diversity", feature_names)
         self.assertIn("query_string_diversity_increased", feature_names)
         self.assertIn("high_miss_rate", feature_names)
@@ -3608,7 +5356,9 @@ class BotInsightsScriptTests(unittest.TestCase):
             },
         )
 
-    def test_cache_origin_score_band_boundaries_and_high_miss_rate_threshold(self) -> None:
+    def test_cache_origin_score_band_boundaries_and_high_miss_rate_threshold(
+        self,
+    ) -> None:
         rows = [
             {
                 "request_path_norm": "/high",
@@ -3806,7 +5556,9 @@ class BotInsightsScriptTests(unittest.TestCase):
                 ][0]
                 self.assertEqual(set(candidate["finding_types"]), expected)
 
-    def test_cache_origin_ranks_volume_sufficient_before_sparse_high_score(self) -> None:
+    def test_cache_origin_ranks_volume_sufficient_before_sparse_high_score(
+        self,
+    ) -> None:
         result = self.cache_origin_impact.build_report(
             self.cache_origin_payload(
                 metric_semantics={"unique_query_strings": "exact_period_unique"},
@@ -3887,7 +5639,9 @@ class BotInsightsScriptTests(unittest.TestCase):
         self.assertIn("partial_current_bucket", candidate["limitations"])
         self.assertEqual(candidate["confidence"], "low")
 
-    def test_cache_origin_source_limited_contribution_absence_lowers_confidence(self) -> None:
+    def test_cache_origin_source_limited_contribution_absence_lowers_confidence(
+        self,
+    ) -> None:
         result = self.cache_origin_impact.build_report(
             self.cache_origin_payload(
                 metric_semantics={
@@ -3917,7 +5671,9 @@ class BotInsightsScriptTests(unittest.TestCase):
         )
         self.assertEqual(result["confidence"], "low")
 
-    def test_cache_origin_rowset_complete_contributions_are_computed_before_limit(self) -> None:
+    def test_cache_origin_rowset_complete_contributions_are_computed_before_limit(
+        self,
+    ) -> None:
         result = self.cache_origin_impact.build_report(
             self.cache_origin_payload(
                 rowset_complete=True,
@@ -3947,7 +5703,9 @@ class BotInsightsScriptTests(unittest.TestCase):
         self.assertEqual(candidate["deltas"]["cache_miss_contribution_pct"], 90)
         self.assertEqual(candidate["deltas"]["origin_pressure_contribution_pct"], 90)
         self.assertEqual(
-            candidate["share_denominators"]["current_total_cache_misses_for_contribution"],
+            candidate["share_denominators"][
+                "current_total_cache_misses_for_contribution"
+            ],
             1000,
         )
         self.assertEqual(
@@ -3959,7 +5717,9 @@ class BotInsightsScriptTests(unittest.TestCase):
             self.cache_origin_feature_names(candidate),
         )
 
-    def test_cache_origin_period_split_rows_preserve_current_contribution_fields(self) -> None:
+    def test_cache_origin_period_split_rows_preserve_current_contribution_fields(
+        self,
+    ) -> None:
         result = self.cache_origin_impact.build_report(
             self.cache_origin_payload(
                 baseline_windows=[
@@ -4108,8 +5868,12 @@ class BotInsightsScriptTests(unittest.TestCase):
             )
         )["candidates"][0]
 
-        self.assertEqual(with_bytes["candidate_score"], without_bytes["candidate_score"])
-        self.assertFalse(without_bytes["optional_metadata"]["response_bytes"]["available"])
+        self.assertEqual(
+            with_bytes["candidate_score"], without_bytes["candidate_score"]
+        )
+        self.assertFalse(
+            without_bytes["optional_metadata"]["response_bytes"]["available"]
+        )
         self.assertEqual(
             with_bytes["optional_metadata"]["response_bytes"],
             {"available": True, "current": 4096},
@@ -4119,10 +5883,10 @@ class BotInsightsScriptTests(unittest.TestCase):
             without_bytes["limitations"],
         )
 
-    def test_cache_origin_bot_summary_context_is_host_scope_metadata(self) -> None:
+    def test_cache_origin_summary_context_is_host_scope_metadata(self) -> None:
         result = self.cache_origin_impact.build_report(
             self.cache_origin_payload(
-                bot_summary_context={
+                summary_context={
                     "scope": {"request_host": "www.example.com"},
                     "metrics": {
                         "host_bot_traffic_share_pct": 42.1,
@@ -4132,7 +5896,7 @@ class BotInsightsScriptTests(unittest.TestCase):
             )
         )
         candidate = result["candidates"][0]
-        context = candidate["optional_metadata"]["bot_summary_context"]
+        context = candidate["optional_metadata"]["summary_context"]
 
         self.assertEqual(len(result["candidates"]), 1)
         self.assertTrue(context["available"])
@@ -4182,7 +5946,7 @@ class BotInsightsScriptTests(unittest.TestCase):
         self.assertEqual(candidate["deltas"]["origin_pressure_contribution_pct"], 18)
         self.assertIn(
             "host_scope_context_not_path_level_evidence",
-            candidate["optional_metadata"]["bot_summary_context"]["limitations"],
+            candidate["optional_metadata"]["summary_context"]["limitations"],
         )
         self.assertIn(
             "mechanical_candidate_only",
@@ -4255,7 +6019,9 @@ class BotInsightsScriptTests(unittest.TestCase):
         self.assertEqual(len(result["candidates"]), 1)
         self.assertEqual(candidate["entity"]["request_path_norm"], "/dominant")
         self.assertEqual(
-            candidate["share_denominators"]["current_total_cache_misses_for_contribution"],
+            candidate["share_denominators"][
+                "current_total_cache_misses_for_contribution"
+            ],
             1000,
         )
         self.assertEqual(candidate["deltas"]["cache_miss_contribution_pct"], 90)
@@ -4274,7 +6040,7 @@ class BotInsightsScriptTests(unittest.TestCase):
                 "entity_type": "client_asn",
                 "comparison_type": "week_over_week",
                 "granularity": "hour",
-                "table_used": "bot_summary_hour",
+                "table_used": "bi_summary_hour",
                 "rows": [
                     {
                         "client_asn": "64500",
@@ -4282,6 +6048,8 @@ class BotInsightsScriptTests(unittest.TestCase):
                         "baseline_requests": 500,
                         "current_bot_share_pct": 80,
                         "baseline_bot_share_pct": 40,
+                        "current_cache_miss_pct": 60,
+                        "baseline_cache_miss_pct": 40,
                     }
                 ],
             }
@@ -4291,8 +6059,11 @@ class BotInsightsScriptTests(unittest.TestCase):
         self.assertEqual(card["schema_version"], "bot_entity_scorecard.v1")
         self.assertEqual(card["entity_type"], "client_asn")
         self.assertEqual(card["entity"], "64500")
-        self.assertGreater(card["score"], 0)
+        self.assertLess(card["score"], 100)
         self.assertIn("movement", card["domain_scores"])
+        self.assertEqual(card["baseline_score"], 100)
+        self.assertEqual(card["score_delta_points"], card["score"] - 100)
+        self.assertIn("pre-baseline delta inputs", card["score_delta_basis"])
 
     def test_scorecard_rejects_direct_advanced_attribution_report(self) -> None:
         with self.assertRaises(self.scorecard.InvalidScorecardInputError) as exc:
@@ -4315,7 +6086,9 @@ class BotInsightsScriptTests(unittest.TestCase):
             "advanced_attribution_report_not_scorecard_input",
         )
 
-    def test_scorecard_rejects_self_attesting_scorecard_input_without_context(self) -> None:
+    def test_scorecard_rejects_self_attesting_scorecard_input_without_context(
+        self,
+    ) -> None:
         with self.assertRaises(self.scorecard.InvalidScorecardInputError) as exc:
             self.scorecard.build_artifacts(
                 {
@@ -4379,7 +6152,9 @@ class BotInsightsScriptTests(unittest.TestCase):
         self.assertIsNone(document["errors"][0]["details"]["scorecard_export_safe"])
         self.assertEqual(stderr.getvalue(), "")
 
-    def test_scorecard_rejects_scorecard_input_until_trusted_handoff_exists(self) -> None:
+    def test_scorecard_rejects_scorecard_input_until_trusted_handoff_exists(
+        self,
+    ) -> None:
         with self.assertRaises(self.scorecard.InvalidScorecardInputError) as exc:
             self.scorecard.build_artifacts(
                 {
@@ -4434,7 +6209,7 @@ class BotInsightsScriptTests(unittest.TestCase):
                 "entity_type": "request_host",
                 "comparison_type": "month_over_month",
                 "granularity": "day",
-                "table_used": "bot_summary_day",
+                "table_used": "bi_summary_day",
                 "columns": [
                     "request_host",
                     "current_requests",
@@ -4495,13 +6270,14 @@ class BotInsightsScriptTests(unittest.TestCase):
         card = result["scorecards"][0]
         feature_names = {feature["name"] for feature in card["features"]}
         self.assertIn("origin_cost_contribution_high", feature_names)
+        self.assertEqual(card["score"], 82)
         self.assertEqual(card["domain_scores"]["origin_impact"], 18)
 
     def test_scorecard_new_entity_zero_baseline_guard(self) -> None:
         result = self.scorecard.build_artifacts(
             {
                 "entity_type": "client_asn",
-                "table_used": "bot_summary_hour",
+                "table_used": "bi_summary_hour",
                 "rows": [
                     {
                         "client_asn": "64501",
@@ -4523,7 +6299,7 @@ class BotInsightsScriptTests(unittest.TestCase):
         result = self.scorecard.build_artifacts(
             {
                 "entity_type": "client_asn",
-                "table_used": "bot_summary_hour",
+                "table_used": "bi_summary_hour",
                 "rows": [
                     {
                         "client_asn": "64500",
@@ -4551,7 +6327,7 @@ class BotInsightsScriptTests(unittest.TestCase):
         result = self.scorecard.build_artifacts(
             {
                 "entity_type": "client_asn",
-                "table_used": "bot_summary_hour",
+                "table_used": "bi_summary_hour",
                 "rowset_complete": True,
                 "rows": [
                     {
@@ -4578,7 +6354,7 @@ class BotInsightsScriptTests(unittest.TestCase):
         result = self.scorecard.build_artifacts(
             {
                 "entity_type": "bot_class",
-                "table_used": "bot_summary_hour",
+                "table_used": "bi_summary_hour",
                 "rows": [
                     {
                         "bot_class": "bad",
@@ -4598,7 +6374,7 @@ class BotInsightsScriptTests(unittest.TestCase):
         result = self.scorecard.build_artifacts(
             {
                 "entity_type": "request_host",
-                "table_used": "bot_siem_summary_hour",
+                "table_used": "bi_siem_policy_summary_hour",
                 "rows": [
                     {
                         "request_host": "www.example.com",
@@ -4621,7 +6397,7 @@ class BotInsightsScriptTests(unittest.TestCase):
         result = self.scorecard.build_artifacts(
             {
                 "entity_type": "request_host",
-                "table_used": "bot_summary_day",
+                "table_used": "bi_summary_day",
                 "rows": [
                     {
                         "request_host": "www.example.com",
@@ -4639,7 +6415,7 @@ class BotInsightsScriptTests(unittest.TestCase):
         result = self.scorecard.build_artifacts(
             {
                 "entity_type": "request_host",
-                "table_used": "bot_summary_day",
+                "table_used": "bi_summary_day",
                 "rows": [
                     {
                         "request_host": "www.example.com",
@@ -4653,13 +6429,22 @@ class BotInsightsScriptTests(unittest.TestCase):
         card = result["scorecards"][0]
         missing = {feature["name"] for feature in card["not_evaluated_features"]}
         self.assertIn("querystring_diversity_high", missing)
+        rule_results = {rule["name"]: rule for rule in card["rule_results"]}
+        self.assertEqual(rule_results["querystring_diversity_high"]["points"], 0)
+        self.assertEqual(
+            rule_results["querystring_diversity_high"]["status"], "missing_input"
+        )
+        self.assertEqual(rule_results["volume_delta_high"]["status"], "evaluated_zero")
+        self.assertEqual(rule_results["volume_delta_high"]["points"], 0)
+        self.assertIn("movement", card["domain_scores"])
+        self.assertNotIn("security_evidence", card["domain_scores"])
         self.assertIn("feature_input_missing", card["confidence_reasons"])
 
     def test_scorecard_policy_collateral_features(self) -> None:
         result = self.scorecard.build_artifacts(
             {
                 "entity_type": "request_host",
-                "table_used": "bot_siem_summary_hour",
+                "table_used": "bi_siem_policy_summary_hour",
                 "rows": [
                     {
                         "request_host": "www.example.com",
@@ -4682,12 +6467,15 @@ class BotInsightsScriptTests(unittest.TestCase):
         self.assertIn("good_bot_policy_collateral_present", features)
         self.assertIn("policy_collateral_error_rate_high", features)
         self.assertIn("displacement_delta_high", features)
+        details = [step["detail"] for step in card["recommended_next_steps"]]
         self.assertIn(
             "Review collateral and displacement checks before declaring the policy change successful.",
-            card["recommended_next_steps"],
+            details,
         )
 
-    def test_scorecard_policy_collateral_uses_available_protected_population_fields(self) -> None:
+    def test_scorecard_policy_collateral_uses_available_protected_population_fields(
+        self,
+    ) -> None:
         result = self.scorecard.build_artifacts(
             {
                 "entity_type": "request_host",
@@ -4712,8 +6500,13 @@ class BotInsightsScriptTests(unittest.TestCase):
         missing_names = {feature["name"] for feature in card["not_evaluated_features"]}
         self.assertNotIn("good_bot_policy_collateral_present", missing_names)
         self.assertNotIn("policy_collateral_error_rate_high", missing_names)
-        self.assertNotIn("displacement_delta_high", missing_names)
-        self.assertNotIn("feature_input_missing", card["confidence_reasons"])
+        self.assertIn("displacement_delta_high", missing_names)
+        displacement_rule = {rule["name"]: rule for rule in card["rule_results"]}[
+            "displacement_delta_high"
+        ]
+        self.assertEqual(displacement_rule["status"], "missing_input")
+        self.assertEqual(displacement_rule["points"], 0)
+        self.assertIn("feature_input_missing", card["confidence_reasons"])
 
     def test_scorecard_index_ranks_entities_by_score(self) -> None:
         result = self.scorecard.build_artifacts(
@@ -4741,13 +6534,25 @@ class BotInsightsScriptTests(unittest.TestCase):
 
         ranked = result["index"]["ranked_entities"]
         self.assertEqual(ranked[0]["entity"], "/high")
-        self.assertGreater(ranked[0]["score"], ranked[1]["score"])
+        self.assertLess(ranked[0]["score"], ranked[1]["score"])
+
+    def test_scorecard_health_bands_follow_inverted_score(self) -> None:
+        self.assertEqual(self.scorecard.score_band(0), "urgent_review")
+        self.assertEqual(self.scorecard.score_band(20), "urgent_review")
+        self.assertEqual(self.scorecard.score_band(21), "high_review")
+        self.assertEqual(self.scorecard.score_band(40), "high_review")
+        self.assertEqual(self.scorecard.score_band(41), "medium_review")
+        self.assertEqual(self.scorecard.score_band(60), "medium_review")
+        self.assertEqual(self.scorecard.score_band(61), "low_review")
+        self.assertEqual(self.scorecard.score_band(80), "low_review")
+        self.assertEqual(self.scorecard.score_band(81), "observe")
+        self.assertEqual(self.scorecard.score_band(100), "observe")
 
     def test_scorecard_limit_metadata_when_truncated(self) -> None:
         result = self.scorecard.build_artifacts(
             {
                 "entity_type": "request_host",
-                "table_used": "bot_summary_hour",
+                "table_used": "bi_summary_hour",
                 "rows": [
                     {
                         "request_host": "a.example.com",
@@ -4780,7 +6585,7 @@ class BotInsightsScriptTests(unittest.TestCase):
         result = self.scorecard.build_artifacts(
             {
                 "entity_type": "ai_category",
-                "table_used": "bot_summary_day",
+                "table_used": "bi_summary_day",
                 "rows": [
                     {
                         "ai_category": "crawler",
@@ -4839,6 +6644,18 @@ class BotInsightsScriptTests(unittest.TestCase):
             }
             & missing_names
         )
+        crawler_results = {
+            rule["name"]: rule
+            for rule in card["rule_results"]
+            if rule["domain"] == "crawler_governance"
+        }
+        self.assertEqual(crawler_results["good_bot_429_present"]["points"], 0)
+        self.assertEqual(
+            crawler_results["good_bot_429_present"]["status"], "evaluated_zero"
+        )
+        self.assertEqual(
+            crawler_results["rate_429_delta_high"]["status"], "evaluated_zero"
+        )
         self.assertIn("summary_table_used", card["confidence_reasons"])
 
     def test_scorecard_soc_lens_uses_security_domain_only(self) -> None:
@@ -4846,7 +6663,7 @@ class BotInsightsScriptTests(unittest.TestCase):
             {
                 "entity_type": "request_host",
                 "analysis_domains": ["security_evidence"],
-                "table_used": "akamai.bi_siem_summary_hour",
+                "table_used": "akamai.bi_siem_policy_summary_hour",
                 "rows": [
                     {
                         "request_host": "akamai.appsec.work",
@@ -4885,7 +6702,7 @@ class BotInsightsScriptTests(unittest.TestCase):
             {
                 "entity_type": "client_asn",
                 "comparison_type": "week_over_week",
-                "table_used": "bot_summary_hour",
+                "table_used": "bi_summary_hour",
                 "current_window": {"start": "2026-04-01", "end": "2026-04-08"},
                 "baseline_windows": [
                     {
@@ -4917,7 +6734,10 @@ class BotInsightsScriptTests(unittest.TestCase):
                 "comparison_type": float("nan"),
                 "granularity": float("inf"),
                 "table_used": float("-inf"),
-                "scope": {"request_host": "www.example.com", "sample_rate": float("nan")},
+                "scope": {
+                    "request_host": "www.example.com",
+                    "sample_rate": float("nan"),
+                },
                 "current_window": {"start": "2026-04-01", "weight": float("inf")},
                 "baseline_windows": [
                     {
@@ -4959,7 +6779,7 @@ class BotInsightsScriptTests(unittest.TestCase):
         self.assertIsNone(card["comparison_type"])
         self.assertIsNone(card["granularity"])
         self.assertIsNone(card["table_used"])
-        self.assertIn("raw_table_fallback", card["confidence_reasons"])
+        self.assertIn("request_level_query", card["confidence_reasons"])
         self.assertNotIn("summary_table_used", card["confidence_reasons"])
         self.assertNotIn("retained_dimensions_fit", card["confidence_reasons"])
         self.assertIsNone(card["scope"]["sample_rate"])
@@ -4979,7 +6799,7 @@ class BotInsightsScriptTests(unittest.TestCase):
             self.scorecard.build_artifacts(
                 {
                     "entity_type": "client_asn",
-                    "table_used": "bot_summary_hour",
+                    "table_used": "bi_summary_hour",
                     "rows": [
                         {"period": "current", "client_asn": "64500", "requests": 1000},
                         {"period": "baseline", "client_asn": "64500", "requests": 500},
@@ -4996,12 +6816,12 @@ class BotInsightsScriptTests(unittest.TestCase):
         result = self.scorecard.build_artifacts(
             {
                 "entity_type": "bot_class",
-                "table_used": "bot_summary_day",
+                "table_used": "bi_summary_day",
                 "rowset_scope": {
                     "population": "good_bot",
                     "filters": {"bot_class": "good_bot"},
                     "entity_type": "bot_class",
-                    "table_used": "bot_summary_day",
+                    "table_used": "bi_summary_day",
                 },
                 "feature_provenance": {
                     "rate_429_delta_high": {
@@ -5035,7 +6855,7 @@ class BotInsightsScriptTests(unittest.TestCase):
         result = self.scorecard.build_artifacts(
             {
                 "entity_type": "client_asn",
-                "table_used": "bot_summary_hour",
+                "table_used": "bi_summary_hour",
                 "rowset_scope": {"population": "all_traffic"},
                 "feature_provenance": {
                     "rate_429_delta_high": {
@@ -5072,7 +6892,7 @@ class BotInsightsScriptTests(unittest.TestCase):
         result = self.scorecard.build_artifacts(
             {
                 "entity_type": "client_asn",
-                "table_used": "bot_summary_hour",
+                "table_used": "bi_summary_hour",
                 "rows": [
                     {
                         "period": "current",
@@ -5120,13 +6940,11 @@ class BotInsightsScriptTests(unittest.TestCase):
     def test_scorecard_period_split_rows_reject_conflicting_rowset_scope(
         self,
     ) -> None:
-        with self.assertRaisesRegex(
-            ValueError, "must not disagree on rowset_scope"
-        ):
+        with self.assertRaisesRegex(ValueError, "must not disagree on rowset_scope"):
             self.scorecard.build_artifacts(
                 {
                     "entity_type": "client_asn",
-                    "table_used": "bot_summary_hour",
+                    "table_used": "bi_summary_hour",
                     "rows": [
                         {
                             "period": "current",
@@ -5153,7 +6971,7 @@ class BotInsightsScriptTests(unittest.TestCase):
             self.scorecard.build_artifacts(
                 {
                     "entity_type": "client_asn",
-                    "table_used": "bot_summary_hour",
+                    "table_used": "bi_summary_hour",
                     "rows": [
                         {
                             "period": "current",
@@ -5186,7 +7004,7 @@ class BotInsightsScriptTests(unittest.TestCase):
             self.scorecard.build_artifacts(
                 {
                     "entity_type": "client_asn",
-                    "table_used": "bot_summary_hour",
+                    "table_used": "bi_summary_hour",
                     "rowset_scope": {"population": "mystery"},
                     "rows": [
                         {
@@ -5205,7 +7023,7 @@ class BotInsightsScriptTests(unittest.TestCase):
             self.scorecard.build_artifacts(
                 {
                     "entity_type": "client_asn",
-                    "table_used": "bot_summary_hour",
+                    "table_used": "bi_summary_hour",
                     "feature_provenance": ["rate_429_delta_high"],
                     "rows": [
                         {
@@ -5224,7 +7042,7 @@ class BotInsightsScriptTests(unittest.TestCase):
             self.scorecard.build_artifacts(
                 {
                     "entity_type": "client_asn",
-                    "table_used": "bot_summary_hour",
+                    "table_used": "bi_summary_hour",
                     "feature_provenance": {
                         "rate_429_delta_high": {"metric_inputs": ["ok", 42]}
                     },
@@ -5245,7 +7063,7 @@ class BotInsightsScriptTests(unittest.TestCase):
             self.scorecard.build_artifacts(
                 {
                     "entity_type": "client_asn",
-                    "table_used": "bot_summary_hour",
+                    "table_used": "bi_summary_hour",
                     "rows": [
                         {
                             "client_asn": "64500",
@@ -5261,7 +7079,7 @@ class BotInsightsScriptTests(unittest.TestCase):
         result = self.scorecard.build_artifacts(
             {
                 "entity_type": "request_host",
-                "table_used": "bot_summary_hour",
+                "table_used": "bi_summary_hour",
                 "rows": [
                     {
                         "request_host": "a.example.com",
@@ -5293,7 +7111,7 @@ class BotInsightsScriptTests(unittest.TestCase):
         result = self.scorecard.build_artifacts(
             {
                 "entity_type": "request_host",
-                "table_used": "bot_summary_hour",
+                "table_used": "bi_summary_hour",
                 "rows": [
                     {
                         "request_host": "a.example.com",
@@ -5326,7 +7144,7 @@ class BotInsightsScriptTests(unittest.TestCase):
         result = self.scorecard.build_artifacts(
             {
                 "entity_type": "request_host",
-                "table_used": "bot_summary_hour",
+                "table_used": "bi_summary_hour",
                 "rows": [
                     {
                         "request_host": "a.example.com",
@@ -5453,8 +7271,8 @@ class BotInsightsScriptTests(unittest.TestCase):
         ):
             self.render_report.render(wrapper, self.render_args())
 
-    def test_render_report_timeseries_rejected_even_with_allow_unknown(self) -> None:
-        with self.assertRaisesRegex(self.render_report.ReportError, "unsupported"):
+    def test_render_report_timeseries_alone_does_not_satisfy_report(self) -> None:
+        with self.assertRaisesRegex(self.render_report.ReportError, "requires"):
             self.render_report.render(
                 {"schema_version": "bot_timeseries.v1", "series": []},
                 self.render_args(report_type="executive_posture", allow_unknown=True),
@@ -5514,7 +7332,7 @@ class BotInsightsScriptTests(unittest.TestCase):
             "schema_version": "bot_scorecard_index.v1",
             "scope": {"request_host": "a.example.com"},
             "comparison_type": "previous_window",
-            "table_used": "bot_summary_hour",
+            "table_used": "bi_summary_hour",
             "current_window": {"start": "2026-04-01", "end": "2026-04-08"},
             "baseline_windows": [{"start": "2026-03-25", "end": "2026-04-01"}],
             "ranked_entities": [
@@ -5527,7 +7345,7 @@ class BotInsightsScriptTests(unittest.TestCase):
             "entity": "64500",
             "scope": {"request_host": "b.example.com"},
             "comparison_type": "previous_window",
-            "table_used": "bot_summary_hour",
+            "table_used": "bi_summary_hour",
             "current_window": {"start": "2026-04-01", "end": "2026-04-08"},
             "baseline_windows": [{"start": "2026-03-25", "end": "2026-04-01"}],
             "score": 80,
@@ -5762,6 +7580,224 @@ class BotInsightsScriptTests(unittest.TestCase):
         self.assertEqual(self.render_report.default_limit("edge_ops_impact"), 10)
         self.assertEqual(self.render_report.default_limit("scorecard_brief"), 20)
 
+    def test_render_report_scorecard_brief_html_includes_notes_timeline_visuals_and_compact_numbers(
+        self,
+    ) -> None:
+        shared = {
+            "scope": {
+                "cluster": "demo",
+                "database": "akamai",
+                "entity_type": "request_host",
+            },
+            "current_window": {
+                "start": "2026-05-02T00:00:00Z",
+                "end": "2026-05-03T00:00:00Z",
+            },
+            "baseline_windows": [
+                {"start": "2026-05-01T00:00:00Z", "end": "2026-05-02T00:00:00Z"}
+            ],
+            "comparison_type": "previous_window",
+            "table_used": "akamai.bi_summary_hour",
+        }
+        wrapper = {
+            "schema_version": "bot_report_input.v1",
+            "report_type": "scorecard_brief",
+            "title": "Scorecard Brief",
+            "artifacts": [
+                {
+                    "schema_version": "bot_entity_scorecard.v1",
+                    "artifact_id": "scorecard-1",
+                    **shared,
+                    "entity_type": "request_host",
+                    "entity": "www.example.com",
+                    "score": 90,
+                    "baseline_score": 82,
+                    "score_delta_points": 8,
+                    "score_delta_basis": "Baseline score is recomputed from baseline-period point-in-time rule inputs; rules requiring pre-baseline delta inputs are excluded.",
+                    "band": "high_review",
+                    "primary_domain": "cache_busting",
+                    "confidence": "medium",
+                    "domain_scores": {"cache_busting": 58, "movement": 12},
+                    "features": [
+                        {
+                            "domain": "cache_busting",
+                            "name": "cache_miss_rate_high",
+                            "points": 16,
+                            "evidence": "Cache miss rate is 80%.",
+                            "current": 80,
+                            "baseline": 40,
+                            "threshold": 50,
+                            "supporting_metrics": {"absolute_delta_points": 40},
+                        }
+                    ],
+                    "rule_results": [
+                        {
+                            "domain": "cache_busting",
+                            "name": "cache_miss_rate_high",
+                            "points": 16,
+                            "status": "triggered",
+                            "current": 80,
+                            "baseline": 40,
+                            "threshold": 50,
+                            "supporting_metrics": {"absolute_delta_points": 40},
+                        },
+                        {
+                            "domain": "cache_busting",
+                            "name": "cache_miss_delta_high",
+                            "points": 0,
+                            "status": "evaluated_zero",
+                            "current": 80,
+                            "baseline": 78,
+                            "threshold": 15,
+                            "supporting_metrics": {"absolute_delta_points": 2},
+                        },
+                        {
+                            "domain": "security_evidence",
+                            "name": "siem_blocked_present",
+                            "points": 0,
+                            "status": "missing_input",
+                            "missing_inputs": ["siem_blocked_requests"],
+                            "reason": "feature_input_missing",
+                        },
+                    ],
+                    "not_evaluated_features": [
+                        {
+                            "domain": "security_evidence",
+                            "name": "siem_blocked_present",
+                            "missing_inputs": ["siem_blocked_requests"],
+                            "reason": "feature_input_missing",
+                        }
+                    ],
+                    "recommended_next_steps": ["Inspect query-string diversity."],
+                },
+            ],
+            "analyst_notes": [
+                {
+                    "author_type": "llm",
+                    "title": "Scorecard Interpretation",
+                    "text": "Review the selected host for cache-busting evidence.",
+                    "show_data_sources": False,
+                }
+            ],
+        }
+
+        output, warnings = self.render_report.render(
+            wrapper, self.render_args(format="html")
+        )
+
+        self.assertIn("<h2>Analyst Notes</h2>", output)
+        self.assertIn('aria-label="Overall Score"', output)
+        self.assertIn(
+            '<text class="overall-gauge-metric" x="100" y="96" text-anchor="middle">90</text>',
+            output,
+        )
+        self.assertIn('class="score-delta-up">+8 pts vs baseline</div>', output)
+        self.assertLess(
+            output.index('aria-label="Overall Score"'),
+            output.index("<h2>Analyst Notes</h2>"),
+        )
+        self.assertLess(
+            output.index('aria-label="Overall Score"'),
+            output.index("<h2>Selected Entity Context</h2>"),
+        )
+        self.assertLess(
+            output.index("<h2>Selected Entity Context</h2>"),
+            output.index("<h2>Analyst Notes</h2>"),
+        )
+        self.assertLess(
+            output.index('aria-label="Overall Score"'),
+            output.index("Rule Score Matrix"),
+        )
+        self.assertLess(
+            output.index("<h2>Analyst Notes</h2>"),
+            output.index("Evidence Window Timeline"),
+        )
+        self.assertLess(
+            output.index("Evidence Window Timeline"),
+            output.index('aria-label="Charts"'),
+        )
+        self.assertNotIn("Scorecard Summary Cards", output)
+        self.assertIn("<h2>Selected Entity Context</h2>", output)
+        self.assertIn('aria-label="Selected Entity Context"', output)
+        self.assertIn('class="entity-identity"', output)
+        self.assertIn('<div class="entity-dimension">Request Host</div>', output)
+        self.assertIn('<div class="entity-name">www.example.com</div>', output)
+        self.assertIn("This brief explains the selected entity", output)
+        self.assertIn('class="entity-metadata-row"', output)
+        self.assertIn('<span class="entity-metadata-label">Rank</span>', output)
+        self.assertIn("Unavailable", output)
+        self.assertIn("Current Score", output)
+        self.assertIn("Baseline Score", output)
+        self.assertIn("Cache Busting", output)
+        self.assertIn("Confidence", output)
+        context_panel = output.split("<h2>Analyst Notes</h2>", 1)[0].split(
+            "<h2>Selected Entity Context</h2>", 1
+        )[1]
+        self.assertIn("Unavailable", context_panel)
+        self.assertNotIn(">Band</span>", context_panel)
+        self.assertNotIn("entity-chip-row", output)
+        self.assertNotIn("entity-chip-label", output)
+        self.assertNotIn("entity-chip-value", output)
+        self.assertNotIn('class="entity-chip"', output)
+        self.assertIn("Security Evidence", output)
+        self.assertIn("<th>Condition</th>", output)
+        self.assertIn("<td>Cache Miss Rate</td><td>High</td>", output)
+        self.assertIn("<td>SIEM Blocked Requests</td><td>Present</td>", output)
+        self.assertIn("Feature Input Missing", output)
+        self.assertNotIn("<td>cache_busting</td>", output)
+        self.assertNotIn("<td>cache_miss_rate_high</td>", output)
+        self.assertNotIn("<td>feature_input_missing</td>", output)
+        self.assertNotIn('aria-label="Domain Scores"', output)
+        self.assertIn("Domain Scores", output)
+        self.assertIn("Rule Score Matrix", output)
+        self.assertIn(
+            'Cache Miss Rate</div><div class="rule-condition">High Increase</div>',
+            output,
+        )
+        self.assertIn("80.00%", output)
+        self.assertIn("^ 40.00%", output)
+        self.assertIn("^ 2.00%", output)
+        self.assertIn("Missing inputs", output)
+        self.assertIn("0 pts", output)
+        self.assertNotIn("prior 40.00%", output)
+        self.assertNotIn("threshold 50.00%", output)
+        visual = output.split("<h2>Domain Scores</h2>", 1)[0]
+        self.assertNotIn("siem blocked present", visual)
+        self.assertNotIn("N/A", visual)
+        self.assertNotIn("Missing inputs", visual)
+        self.assertNotIn("Cache miss rate is 80%.", visual)
+        self.assertIn("Cache Miss Rate", visual)
+        self.assertIn(
+            'Cache Miss Rate</div><div class="rule-condition">High</div>', visual
+        )
+        self.assertIn(
+            'Cache Miss Rate</div><div class="rule-condition">High Increase</div>',
+            visual,
+        )
+        self.assertIn("-16 pts", visual)
+        self.assertIn("0 pts", visual)
+        self.assertIn('<svg class="rule-gauge"', visual)
+        self.assertIn(
+            '<text class="gauge-metric" x="60" y="57" text-anchor="middle">80.00%</text>',
+            visual,
+        )
+        self.assertIn(
+            '<text class="gauge-metric" x="60" y="57" text-anchor="middle">2.00%</text>',
+            visual,
+        )
+        self.assertNotIn('class="rule-metric"', visual)
+        self.assertNotIn('class="gauge-threshold"', visual)
+        self.assertIn(
+            'class="rule-status rule-status-triggered">triggered</div>', visual
+        )
+        self.assertIn("gauge-fill", visual)
+        self.assertIn("Current Score", output)
+        self.assertIn('<span class="entity-metadata-value">90</span>', output)
+        self.assertIn("20", output)
+        self.assertNotIn('{"start":', output)
+        self.assertNotIn('"end":', output)
+        self.assertEqual(warnings, [])
+
     def test_render_report_rejects_unsupported_top_level_shape(self) -> None:
         with self.assertRaisesRegex(self.render_report.ReportError, "Input must be"):
             self.render_report.render(
@@ -5991,7 +8027,7 @@ class BotInsightsScriptTests(unittest.TestCase):
             "metrics": [],
             "current_window": {"start": "2026-04-01", "end": "2026-04-08"},
             "baseline_windows": [{"start": "2026-03-25", "end": "2026-04-01"}],
-            "table_used": "bot_summary_day",
+            "table_used": "bi_summary_day",
             "comparison_type": "previous_window",
         }
         output, warnings = self.render_report.render(
@@ -6058,7 +8094,7 @@ class BotInsightsScriptTests(unittest.TestCase):
             "scope": {"request_host": "www.example.com"},
             "current_window": {"start": "2026-04-01", "end": "2026-04-08"},
             "baseline_windows": [{"start": "2026-03-25", "end": "2026-04-01"}],
-            "table_used": "bot_summary_hour",
+            "table_used": "bi_summary_hour",
             "comparison_type": "previous_window",
             "ranked_entities": [
                 {"rank": 1, "entity_type": "client_asn", "entity": "64500", "score": 80}
@@ -6072,7 +8108,7 @@ class BotInsightsScriptTests(unittest.TestCase):
             "scope": {"request_host": "www.example.com"},
             "current_window": {"start": "2026-04-01", "end": "2026-04-08"},
             "baseline_windows": [{"start": "2026-03-25", "end": "2026-04-01"}],
-            "table_used": "bot_summary_hour",
+            "table_used": "bi_summary_hour",
             "comparison_type": "previous_window",
             "score": 80,
             "band": "urgent_review",
@@ -6106,7 +8142,7 @@ class BotInsightsScriptTests(unittest.TestCase):
                 "scope": {"request_host": "a.example.com"},
                 "current_window": {"start": "2026-04-01", "end": "2026-04-08"},
                 "baseline_windows": [{"start": "2026-03-25", "end": "2026-04-01"}],
-                "table_used": "bot_summary_hour",
+                "table_used": "bi_summary_hour",
                 "ranked_entities": [
                     {
                         "rank": 1,
@@ -6126,7 +8162,7 @@ class BotInsightsScriptTests(unittest.TestCase):
                 "scope": {"request_host": "b.example.com"},
                 "current_window": {"start": "2026-04-01", "end": "2026-04-08"},
                 "baseline_windows": [{"start": "2026-03-25", "end": "2026-04-01"}],
-                "table_used": "bot_summary_hour",
+                "table_used": "bi_summary_hour",
                 "ranked_entities": [
                     {
                         "rank": 1,
@@ -6144,7 +8180,7 @@ class BotInsightsScriptTests(unittest.TestCase):
                     "scope": {"request_host": "b.example.com"},
                     "current_window": {"start": "2026-04-01", "end": "2026-04-08"},
                     "baseline_windows": [{"start": "2026-03-25", "end": "2026-04-01"}],
-                    "table_used": "bot_summary_hour",
+                    "table_used": "bi_summary_hour",
                     "score": 80,
                     "band": "urgent_review",
                     "domain_scores": {},
@@ -6174,7 +8210,7 @@ class BotInsightsScriptTests(unittest.TestCase):
             "scope": {"request_host": "a.example.com"},
             "current_window": {"start": "2026-04-01", "end": "2026-04-08"},
             "baseline_windows": [{"start": "2026-03-25", "end": "2026-04-01"}],
-            "table_used": "bot_summary_hour",
+            "table_used": "bi_summary_hour",
             "ranked_entities": [
                 {"rank": 1, "entity_type": "client_asn", "entity": "64500", "score": 80}
             ],
@@ -6190,7 +8226,7 @@ class BotInsightsScriptTests(unittest.TestCase):
                     "scope": {"request_host": "b.example.com"},
                     "current_window": {"start": "2026-04-01", "end": "2026-04-08"},
                     "baseline_windows": [{"start": "2026-03-25", "end": "2026-04-01"}],
-                    "table_used": "bot_summary_hour",
+                    "table_used": "bi_summary_hour",
                     "score": 80,
                     "band": "urgent_review",
                     "domain_scores": {},
@@ -6375,7 +8411,7 @@ class BotInsightsScriptTests(unittest.TestCase):
             "scope": {"request_host": "www.example.com"},
             "current_window": {"start": "2026-04-01", "end": "2026-04-08"},
             "baseline_windows": [{"start": "2026-03-25", "end": "2026-04-01"}],
-            "table_used": "bot_summary_hour",
+            "table_used": "bi_summary_hour",
             "comparison_type": "previous_window",
         }
         index = {
@@ -6514,7 +8550,7 @@ class BotInsightsScriptTests(unittest.TestCase):
             "scope": {"request_host": "www.example.com"},
             "current_window": {"start": "2026-04-01", "end": "2026-04-08"},
             "baseline_windows": [{"start": "2026-03-25", "end": "2026-04-01"}],
-            "table_used": "bot_summary_hour",
+            "table_used": "bi_summary_hour",
             "ranked_entities": [
                 {"rank": 1, "entity_type": "client_asn", "entity": "64500", "score": 80}
             ],
@@ -6525,7 +8561,7 @@ class BotInsightsScriptTests(unittest.TestCase):
             "scope": {"request_host": "other.example.com"},
             "current_window": {"start": "2026-04-01", "end": "2026-04-08"},
             "baseline_windows": [{"start": "2026-03-25", "end": "2026-04-01"}],
-            "table_used": "bot_summary_hour",
+            "table_used": "bi_summary_hour",
             "dimension": "client_asn",
             "metric": "requests",
             "movers": [],
@@ -6549,7 +8585,7 @@ class BotInsightsScriptTests(unittest.TestCase):
             "artifact_id": "control",
             "scope": {"request_host": "www.example.com"},
             "comparison_type": "post_change_vs_expected",
-            "table_used": "bot_siem_summary_day",
+            "table_used": "bi_siem_policy_summary_day",
             "target": {"policy_id": "policy-1"},
             "before_window": {"start": "2026-03-25", "end": "2026-04-01"},
             "after_window": {"start": "2026-04-01", "end": "2026-04-08"},
@@ -6560,7 +8596,7 @@ class BotInsightsScriptTests(unittest.TestCase):
             "artifact_id": "posture",
             "scope": {"request_host": "other.example.com"},
             "comparison_type": "previous_window",
-            "table_used": "bot_summary_day",
+            "table_used": "bi_summary_day",
             "current_window": {"start": "2026-04-01", "end": "2026-04-08"},
             "baseline_windows": [{"start": "2026-03-25", "end": "2026-04-01"}],
             "metrics": [],
@@ -6672,7 +8708,8 @@ class BotInsightsScriptTests(unittest.TestCase):
         output, _ = self.render_report.render(
             artifact, self.render_args(report_type="control_review")
         )
-        self.assertIn("Target: \\{\"policy\\_id\": \"policy\\`123\\`\"\\}", output)
+        self.assertIn('Target: \\{"policy\\_id": "policy\\`123\\`"\\}', output)
+        self.assertIn("SIEM blocked requests", output)
         self.assertIn("### Artifact id\\`with\\`tick", output)
         self.assertNotIn("Target: `", output)
         self.assertNotIn("### Artifact `", output)
@@ -6744,7 +8781,7 @@ class BotInsightsScriptTests(unittest.TestCase):
                     "entity_type": "request_host",
                     "entity": "www.example.com",
                     "scope": {"request_host": "www.example.com"},
-                    "table_used": "bot_summary_hour",
+                    "table_used": "bi_summary_hour",
                     "current_window": {"start": "2026-04-01", "end": "2026-04-08"},
                     "baseline_windows": [{"start": "2026-03-25", "end": "2026-04-01"}],
                     "confidence": "medium",
@@ -6769,7 +8806,7 @@ class BotInsightsScriptTests(unittest.TestCase):
         self.assertIn("## Evidence Limits", output)
         self.assertIn("### Artifact card\\-1", output)
         self.assertIn("- Schema: bot\\_entity\\_scorecard\\.v1", output)
-        self.assertIn("- Table: bot\\_summary\\_hour", output)
+        self.assertIn("- Table: bi\\_summary\\_hour", output)
         self.assertIn("- Confidence: medium", output)
         self.assertIn("- Confidence reasons: sparse\\_counts", output)
         self.assertIn("- Interpretation constraints: rule\\_based\\_scorecard", output)
@@ -7009,7 +9046,7 @@ class BotInsightsScriptTests(unittest.TestCase):
             ],
         }
         output, _ = self.render_report.render(wrapper, self.render_args())
-        self.assertIn("Movement-only posture", output)
+        self.assertIn("evidence of movement only", output)
         self.assertNotIn("caused by", output)
         self.assertNotIn("proves", output)
 
@@ -7020,7 +9057,7 @@ class BotInsightsScriptTests(unittest.TestCase):
             "scope": {"request_host": "www.example.com"},
             "current_window": {"start": "2026-04-01", "end": "2026-04-08"},
             "baseline_windows": [{"start": "2026-03-25", "end": "2026-04-01"}],
-            "table_used": "bot_summary_hour",
+            "table_used": "bi_summary_hour",
             "ranked_entities": [
                 {"rank": 1, "entity_type": "client_asn", "entity": "64500", "score": 80}
             ],
@@ -7033,7 +9070,7 @@ class BotInsightsScriptTests(unittest.TestCase):
             "scope": {"request_host": "www.example.com"},
             "current_window": {"start": "2026-04-01", "end": "2026-04-08"},
             "baseline_windows": [{"start": "2026-03-25", "end": "2026-04-01"}],
-            "table_used": "bot_summary_hour",
+            "table_used": "bi_summary_hour",
             "score": 80,
             "band": "urgent_review",
             "confidence": "medium",
@@ -7248,7 +9285,7 @@ class BotInsightsScriptTests(unittest.TestCase):
             "scope": {"request_host": "www.example.com"},
             "current_window": {"start": "2026-04-01", "end": "2026-04-08"},
             "baseline_windows": [{"start": "2026-03-25", "end": "2026-04-01"}],
-            "table_used": "bot_summary_hour",
+            "table_used": "bi_summary_hour",
             "ranked_entities": [
                 {
                     "rank": 1,
@@ -7266,7 +9303,7 @@ class BotInsightsScriptTests(unittest.TestCase):
             "scope": {"request_host": "www.example.com"},
             "current_window": {"start": "2026-04-01", "end": "2026-04-08"},
             "baseline_windows": [{"start": "2026-03-25", "end": "2026-04-01"}],
-            "table_used": "bot_summary_hour",
+            "table_used": "bi_summary_hour",
             "rowset_scope": {"population": "good_bot"},
             "score": 20,
             "band": "watch",
@@ -7498,7 +9535,7 @@ class BotInsightsScriptTests(unittest.TestCase):
             "scope": {"request_host": "www.example.com"},
             "current_window": {"start": "2026-04-01", "end": "2026-04-08"},
             "baseline_windows": [{"start": "2026-03-25", "end": "2026-04-01"}],
-            "table_used": "bot_summary_hour",
+            "table_used": "bi_summary_hour",
             "ranked_entities": [
                 {"rank": 1, "entity_type": "client_asn", "entity": "64500", "score": 80}
             ],
@@ -7511,7 +9548,7 @@ class BotInsightsScriptTests(unittest.TestCase):
             "scope": {"request_host": "www.example.com"},
             "current_window": {"start": "2026-04-01", "end": "2026-04-08"},
             "baseline_windows": [{"start": "2026-03-25", "end": "2026-04-01"}],
-            "table_used": "bot_summary_hour",
+            "table_used": "bi_summary_hour",
             "score": 80,
             "band": "urgent_review",
             "domain_scores": {"security_evidence": 80, "cache_busting": 0},
@@ -7608,6 +9645,306 @@ class BotInsightsScriptTests(unittest.TestCase):
             any("chart skipped" in warning.lower() for warning in warnings)
         )
 
+    def test_render_report_html_places_summary_before_charts(self) -> None:
+        wrapper = self._posture_wrapper(
+            [
+                {
+                    "name": "requests",
+                    "current": 1500,
+                    "baseline": 1000,
+                    "absolute_delta": 500,
+                    "pct_change": 50,
+                    "direction": "increase",
+                    "confidence": "high",
+                }
+            ]
+        )
+        output, _ = self.render_report.render(wrapper, self.render_args(format="html"))
+        self.assertLess(
+            output.index("Executive Summary"),
+            output.index('aria-label="Charts"'),
+        )
+
+    def test_render_report_executive_summary_uses_metric_evidence(self) -> None:
+        wrapper = self._posture_wrapper(
+            [
+                {
+                    "name": "requests",
+                    "current": 1500,
+                    "baseline": 1000,
+                    "absolute_delta": 500,
+                    "pct_change": 50,
+                    "direction": "increase",
+                    "confidence": "high",
+                },
+                {
+                    "name": "cache_misses",
+                    "current": 350,
+                    "baseline": 100,
+                    "absolute_delta": 250,
+                    "pct_change": 250,
+                    "direction": "increase",
+                    "confidence": "high",
+                },
+                {
+                    "name": "error_5xx_requests",
+                    "current": 30,
+                    "baseline": 10,
+                    "absolute_delta": 20,
+                    "pct_change": 200,
+                    "direction": "increase",
+                    "confidence": "medium",
+                },
+            ]
+        )
+        output, _ = self.render_report.render(wrapper, self.render_args())
+
+        self.assertIn("Total requests increased by \\+500", output)
+        self.assertIn("from 1\\.00K baseline to 1\\.50K current", output)
+        self.assertIn("Largest relative movements: Cache misses \\+250\\.0%", output)
+        self.assertIn("Operational signals to review: Cache misses \\+250", output)
+        self.assertIn("does not identify root cause or malicious intent", output)
+
+    def test_render_report_html_places_llm_notes_before_evidence(self) -> None:
+        wrapper = self._posture_wrapper(
+            [
+                {
+                    "name": "requests",
+                    "current": 1500,
+                    "baseline": 1000,
+                    "absolute_delta": 500,
+                    "pct_change": 50,
+                    "direction": "increase",
+                    "confidence": "high",
+                }
+            ]
+        )
+        wrapper["analyst_notes"] = [
+            {
+                "note_id": "llm-summary",
+                "author_type": "llm",
+                "title": "Executive Interpretation",
+                "text": "Request volume increased materially in the current window.",
+                "data_sources": [
+                    {
+                        "artifact_id": "posture-1",
+                        "json_pointer": "/metrics/0/pct_change",
+                        "label": "request pct change",
+                    }
+                ],
+            }
+        ]
+
+        output, _ = self.render_report.render(wrapper, self.render_args(format="html"))
+
+        self.assertLess(
+            output.index("Executive Interpretation"),
+            output.index("Executive Summary"),
+        )
+        self.assertLess(
+            output.index("Executive Interpretation"),
+            output.index('aria-label="Charts"'),
+        )
+        self.assertIn("request pct change: +50.0%", output)
+        self.assertNotIn("/metrics/0/pct_change", output)
+
+    def test_render_report_markdown_places_llm_notes_before_evidence(self) -> None:
+        wrapper = self._posture_wrapper(
+            [
+                {
+                    "name": "requests",
+                    "current": 1500,
+                    "baseline": 1000,
+                    "absolute_delta": 500,
+                    "pct_change": 50,
+                    "direction": "increase",
+                    "confidence": "high",
+                }
+            ]
+        )
+        wrapper["analyst_notes"] = [
+            {
+                "note_id": "llm-summary",
+                "author_type": "llm",
+                "title": "Executive Interpretation",
+                "text": "Request volume increased materially in the current window.",
+                "show_data_sources": False,
+                "data_sources": [],
+            }
+        ]
+
+        output, _ = self.render_report.render(wrapper, self.render_args())
+
+        self.assertLess(
+            output.index("Executive Interpretation"),
+            output.index("Executive Summary"),
+        )
+
+    def test_render_report_notes_do_not_drive_metric_or_chart_values(self) -> None:
+        wrapper = self._posture_wrapper(
+            [
+                {
+                    "name": "requests",
+                    "current": 1500,
+                    "baseline": 1000,
+                    "absolute_delta": 500,
+                    "pct_change": 50,
+                    "direction": "increase",
+                    "confidence": "high",
+                }
+            ]
+        )
+        wrapper["analyst_notes"] = [
+            {
+                "note_id": "llm-summary",
+                "author_type": "llm",
+                "title": "Executive Interpretation",
+                "text": "Requests are 999999 current and 1 baseline.",
+                "show_data_sources": False,
+                "data_sources": [],
+            }
+        ]
+
+        output, _ = self.render_report.render(wrapper, self.render_args())
+        evidence_output = output[output.index("## Executive Summary") :]
+
+        self.assertIn("from 1\\.00K baseline to 1\\.50K current", evidence_output)
+        self.assertIn("Requests are 999999 current", output)
+        self.assertNotIn("999999", evidence_output)
+
+    def test_render_report_html_omits_visible_report_metadata(self) -> None:
+        wrapper = self._posture_wrapper(
+            [
+                {
+                    "name": "requests",
+                    "current": 1500,
+                    "baseline": 1000,
+                }
+            ]
+        )
+
+        output, _ = self.render_report.render(wrapper, self.render_args(format="html"))
+
+        self.assertNotIn("Report type:", output)
+        self.assertNotIn("Scope:", output)
+
+    def test_render_report_html_renders_timeseries_trend_cards_before_summary(
+        self,
+    ) -> None:
+        wrapper = self._posture_wrapper(
+            [
+                {
+                    "name": "requests",
+                    "current": 1500,
+                    "baseline": 1000,
+                    "absolute_delta": 500,
+                    "pct_change": 50,
+                    "direction": "increase",
+                    "confidence": "high",
+                }
+            ]
+        )
+        wrapper["artifacts"].append(
+            {
+                "schema_version": "bot_timeseries.v1",
+                "artifact_id": "trend-1",
+                "current_window": {
+                    "start": "2026-04-01T00:00:00Z",
+                    "end": "2026-04-08T00:00:00Z",
+                },
+                "baseline_windows": [
+                    {"start": "2026-03-25T00:00:00Z", "end": "2026-04-01T00:00:00Z"}
+                ],
+                "metrics": [
+                    {
+                        "name": "requests",
+                        "label": "Request volume",
+                        "current": 1500,
+                        "baseline": 1000,
+                        "pct_change": 50,
+                        "points": [
+                            {
+                                "timestamp": "2026-04-01T00:00:00Z",
+                                "current": 500,
+                                "baseline": 300,
+                            },
+                            {
+                                "timestamp": "2026-04-01T01:00:00Z",
+                                "current": 1000,
+                                "baseline": 700,
+                            },
+                        ],
+                    }
+                ],
+            }
+        )
+
+        output, _ = self.render_report.render(wrapper, self.render_args(format="html"))
+
+        self.assertIn("Posture Trend Cards", output)
+        self.assertIn("Request volume", output)
+        self.assertIn("Current 1.50K vs prior 1.00K", output)
+        self.assertIn("Hourly trend evidence", output)
+        self.assertIn("Trend cards: 1 hourly metric series", output)
+        self.assertNotIn("Data source:", output)
+        self.assertNotIn("current_window:", output)
+        self.assertNotIn(
+            "current window 2026-04-01 00:00 UTC to 2026-04-08 00:00 UTC", output
+        )
+        self.assertIn("Evidence Window Timeline", output)
+        self.assertIn('aria-label="Evidence window timeline"', output)
+        self.assertIn("Report comparison window", output)
+        self.assertEqual(output.count(">Baseline</text>"), 1)
+        self.assertEqual(output.count(">Current</text>"), 1)
+        self.assertNotIn("Baseline: 2026-04-01", output)
+        self.assertNotIn("Schema: bot_timeseries.v1", output)
+        self.assertNotIn("Confidence: unavailable", output)
+        self.assertLess(
+            output.index('aria-label="Evidence window timeline"'),
+            output.index('aria-label="Posture trend cards"'),
+        )
+        self.assertLess(
+            output.index('aria-label="Posture trend cards"'),
+            output.index("Executive Summary"),
+        )
+
+    def test_render_report_can_hide_visible_llm_note_citations(self) -> None:
+        wrapper = self._posture_wrapper(
+            [
+                {
+                    "name": "requests",
+                    "current": 1500,
+                    "baseline": 1000,
+                    "absolute_delta": 500,
+                    "pct_change": 50,
+                    "direction": "increase",
+                    "confidence": "high",
+                }
+            ]
+        )
+        wrapper["analyst_notes"] = [
+            {
+                "note_id": "llm-summary",
+                "author_type": "llm",
+                "title": "Executive Interpretation",
+                "text": "Request volume increased materially.",
+                "show_data_sources": False,
+                "data_sources": [
+                    {
+                        "artifact_id": "posture-1",
+                        "json_pointer": "/metrics/0/pct_change",
+                        "label": "request pct change",
+                    }
+                ],
+            }
+        ]
+
+        output, _ = self.render_report.render(wrapper, self.render_args(format="html"))
+
+        self.assertIn("Executive Interpretation", output)
+        self.assertNotIn("Supporting evidence", output)
+        self.assertNotIn("request pct change", output)
+
     def test_render_report_html_soc_charts_present(self) -> None:
         artifacts = self.scorecard.build_artifacts(
             {
@@ -7639,7 +9976,8 @@ class BotInsightsScriptTests(unittest.TestCase):
         self.assertIn("Scorecard Ranking Bars", output)
         self.assertIn("Domain Score Matrix", output)
         self.assertIn("Rank 1:", output)
-        self.assertIn("<th>security_evidence</th>", output)
+        self.assertIn("<th>cache_busting</th>", output)
+        self.assertNotIn("<th>security_evidence</th>", output)
         self.assertNotIn("<th>security\\_evidence</th>", output)
         self.assertFalse(
             any("chart skipped" in warning.lower() for warning in warnings),
@@ -7696,6 +10034,7 @@ class BotInsightsScriptTests(unittest.TestCase):
             self.render_args(report_type="control_review", format="html"),
         )
         self.assertIn("Control Before/After/Expected Bars", output)
+        self.assertIn("SIEM blocked requests", output)
         self.assertIn("status increased", output)
         self.assertIn("confidence high", output)
         self.assertIn("<svg", output)
@@ -7709,14 +10048,275 @@ class BotInsightsScriptTests(unittest.TestCase):
             "score": 80,
             "band": "urgent_review",
             "domain_scores": {"security_evidence": 80, "cache_busting": 20},
-            "features": [],
+            "features": [
+                {
+                    "domain": "cache_busting",
+                    "name": "cache_miss_rate_high",
+                    "points": 10,
+                    "current": 75,
+                    "baseline": 60,
+                    "threshold": 50,
+                    "supporting_metrics": {"absolute_delta_points": 15},
+                    "evidence": "Cache miss rate is 75%.",
+                }
+            ],
         }
         output, _ = self.render_report.render(
             scorecard,
             self.render_args(report_type="scorecard_brief", format="html"),
         )
-        self.assertIn("Domain Scores", output)
-        self.assertIn("<svg", output)
+        self.assertIn("Rule Score Matrix", output)
+        self.assertNotIn('aria-label="Domain Scores"', output)
+        self.assertIn("75.00%", output)
+        self.assertIn("^ 15.00%", output)
+        self.assertNotIn("threshold 50.00%", output)
+        visual = output.split("<h2>Domain Scores</h2>", 1)[0]
+        self.assertNotIn("Cache miss rate is 75%.", visual)
+        self.assertIn(
+            'Cache Miss Rate</div><div class="rule-condition">High</div>', visual
+        )
+        self.assertIn("-10 pts", visual)
+        self.assertIn('<svg class="rule-gauge"', visual)
+        self.assertIn(
+            '<text class="gauge-metric" x="60" y="57" text-anchor="middle">75.00%</text>',
+            visual,
+        )
+        self.assertNotIn('class="rule-metric"', visual)
+        self.assertNotIn('class="gauge-threshold"', visual)
+        self.assertIn(
+            'class="rule-status rule-status-triggered">triggered</div>', visual
+        )
+        self.assertIn("gauge-fill", visual)
+
+    def test_render_report_html_scorecard_brief_fleet_first_layout(self) -> None:
+        alpha = {
+            "schema_version": "bot_entity_scorecard.v1",
+            "artifact_id": "alpha",
+            "entity_type": "request_host",
+            "entity": "alpha.example",
+            "scope": {
+                "cluster": "demo",
+                "database": "akamai",
+                "entity_type": "request_host",
+            },
+            "comparison_type": "previous_window",
+            "table_used": "akamai.bi_summary_hour",
+            "current_window": {
+                "start": "2026-05-02T00:00:00Z",
+                "end": "2026-05-03T00:00:00Z",
+            },
+            "baseline_windows": [
+                {"start": "2026-05-01T00:00:00Z", "end": "2026-05-02T00:00:00Z"}
+            ],
+            "score": 64,
+            "baseline_score": 68,
+            "score_delta_points": -4,
+            "band": "high_review",
+            "primary_domain": "cache_busting",
+            "confidence": "medium",
+            "confidence_reasons": ["summary_table_used", "feature_input_missing"],
+            "domain_scores": {"cache_busting": 30},
+            "rule_results": [
+                {
+                    "domain": "cache_busting",
+                    "name": "cache_miss_rate_high",
+                    "status": "triggered",
+                    "points": 10,
+                    "evidence": "Cache miss rate is elevated.",
+                },
+                {
+                    "domain": "cache_busting",
+                    "name": "querystring_diversity_high",
+                    "status": "evaluated_zero",
+                    "points": 0,
+                },
+                {
+                    "domain": "origin_impact",
+                    "name": "origin_p95_delta_high",
+                    "status": "missing_input",
+                    "missing_inputs": ["current_origin_p95_ms"],
+                },
+            ],
+            "evidence_summary": ["Cache miss rate is elevated."],
+            "recommended_next_steps": ["Review cache-key behavior."],
+            "interpretation_constraints": ["rule_based_scorecard", "no_causal_claim"],
+        }
+        beta = copy.deepcopy(alpha)
+        beta.update(
+            {
+                "artifact_id": "beta",
+                "entity": "beta.example",
+                "score": 72,
+                "baseline_score": 72,
+                "score_delta_points": 0,
+                "band": "observe",
+                "primary_domain": "movement",
+                "confidence": "low",
+                "confidence_reasons": ["summary_table_used", "sparse_counts"],
+                "rule_results": [
+                    {
+                        "domain": "cache_busting",
+                        "name": "cache_miss_rate_high",
+                        "status": "triggered",
+                        "points": 8,
+                        "evidence": "Cache miss rate crossed threshold.",
+                    },
+                    {
+                        "domain": "movement",
+                        "name": "volume_delta_high",
+                        "status": "evaluated_zero",
+                        "points": 0,
+                    },
+                ],
+                "evidence_summary": ["Cache miss rate crossed threshold."],
+                "recommended_next_steps": [
+                    "Review cache-key behavior.",
+                    "Confirm comparable current and baseline windows.",
+                ],
+            }
+        )
+        index = {
+            "schema_version": "bot_scorecard_index.v1",
+            "artifact_id": "idx",
+            "scope": {
+                "cluster": "demo",
+                "database": "akamai",
+                "entity_type": "request_host",
+            },
+            "comparison_type": "previous_window",
+            "table_used": "akamai.bi_summary_hour",
+            "current_window": alpha["current_window"],
+            "baseline_windows": alpha["baseline_windows"],
+            "producer_limit": 20,
+            "result_row_count": 2,
+            "total_ranked_entities": 2,
+            "ranked_entities": [
+                {
+                    "rank": 1,
+                    "entity_type": "request_host",
+                    "entity": "beta.example",
+                    "score": 72,
+                    "primary_domain": "movement",
+                    "confidence": "low",
+                    "band": "observe",
+                },
+                {
+                    "rank": 2,
+                    "entity_type": "request_host",
+                    "entity": "alpha.example",
+                    "score": 64,
+                    "primary_domain": "cache_busting",
+                    "confidence": "medium",
+                    "band": "high_review",
+                },
+            ],
+            "interpretation_constraints": ["rule_based_scorecard"],
+        }
+        wrapper = {
+            "schema_version": "bot_report_input.v1",
+            "report_type": "scorecard_brief",
+            "title": "Fleet Scorecard Brief",
+            "analyst_notes": [
+                {
+                    "note_id": "note-1",
+                    "author_type": "analyst",
+                    "title": "Analyst Context",
+                    "text": "Review cache behavior before taking action.",
+                    "show_data_sources": False,
+                }
+            ],
+            "artifacts": [alpha, beta, index],
+        }
+
+        output, _ = self.render_report.render(
+            wrapper,
+            self.render_args(report_type="scorecard_brief", format="html"),
+        )
+
+        self.assertIn("Fleet KPI Strip", output)
+        self.assertLess(output.index("Fleet KPI Strip"), output.index("Analyst Notes"))
+        self.assertLess(
+            output.index("What This Report Says"), output.index("Analyst Notes")
+        )
+        self.assertIn(
+            'Fleet Health Score</div><div class="fleet-kpi-value">68</div>', output
+        )
+        self.assertIn("May 2, 2026, 00:00-24:00 UTC", output)
+        self.assertIn("May 1, 2026, 00:00-24:00 UTC", output)
+        self.assertNotIn("2026-05-02 00:00 UTC to 2026-05-03 00:00 UTC", output)
+        self.assertIn("2 of 2 entities have triggered scorecard rules", output)
+        self.assertIn(
+            "Most common triggered feature: Cache Miss Rate High across 2 entities.",
+            output,
+        )
+        self.assertIn(
+            "Missing-input coverage: 1 rule evaluations were unavailable across 3 domains.",
+            output,
+        )
+        self.assertIn(
+            "Score movement count: 1 entities have nonzero score_delta_points.", output
+        )
+        self.assertIn("<td>Cache Busting</td><td>2</td><td>1</td><td>0</td>", output)
+        self.assertIn("<td>Origin Impact</td><td>0</td><td>0</td><td>1</td>", output)
+        self.assertLess(output.index("beta.example"), output.index("alpha.example"))
+        self.assertIn("Cache miss rate crossed threshold.", output)
+        self.assertIn("Review cache-key behavior.</td><td>2</td>", output)
+        self.assertIn(
+            'Confidence Ceiling</div><div class="fleet-kpi-value">low</div>', output
+        )
+        self.assertIn("Method And Caveats", output)
+        self.assertIn("sparse_counts", output)
+        self.assertNotIn("Selected Entity Context", output)
+        self.assertNotIn("Overall Score", output)
+        self.assertNotIn("Scorecard Ranking Bars", output)
+        self.assertNotIn("Band", output)
+
+    def test_render_report_scorecard_brief_overall_gauge_delta_classes(self) -> None:
+        cases = [
+            (90, 82, 8, "score-delta-up", "+8 pts vs baseline"),
+            (72, 80, -8, "score-delta-down", "-8 pts vs baseline"),
+            (80, 80, 0, "score-delta-neutral", "No Change"),
+        ]
+        for score, baseline_score, delta, css_class, text in cases:
+            with self.subTest(css_class=css_class):
+                scorecard = {
+                    "schema_version": "bot_entity_scorecard.v1",
+                    "artifact_id": f"sc-{css_class}",
+                    "entity_type": "client_asn",
+                    "entity": "64500",
+                    "score": score,
+                    "baseline_score": baseline_score,
+                    "score_delta_points": delta,
+                    "score_delta_basis": "Baseline score is recomputed from baseline-period point-in-time rule inputs; rules requiring pre-baseline delta inputs are excluded.",
+                    "band": "low_review",
+                    "domain_scores": {"security_evidence": 0},
+                    "features": [],
+                }
+                output, _ = self.render_report.render(
+                    scorecard,
+                    self.render_args(report_type="scorecard_brief", format="html"),
+                )
+
+                self.assertIn('aria-label="Overall Score"', output)
+                self.assertIn(f'class="{css_class}">{text}</div>', output)
+
+    def test_render_report_scorecard_rule_labels_use_explicit_feature_condition_map(
+        self,
+    ) -> None:
+        self.assertEqual(
+            self.render_report.rule_label_parts("querystring_diversity_high"),
+            ("Query String Diversity", "High"),
+        )
+        self.assertEqual(
+            self.render_report.rule_label_parts(
+                "querystring_diversity_with_high_miss_rate"
+            ),
+            ("Query String Diversity", "With High Miss Rate"),
+        )
+        self.assertEqual(
+            self.render_report.rule_label_parts("unknown_signal_shape"),
+            ("Unknown Signal Shape", ""),
+        )
 
     def test_render_report_html_crawler_scorecards_get_score_bars_without_index(
         self,
@@ -7755,10 +10355,12 @@ class BotInsightsScriptTests(unittest.TestCase):
             self.render_args(report_type="crawler_governance", format="html"),
         )
         self.assertIn("Scorecard Ranking Bars", output)
-        self.assertIn("sorted by emitted score", output)
+        self.assertIn("sorted by lower health score", output)
         self.assertNotIn("Rank 1:", output)
+        chart_output = output[output.index("Scorecard Ranking Bars") :]
         self.assertLess(
-            output.index("high.example.com"), output.index("low.example.com")
+            chart_output.index("low.example.com"),
+            chart_output.index("high.example.com"),
         )
 
     def test_render_report_html_mover_chart_present(self) -> None:
@@ -7767,7 +10369,7 @@ class BotInsightsScriptTests(unittest.TestCase):
             "current_window": {"start": "2026-04-01", "end": "2026-04-08"},
             "baseline_windows": [{"start": "2026-03-25", "end": "2026-04-01"}],
             "comparison_type": "previous_window",
-            "table_used": "bot_summary_hour",
+            "table_used": "bi_summary_hour",
         }
         wrapper = {
             "schema_version": "bot_report_input.v1",
@@ -7802,7 +10404,7 @@ class BotInsightsScriptTests(unittest.TestCase):
                             "absolute_delta": 450,
                             "contribution_pct": 90,
                             "confidence": "high",
-                        }
+                        },
                     ],
                 },
             ],
@@ -7810,7 +10412,8 @@ class BotInsightsScriptTests(unittest.TestCase):
         output, _ = self.render_report.render(wrapper, self.render_args(format="html"))
         self.assertIn("Mover Contribution Bars", output)
         self.assertIn("total delta 500", output)
-        self.assertLess(output.index("64501"), output.index("64500"))
+        chart_output = output[output.index("Mover Contribution Bars") :]
+        self.assertLess(chart_output.index("64501"), chart_output.index("64500"))
 
     def test_render_report_html_edge_ops_scorecards_get_score_bars_without_index(
         self,
@@ -7839,7 +10442,7 @@ class BotInsightsScriptTests(unittest.TestCase):
             self.render_args(report_type="edge_ops_impact", format="html"),
         )
         self.assertIn("Scorecard Ranking Bars", output)
-        self.assertIn("sorted by emitted score", output)
+        self.assertIn("sorted by lower health score", output)
         self.assertIn("/api/search", output)
 
     def test_render_report_html_edge_ops_optional_charts_present(self) -> None:
@@ -7848,7 +10451,7 @@ class BotInsightsScriptTests(unittest.TestCase):
             "current_window": {"start": "2026-04-01", "end": "2026-04-08"},
             "baseline_windows": [{"start": "2026-03-25", "end": "2026-04-01"}],
             "comparison_type": "previous_window",
-            "table_used": "bot_summary_hour",
+            "table_used": "bi_summary_hour",
         }
         scorecard = {
             "schema_version": "bot_entity_scorecard.v1",
@@ -7982,9 +10585,7 @@ class BotInsightsScriptTests(unittest.TestCase):
         markdown, warnings = self.render_report.render(wrapper, self.render_args())
         self.assertEqual(warnings, [])
         self.assertIn("Top Risky Entities", markdown)
-        html, _ = self.render_report.render(
-            wrapper, self.render_args(format="html")
-        )
+        html, _ = self.render_report.render(wrapper, self.render_args(format="html"))
         self.assertIn("<svg", html)
         self.assertIn("scorecard-pack-1#scorecard-1", html)
 
@@ -8003,6 +10604,18 @@ class BotInsightsScriptTests(unittest.TestCase):
             any("missing feature inputs" in warning for warning in warnings),
             f"expected crawler-governance missing feature warning: {warnings}",
         )
+
+    def test_all_examples_render_html(self) -> None:
+        example_dir = ROOT / "skills/bot-insights/examples"
+        for path in sorted(example_dir.glob("*.json")):
+            with self.subTest(example=path.name):
+                wrapper = json.loads(path.read_text(encoding="utf-8"))
+                html_output, _warnings = self.render_report.render(
+                    wrapper, self.render_args(format="html")
+                )
+                self.assertIn("<!doctype html>", html_output)
+                self.assertIn("<main>", html_output)
+                self.assertIn("<h1>", html_output)
 
 
 if __name__ == "__main__":
