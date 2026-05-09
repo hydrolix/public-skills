@@ -96,7 +96,7 @@
       "scope": {
         "request_host": "www.example.com"
       },
-      "table_used": "bot_summary_day"
+      "table_used": "bi_summary_day"
     },
     {
       "artifact_id": "mover-asn-1",
@@ -165,7 +165,7 @@
       "scope": {
         "request_host": "www.example.com"
       },
-      "table_used": "bot_summary_day",
+      "table_used": "bi_summary_day",
       "total_delta": 390000,
       "total_delta_basis": "sum_abs_mover_delta"
     },
@@ -199,7 +199,7 @@
         "scope": {
           "request_host": "www.example.com"
         },
-        "table_used": "bot_summary_day"
+        "table_used": "bi_summary_day"
       },
       "schema_version": "bot_scorecard_artifacts.v1",
       "scorecards": [
@@ -250,7 +250,7 @@
             "request_host": "www.example.com"
           },
           "score": 48,
-          "table_used": "bot_summary_day"
+          "table_used": "bi_summary_day"
         }
       ]
     }

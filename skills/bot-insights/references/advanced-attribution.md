@@ -10,9 +10,20 @@ clients, read credentials, or export scorecard artifacts. Use Hydrolix MCP or a
 host query tool to produce the aggregate rows first, then pass the small result
 set to `scripts/attribution.py`.
 
+## Contents
+
+- [Legacy Boundary](#legacy-boundary)
+- [CLI Usage](#cli-usage)
+- [Policy Displacement Mode](#policy-displacement-mode)
+- [Accepted Input Shapes](#accepted-input-shapes)
+- [Output Contract](#output-contract)
+- [Confidence Caps](#confidence-caps)
+- [Scorecard Boundary](#scorecard-boundary)
+- [Interpretation](#interpretation)
+
 ## Legacy Boundary
 
-Keep `bot_mover_attribution.v1` as the legacy/simple mover schema. It is emitted
+Keep `bot_mover_attribution.v1` as the simple mover schema. It is emitted
 by `scripts/compare_posture.py` for existing simple posture, single-dimension
 mover, and control-review workflows.
 
@@ -122,7 +133,7 @@ MCP-style rows with columns:
 {
   "metric": "requests",
   "dimensions": ["client_asn"],
-  "table_used": "bot_summary_day",
+  "table_used": "bi_summary_day",
   "columns": ["client_asn", "current_requests", "baseline_requests"],
   "rows": [
     ["64500", 180, 100],
@@ -216,7 +227,7 @@ Typical results:
 
 - `medium`: summary-backed aggregate rows with enough current and baseline
   support and no stronger caveats.
-- `low`: sparse counts, raw-table fallback, poor metadata, missing lifecycle
+- `low`: sparse counts, request-level query, poor metadata, missing lifecycle
   support, or unevaluated one-sided period absence.
 
 Caller fields such as `rowset_complete`, `contribution_basis`,
@@ -226,7 +237,7 @@ unlock contribution math.
 
 ## Scorecard Boundary
 
-V1a advanced attribution has no scorecard export command, flag, alternate
+V1a advanced attribution has no scorecard export command, flag, 
 output mode, or scorecard-safe artifact. `scripts/attribution.py` emits only
 `bot_attribution_report.v1` or `bot_attribution_error.v1`.
 

@@ -42,7 +42,7 @@
       "scope": {
         "request_host": "www.example.com"
       },
-      "table_used": "bot_siem_summary_day",
+      "table_used": "bi_siem_policy_summary_day",
       "target": {
         "policy_id": "policy-bot-block-1"
       },

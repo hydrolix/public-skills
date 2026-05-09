@@ -62,7 +62,8 @@ uv run python skills/bot-insights/scripts/attribution.py \
 
 The aggregate rows should cover one metric and one retained dimension set, such
 as `request_host`, `request_path_norm`, `client_asn`, `bot_class`,
-`ai_category`, SIEM `policy_id`, or `action_taken`. The report preserves
+`ai_category`, SIEM `policy_id`/`policyId`, or `action_taken`/`actionClass`.
+The report preserves
 `policy_change`, `policy_change_window`, `reviewed_policy`, and `target_effect`
 metadata when provided.
 

@@ -3,10 +3,9 @@
 Executive analysis should emphasize posture movement, health, and team routing.
 Use summary tables first, especially daily summaries for quarter-over-quarter,
 month-over-month, week-over-week, and year-over-year comparisons.
-In SQL templates, replace `<posture_summary_day>` with `bi_summary_day` or an
-equivalent metadata-confirmed `bot_summary_day`, and replace
-`<siem_summary_day>` with `bi_siem_summary_day` or an equivalent
-metadata-confirmed `bot_siem_summary_day`.
+In SQL templates, replace `<posture_summary_day>` with `bi_summary_day`, and
+replace `<siem_summary_day>` with `bi_siem_policy_summary_day` on
+TrafficPeak/Akamai.
 
 Executive posture reports should not invent a separate executive-only feature
 set. Build them from:
@@ -21,6 +20,12 @@ When scorecards are included, `scripts/render_report.py` summarizes emitted
 domain scores, primary-domain counts, and scorecard caveats. Missing policy
 context, sparse SIEM/crawler populations, and missing feature inputs remain
 caveats rather than executive conclusions.
+
+## Contents
+
+- [Posture Movement](#posture-movement-director)
+- [Multi-Domain Triage](#multi-domain-triage-director)
+- [Control Review](#control-review-director-soc)
 
 ## Posture Movement [Director+]
 
@@ -88,27 +93,30 @@ evidence supports stronger causal claims.
 ```sql
 SELECT
   period,
-  sum(cnt_all) AS requests,
-  sum(cnt_blocked) AS siem_blocked_requests,
-  sum(cnt_auth_fail) AS siem_auth_fail_requests,
-  round(sum(cnt_5xx) / greatest(sum(cnt_all), 1) * 100, 2) AS rate_5xx_pct,
-  round(sum(cnt_cache_miss) / greatest(sum(cnt_all), 1) * 100, 2) AS cache_miss_pct
+  countMerge(`count()`) AS requests,
+  countIfMerge(`countIf(equals(actionClass, 'deny'))`) AS siem_blocked_requests,
+  countIfMerge(`countIf(equals(authOutcome, 'fail'))`) AS siem_auth_fail_requests,
+  countMergeIf(`count()`, status >= 500 AND status < 600) AS siem_5xx_requests,
+  round(siem_5xx_requests / greatest(requests, 1) * 100, 2) AS rate_5xx_pct
 FROM (
   SELECT 'before' AS period, *
   FROM <project>.<siem_summary_day>
   WHERE timestamp >= toDateTime('<before_start>')
     AND timestamp < toDateTime('<change_time>')
-    AND policy_id = '<policy_id>'
+    AND policyId = '<policy_id>'
   UNION ALL
   SELECT 'after' AS period, *
   FROM <project>.<siem_summary_day>
   WHERE timestamp >= toDateTime('<change_time>')
     AND timestamp < toDateTime('<after_end>')
-    AND policy_id = '<policy_id>'
+    AND policyId = '<policy_id>'
 )
 GROUP BY period
 ORDER BY period
 ```
+
+This control-review template uses TrafficPeak/Akamai
+`bi_siem_policy_summary_*` field names and aggregate-state merge functions.
 
 Use `post_change_vs_expected` in `references/baseline-comparison.md` when the
 user provides an expected value or an expected baseline window.

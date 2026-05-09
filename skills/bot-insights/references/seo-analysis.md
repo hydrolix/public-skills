@@ -2,16 +2,23 @@
 
 SEO analysis should start with crawler health and posture movement over time.
 Use summaries for AI crawler share, bot class, error rates, cache miss rates,
-resource categories, and paths. Fall back to request-level data for
+resource categories, and paths. Use request-level data for
 `verified_bot_owner`, `bot_verification_tier`, exact `user_agent`, and
 governance-surface inspection when those dimensions are required.
 In SQL templates, replace `<posture_summary_day>` with `bi_summary_day` or an
-equivalent metadata-confirmed `bot_summary_day`.
+`bi_summary_day`.
+
+## Contents
+
+- [Verified vs. Unverified Bots](#verified-vs-unverified-bots-soc-seo)
+- [Attack Data Analysis](#attack-data-analysis-soc)
+- [Good Bot Governance](#good-bot-governance-seo)
+- [AI Crawler Monitoring](#ai-crawler-monitoring-seo)
 
 ### Verified vs. Unverified Bots [SOC, SEO]
 
 Verified owner and verification tier are not retained in the current summary
-tables. Use this raw fallback with explicit time filters.
+tables. Use this request-level query with explicit time filters.
 
 ```sql
 -- Verified bot owners
@@ -46,7 +53,7 @@ LIMIT 20
 
 ### Attack Data Analysis [SOC]
 
-Attack payload details are not retained in the summary catalog. Use raw fallback
+Attack payload details are not retained in the summary catalog. Use request-level query
 for payload inspection; use SIEM summaries for policy/action posture.
 
 ```sql
@@ -82,7 +89,7 @@ Monitor legitimate crawlers and partner bots to ensure they can operate without
 disruption — especially during security incidents or policy changes.
 
 ```sql
--- Summary-backed good bot health by day. Use raw fallback for verified owner.
+-- Summary-backed good bot health by day. Use request-level query for verified owner.
 SELECT
     timestamp,
     request_host,
@@ -96,7 +103,7 @@ WHERE timestamp >= now() - INTERVAL 30 DAY
 GROUP BY timestamp, request_host
 ORDER BY timestamp, request_host
 
--- Owner-specific health requires raw fallback.
+-- Owner-specific health requires request-level query.
 SELECT
     verified_bot_owner,
     bot_category,

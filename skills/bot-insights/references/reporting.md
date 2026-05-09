@@ -8,6 +8,18 @@ upstream step. The renderer does not query Hydrolix, open database clients,
 read credentials, recompute scores, or infer values beyond the fields already
 present in the input.
 
+## Contents
+
+- [Accepted Input](#accepted-input)
+- [Supported Report Types](#supported-report-types)
+- [Report Workflow Matrix](#report-workflow-matrix)
+- [Query Execution Boundary](#query-execution-boundary)
+- [Commands](#commands)
+- [Skill-Orchestrated LLM Reports](#skill-orchestrated-llm-reports)
+- [Warnings and Evidence Limits](#warnings-and-evidence-limits)
+- [Artifact-Only Boundary](#artifact-only-boundary)
+- [Examples](#examples)
+
 ## Accepted Input
 
 The renderer accepts exactly three top-level JSON shapes:
@@ -28,6 +40,7 @@ Supported artifact schemas:
 - `bot_entity_scorecard.v1`
 - `bot_scorecard_artifacts.v1` (decomposed into a nested index and
   scorecards during normalization)
+- `bot_timeseries.v1` (optional companion evidence where supported)
 
 Unknown schemas are rejected unless `--allow-unknown` is set, and even then
 they are only reported as skipped input. `--allow-unknown` does not make an
@@ -55,7 +68,170 @@ array tokens must be non-negative indexes without leading zeroes.
 - `edge_ops_impact` - cache-busting and origin-impact evidence using only
   evaluated `cache_busting` and `origin_impact` scorecard features.
 
+## Report Workflow Matrix
+
+Every final-report workflow follows the same contract:
+
+`bot_report_evidence.v1` evidence packet -> LLM prose-only interpretation ->
+`analyst_notes` in a `bot_report_input.v1` wrapper -> `render_report.py`.
+
+The LLM does not own report layout, metric values, chart values, ranked rows,
+evidence limits, or final HTML/Markdown. Those remain deterministic renderer
+responsibilities.
+
+| Report type | Required artifact schemas | Capture path | `bot_report_evidence.v1` | `bot_report_input.v1` rendering | LLM handoff | MCP boundary | Migration readiness |
+|-------------|---------------------------|--------------|---------------------------|----------------------------------|-------------|--------------|---------------------|
+| `executive_posture` | `bot_posture_movement.v1`; optional `bot_scorecard_index.v1`, `bot_entity_scorecard.v1`, `bot_mover_attribution.v1`, `bot_timeseries.v1` | `bot_insights_report.py --report executive_posture` via vetted summary SQL | Implemented | Implemented and covered by example wrapper | Implemented: pass evidence packet to LLM for prose only | Explicit: run MCP only from emitted `bot_hydrolix_mcp_query_request.v1`, then resume with `--raw-input` | Reference implementation |
+| `soc_triage` | `bot_scorecard_index.v1`; optional compatible `bot_entity_scorecard.v1`, `bot_posture_movement.v1`, `bot_mover_attribution.v1` | Aggregate rows from Hydrolix MCP/host query tool, then `scorecard.py`; no skill-owned evidence capture yet | Not yet | Implemented and covered by example wrapper | Not yet scripted; LLM prose must be inserted as `analyst_notes` only | Manual aggregate capture may use MCP; deterministic report capture must wait for a scripted handoff packet | Next after scorecard evidence-packet orchestration |
+| `control_review` | `bot_control_review.v1`; optional compatible `bot_posture_movement.v1`, `bot_mover_attribution.v1` | `bot_insights_report.py --report control_review` via vetted SIEM policy summary SQL, then `compare_posture.py --schema control` | Implemented | Implemented and covered by example wrapper; report mode renders a `bot_report_input.v1` wrapper | Implemented: pass evidence packet to LLM for prose only, then insert prose as `analyst_notes` | Explicit: run MCP only from emitted `bot_hydrolix_mcp_query_request.v1`, then resume with `--raw-input` | Migrated |
+| `scorecard_brief` | One `bot_entity_scorecard.v1`; optional compatible `bot_scorecard_index.v1` | Aggregate rows from Hydrolix MCP/host query tool, then `scorecard.py` | Not yet | Implemented; no checked-in wrapper example yet | Not yet scripted; LLM prose must be inserted as `analyst_notes` only | Manual aggregate capture may use MCP; deterministic report capture must wait for a scripted handoff packet | High: renderer and deterministic scorecard artifact exist |
+| `crawler_governance` | One or more `bot_entity_scorecard.v1` artifacts with evaluated `crawler_governance` features; optional compatible `bot_scorecard_index.v1`, `bot_posture_movement.v1`, `bot_mover_attribution.v1` | Crawler aggregate rows from Hydrolix MCP/host query tool, then `scorecard.py` | Not yet | Implemented and covered by example wrapper | Not yet scripted; LLM prose must be inserted as `analyst_notes` only | Manual aggregate capture may use MCP; deterministic report capture must wait for a scripted handoff packet | Medium: needs crawler-specific evidence-packet orchestration |
+| `edge_ops_impact` | One or more `bot_entity_scorecard.v1` artifacts with evaluated `cache_busting` or `origin_impact` features; optional compatible `bot_scorecard_index.v1`, `bot_posture_movement.v1`, `bot_mover_attribution.v1` | Path-grain aggregate rows into `cache_origin_impact.py` and/or `scorecard.py`; renderer consumes scorecard features | Not yet | Implemented; no checked-in wrapper example yet | Not yet scripted; LLM prose must be inserted as `analyst_notes` only | Manual aggregate capture may use MCP; deterministic report capture must wait for a scripted handoff packet | Medium: needs scorecard/evidence-packet alignment for Edge/Ops artifacts |
+
+Next migration work should favor reports that already have deterministic
+artifacts and renderer coverage: `scorecard_brief`, `soc_triage`,
+`crawler_governance`, then `edge_ops_impact`. Keep `executive_posture` and
+`control_review` as reference paths for scripted evidence packets, handoff
+behavior, wrapper construction, and renderer verification.
+
+## Query Execution Boundary
+
+Customers normally use Hydrolix MCP for query execution. The Bot Insights
+capture script can still run direct Hydrolix `/query/` HTTP as an optimization
+for local or CI environments that have `HYDROLIX_HOST`/`HDX_HOSTNAME` plus a
+token or username/password credentials configured. If those credentials are
+missing or an `op://` value cannot be resolved by `op run --env-file`, capture
+prints a `bot_hydrolix_mcp_query_request.v1` packet and exits with code `42`
+instead of treating missing credentials as a query failure.
+
+For skill-owned deterministic report captures, MCP is allowed only through this
+explicit packet. When it appears, the LLM/agent should run Hydrolix MCP
+`run_select_query` with exactly the packet's `cluster` and `validated_sql`, save
+the complete JSON result to `target_raw_output_path`, then resume:
+
+```bash
+uv run python skills/bot-insights/scripts/bot_insights_report.py \
+  --cluster acme \
+  --database akamai \
+  --report executive_posture \
+  --start "2026-05-01T00:00:00Z" \
+  --end "2026-05-02T00:00:00Z" \
+  --mode evidence \
+  --output evidence-packet.json \
+  --raw-input /path/from/target_raw_output_path.json
+```
+
+Broad, exploratory, or non-Bot-Insights SQL should stay outside the
+deterministic capture script and run through the LLM plus Hydrolix MCP workflow.
+Do not mix those exploratory queries into a scripted final-report capture.
+
 ## Commands
+
+Full deterministic capture plus report rendering through the skill-owned report
+script:
+
+```bash
+uv run python skills/bot-insights/scripts/bot_insights_report.py \
+  --cluster acme \
+  --database akamai \
+  --report executive_posture \
+  --start "2026-05-07T00:00:00Z" \
+  --end "2026-05-08T00:00:00Z" \
+  --mode report \
+  --output posture-report.html \
+  --format html
+```
+
+Evidence-packet mode for LLM interpretation:
+
+```bash
+uv run python skills/bot-insights/scripts/bot_insights_report.py \
+  --cluster acme \
+  --database akamai \
+  --report executive_posture \
+  --start "2026-05-07T00:00:00Z" \
+  --end "2026-05-08T00:00:00Z" \
+  --mode evidence \
+  --output evidence-packet.json
+```
+
+Template mode writes a Markdown scaffold with deterministic evidence and
+explicit LLM fill-in instructions:
+
+```bash
+uv run python skills/bot-insights/scripts/bot_insights_report.py \
+  --cluster acme \
+  --database akamai \
+  --report executive_posture \
+  --start "2026-05-07T00:00:00Z" \
+  --end "2026-05-08T00:00:00Z" \
+  --mode template \
+  --output llm-template.md
+```
+
+`~/src/utils/bot-insights-report` is a thin executable convenience wrapper for
+the same script:
+
+```bash
+~/src/utils/bot-insights-report --help
+```
+
+## Skill-Orchestrated LLM Reports
+
+When the user asks the skill to produce the final report, use the LLM as an
+interpretation handoff, not as the report renderer. The deterministic data path
+is:
+
+1. Run `bot_insights_report.py --mode evidence` for the requested scope.
+2. If and only if the script exits `42` with a
+   `bot_hydrolix_mcp_query_request.v1` packet, run Hydrolix MCP
+   `run_select_query` with exactly the packet's `cluster` and `validated_sql`,
+   save the complete JSON response to `target_raw_output_path`, then rerun the
+   same evidence command with `--raw-input`.
+3. Send the resulting `bot_report_evidence.v1` packet to the LLM with the
+   packet's `interpretation_contract`. The LLM should return prose only.
+4. Build a `bot_report_input.v1` wrapper that contains the deterministic
+   artifact(s) plus one `analyst_notes` entry for the LLM prose.
+5. Render that wrapper with `render_report.py`.
+
+The final wrapper should keep interpretation and evidence separate:
+
+```json
+{
+  "schema_version": "bot_report_input.v1",
+  "report_type": "executive_posture",
+  "title": "Bot Insights Executive Posture",
+  "artifacts": [
+    {
+      "schema_version": "bot_posture_movement.v1"
+    }
+  ],
+  "analyst_notes": [
+    {
+      "note_id": "executive-interpretation",
+      "author_type": "llm",
+      "title": "Executive Interpretation",
+      "text": "Concise prose generated from the evidence packet only.",
+      "show_data_sources": false,
+      "data_sources": []
+    }
+  ]
+}
+```
+
+The example above is intentionally partial; replace `artifacts` with the full
+deterministic artifact objects saved by the evidence workflow. Add citation
+objects to `data_sources` only when the visible report should show supporting
+values under the note. Otherwise, leave `show_data_sources: false` so the
+charts, tables, and timeline carry the evidence.
+
+The report script calls
+[../scripts/bot_insights_capture.py](../scripts/bot_insights_capture.py) for
+SQL generation, guardrail validation, credential detection, and optional direct
+Hydrolix access. Capture supports vetted presets such as `posture-overview`,
+`posture-by-asn`, `posture-by-path`, and `siem-policy`, plus guarded Bot
+Insights summary SQL with explicit time predicates. If capture returns an MCP
+handoff packet, save the MCP query result and resume with `--raw-input`.
 
 Markdown to stdout:
 
@@ -116,9 +292,15 @@ The renderer is intentionally thin:
 - It never uses analyst notes as input for metric values, chart values,
   ranks, report selection, duplicate detection, or row-limit calculations.
 
-Use the Hydrolix MCP server or host Hydrolix query tool to produce the
-aggregate rows. Run `compare_posture.py` or `scorecard.py` to emit artifact
-JSON. Only then does `render_report.py` consume those saved artifacts.
+Use `bot_insights_capture.py` for deterministic Bot Insights report captures, or
+use the Hydrolix MCP server/host Hydrolix query tool to produce aggregate rows
+for broader investigation. Run `compare_posture.py` or `scorecard.py` to emit
+artifact JSON. Only then does `render_report.py` consume those saved artifacts.
+
+For LLM-assisted reports, pass the `bot_report_evidence.v1` evidence packet to
+the LLM and require it to fill only the template sections from packet fields.
+The LLM may write prose, but must not query Hydrolix, invent missing metrics,
+or make root-cause or malicious-traffic claims without additional artifacts.
 
 ## Examples
 

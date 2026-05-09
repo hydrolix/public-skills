@@ -1,11 +1,11 @@
 # bot-insights — Edge and Operations Analysis Patterns
 
 Edge/Ops analysis should use summaries first for cache, origin, bandwidth
-proxy, path, resource, bot class, and ASN movement. Use request-level fallback
+proxy, path, resource, bot class, and ASN movement. Use request-level queries
 only for exact query-string values, exact status codes, headers, or fields not
 retained in summaries.
 In SQL templates, replace `<posture_summary_hour>` with `bi_summary_hour` or an
-equivalent metadata-confirmed `bot_summary_hour`.
+`bi_summary_hour`.
 
 For structured cache-busting, query-string churn, cache-miss movement, or
 origin-impact detector output, use
@@ -13,6 +13,11 @@ origin-impact detector output, use
 the path-grain-only `cache_origin_impact_report.v1` boundary, confidence rules,
 and metadata-aware SQL template requirements. This page remains a broader
 Edge/Ops pattern reference.
+
+## Contents
+
+- [Cache-Busting and Querystring Churn Detection](#cache-busting-and-querystring-churn-detection-edgeops)
+- [Origin Impact and Bandwidth Cost](#origin-impact-and-bandwidth-cost-edgeops)
 
 ### Cache-Busting and Querystring Churn Detection [Edge/Ops]
 
@@ -36,7 +41,7 @@ HAVING requests > 100
 ORDER BY qs_diversity_ratio DESC
 LIMIT 20
 
--- Querystring churn by ASN requires raw fallback for exact query strings.
+-- Querystring churn by ASN requires request-level query for exact query strings.
 SELECT
     client_asn,
     request_path,
@@ -81,8 +86,7 @@ GROUP BY request_path_norm, bot_class
 ORDER BY origin_cost_score DESC
 LIMIT 20
 
--- Byte-level cost attribution requires raw fallback; response bytes are not in
--- current summaries.
+-- Byte-level cost attribution requires request-level response-byte fields.
 SELECT
     is_bot_traffic,
     bot_class,

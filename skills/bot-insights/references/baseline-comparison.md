@@ -74,19 +74,19 @@ Labels:
 
 - `high`: summary table used, comparable windows available, current and
   baseline counts meet minimums, and granularity matches the comparison type.
-- `medium`: summary table used but only one comparable window exists, fallback
-  baseline was selected, or a source coverage caveat applies.
-- `low`: sparse counts, partial current bucket, raw-table fallback, missing
+- `medium`: summary table used but only one comparable window exists, a
+  substitute baseline was selected, or a source coverage caveat applies.
+- `low`: sparse counts, partial current bucket, request-level query, missing
   retained dimension, or material source-specific enrichment caveat.
 
 Machine-readable reasons:
 
 - `summary_table_used`
-- `raw_table_fallback`
+- `request_level_query`
 - `retained_dimensions_fit`
 - `missing_retained_dimension`
 - `comparable_windows_available`
-- `fallback_baseline_selected`
+- `substitute_baseline_selected`
 - `granularity_matches_comparison`
 - `granularity_mismatch`
 - `current_count_sufficient`
@@ -213,7 +213,7 @@ preserved verbatim.
     "start": "2026-03-25T00:00:00Z",
     "end": "2026-04-01T00:00:00Z"
   },
-  "table_used": "bi_siem_summary_day",
+  "table_used": "bi_siem_policy_summary_day",
   "target_effects": [
     {
       "metric": "siem_blocked_requests",
@@ -243,10 +243,8 @@ preserved verbatim.
 These templates produce aggregate rows for the local posture comparison script.
 They intentionally do not include client setup, credentials, or execution logic.
 
-Replace `<posture_summary_day>` with `bi_summary_day` or an equivalent
-metadata-confirmed `bot_summary_day`. Replace `<siem_summary_day>` with
-`bi_siem_summary_day` or an equivalent metadata-confirmed
-`bot_siem_summary_day`.
+Replace `<posture_summary_day>` with `bi_summary_day`. Replace
+`<siem_summary_day>` with `bi_siem_policy_summary_day` on TrafficPeak/Akamai.
 
 If the Hydrolix metadata reports aggregate-state columns, replace `sum(metric)`
 with the reported merge function.
@@ -318,25 +316,26 @@ WITH
   toDateTime('<after_end>') AS after_end
 SELECT
   period,
-  sum(cnt_all) AS requests,
-  sum(cnt_blocked) AS siem_blocked_requests,
-  sum(cnt_auth_fail) AS siem_auth_fail_requests,
-  sum(cnt_biz_fail) AS siem_business_fail_requests,
-  round(sum(cnt_5xx) / greatest(sum(cnt_all), 1) * 100, 2) AS rate_5xx_pct,
-  round(sum(cnt_cache_miss) / greatest(sum(cnt_all), 1) * 100, 2) AS cache_miss_pct
+  countMerge(`count()`) AS requests,
+  countIfMerge(`countIf(equals(actionClass, 'deny'))`) AS siem_blocked_requests,
+  countIfMerge(`countIf(equals(authOutcome, 'fail'))`) AS siem_auth_fail_requests,
+  countMergeIf(`count()`, status >= 500 AND status < 600) AS siem_5xx_requests,
+  round(siem_5xx_requests / greatest(requests, 1) * 100, 2) AS rate_5xx_pct
 FROM (
   SELECT 'before' AS period, *
   FROM <project>.<siem_summary_day>
   WHERE timestamp >= before_start
     AND timestamp < change_time
-    AND policy_id = '<policy_id>'
+    AND policyId = '<policy_id>'
   UNION ALL
   SELECT 'after' AS period, *
   FROM <project>.<siem_summary_day>
   WHERE timestamp >= change_time
     AND timestamp < after_end
-    AND policy_id = '<policy_id>'
+    AND policyId = '<policy_id>'
 )
 GROUP BY period
 ORDER BY period
 ```
+
+The example above matches TrafficPeak/Akamai `bi_siem_policy_summary_*`.

@@ -19,7 +19,7 @@ pressure as a billing or capacity unit.
 - [Output Shape](#output-shape)
 - [Confidence Boundary](#confidence-boundary)
 - [Summary SQL Template Guidance](#summary-sql-template-guidance)
-- [Tight Raw Fallback](#tight-raw-fallback)
+- [Tight Request-Level Query](#tight-request-level-query)
 
 ## V1 Scope
 
@@ -56,9 +56,9 @@ Known v1 non-goals and future surfaces:
 - Multiple independent candidate lists in one report.
 - SIEM candidate surfaces.
 
-`bi_summary_*` or `bot_summary_*` tables may be queried separately for
+`bi_summary_*` tables may be queried separately for
 host-scope context such as bot-traffic share or AI-category share. That context
-belongs under `optional_metadata.bot_summary_context`; it must not be presented
+belongs under `optional_metadata.summary_context`; it must not be presented
 as path-level candidate evidence.
 
 ## Input Contract
@@ -434,15 +434,15 @@ metadata-provided merge expressions for aggregate-state columns and must record
 whether unique query-string and origin percentile semantics are exact,
 approximate, or worst-bucket summaries.
 
-## Tight Raw Fallback
+## Tight Request-Level Query
 
-Use raw `bot_detection` fallback only when a required v1 path-grain dimension or
+Use request-level `bot_detection` query only when a required v1 path-grain dimension or
 exact metric cannot be answered from path summaries. Keep the range tight,
 filter by timestamp and host, and still emit one of the supported path-grain
 dimension sets.
 
 ```sql
--- Tight raw fallback for exact path-grain semantics.
+-- Tight request-level query for exact path-grain semantics.
 WITH
   toDateTime('<current_start>') AS current_start,
   toDateTime('<current_end>') AS current_end,
@@ -472,7 +472,7 @@ ORDER BY abs(current_cache_misses - baseline_cache_misses) DESC
 LIMIT 50
 ```
 
-Raw fallback output should include a fallback reason such as
+Request-level query output should include a reason such as
 `exact_query_string_cardinality_required`. Raw response-byte columns map to
 `optional_metadata.response_bytes`; they do not change v1 score or candidate
 eligibility.

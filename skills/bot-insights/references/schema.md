@@ -7,6 +7,23 @@ Total columns: 85
 |---------|---------|------------|
 | 37 | 0 | 20 |
 
+## Contents
+
+- [Timestamp](#timestamp)
+- [Request](#request)
+- [Response](#response)
+- [Cache](#cache)
+- [Origin](#origin)
+- [Client](#client)
+- [Geo](#geo)
+- [User Agent](#user-agent)
+- [CDN](#cdn)
+- [Security](#security)
+- [Performance](#performance)
+- [Identity](#identity)
+- [Hydrolix](#hydrolix)
+- [Other](#other)
+
 ## Timestamp
 
 | Column | Type | Flags | Sources |

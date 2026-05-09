@@ -1,5 +1,13 @@
 # bot-insights — Data Model
 
+## Contents
+
+- [What This Bundle Contains](#what-this-bundle-contains)
+- [Key Columns](#key-columns)
+- [TrafficPeak Demo Shape](#trafficpeak-demo-shape)
+- [Summary-First Analysis](#summary-first-analysis)
+- [Personas](#personas)
+
 ## What This Bundle Contains
 
 The Bot Insights bundle extends CDN access log ingestion with rich bot
@@ -14,13 +22,15 @@ confidence, intent analysis, verified bot ownership, and attack data fields.
   SIEM summaries
 
 **Summary tables**:
-- `bi_summary_minute`, `bi_summary_hour`, `bi_summary_day` and equivalent
-  `bot_summary_*` tables — posture summaries by host, CDN, bot class, AI
-  category, bot flag, ASN, ASN type, resource category, and method.
+- `bi_summary_minute`, `bi_summary_hour`, `bi_summary_day` — posture summaries
+  retaining `reqHost`, `asn`, `userAgentCategory`, `isBotTraffic`,
+  `aiCategory`, `aiSource`, `trafficCohort`, `resourceCategory`, `reqMethod`,
+  `cacheStatus`, `statusCode`, `requestPathPattern`, and `country`.
 - `bot_agg_*` — focused host, ASN, path, resource, traffic, and bot-class
   summaries at hour granularity, with selected day/minute variants.
-- `bi_siem_summary_*` and `bot_siem_*` — action, policy, filter, and Akamai
-  canonical class summaries at minute/hour/day granularity.
+- `bi_siem_policy_summary_minute`, `bi_siem_policy_summary_hour`,
+  `bi_siem_policy_summary_day` — with-SIEM policy/action summaries at
+  minute/hour/day granularity.
 
 **Data sources**: Akamai DS2, Akamai SIEM, Akamai SIEM GZ, CloudFront Firehose,
 Cloudflare, Fastly, Tencent, and other CDN sources (8 transforms)
@@ -55,6 +65,32 @@ See `references/summary-tables.md` for summary retained dimensions and metrics.
 | `edge_pop` | Edge point of presence |
 | `hdx_cdn` | CDN provider |
 
+## TrafficPeak Demo Shape
+
+The live `demo.trafficpeak.live` Akamai project is dashboarded from summary
+tables rather than from the canonical request-level `bot_detection` tables.
+Posture queries should start with `akamai.bi_summary_minute`,
+`akamai.bi_summary_hour`, or `akamai.bi_summary_day`. SIEM policy evidence
+should start with `akamai.bi_siem_policy_summary_minute`,
+`akamai.bi_siem_policy_summary_hour`, or
+`akamai.bi_siem_policy_summary_day`.
+
+Important source-style aliases in that project:
+
+| Canonical concept | TrafficPeak summary field |
+|-------------------|---------------------------|
+| time | `reqTimeSec` on posture, `timestamp` on SIEM policy |
+| request host | `reqHost` on posture, `host`/`reqHost` on SIEM policy |
+| ASN | `asn` |
+| bot boolean | `isBotTraffic` |
+| AI category/source | `aiCategory`, `aiSource` |
+| user-agent category | `userAgentCategory` |
+| traffic cohort | `trafficCohort` (`Human`, `Bot`, `AI`) |
+| path grouping | `requestPathPattern` |
+| cache outcome | `cacheStatus` |
+| status | `statusCode` on posture, `status`/`statusCode` on SIEM policy |
+| SIEM policy/action/type | `policyId`, `actionClass`, `botType` |
+
 ## Summary-First Analysis
 
 Use summaries for posture, health, and baseline movement whenever retained
@@ -63,11 +99,12 @@ same-week-last-year, and executive posture. Hourly summaries are the default for
 weekday/hour seasonality. Minute summaries are for short policy-change review or
 incident detail.
 
-Raw request-level fallback is required for fields that are not retained in the
-current summary catalog, such as `verified_bot_owner`, `bot_confidence`,
-`bot_intent`, `bot_category`, `bot_type`, `client_country_iso_code`, `edge_pop`,
-exact `response_status_code`, `attack_data`, `user_agent`, and
-`user_agent_category`.
+Request-level tables are required for fields that are not retained in the
+summary catalog, such as `verified_bot_owner`, `bot_confidence`, `bot_intent`,
+canonical `bot_category`, canonical `bot_type`, `edge_pop`, exact payload
+`attack_data`, and exact `user_agent`. TrafficPeak summary fields include
+`userAgentCategory`, `trafficCohort`, `aiCategory`, `aiSource`,
+`requestPathPattern`, numeric `statusCode`, and `cacheStatus`.
 
 ## Personas
 

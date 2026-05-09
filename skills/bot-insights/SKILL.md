@@ -1,9 +1,12 @@
 ---
 name: bot-insights
 description: >
-  Analyze extended bot detection data with Akamai SIEM-enriched bot intelligence.
-  Use when investigating bot scoring, classification confidence, bot intent,
-  verified bot ownership, and attack data alongside CDN traffic patterns.
+  Analyze extended Bot Insights data with Akamai SIEM-enriched bot intelligence,
+  summary-first SQL, deterministic scorecards, baseline/control reviews,
+  policy-collateral checks, cache-origin impact, TrafficPeak demo analysis, and
+  Markdown/HTML report rendering. Use when investigating bot scoring,
+  classification confidence, bot intent, verified bot ownership, attack data,
+  crawler governance, bot-driven CDN impact, or saved Bot Insights artifacts.
 license: Apache-2.0
 metadata:
   version: 1.0.0
@@ -66,25 +69,20 @@ Primary request-level tables:
 
 Summary families:
 
-- `bi_summary_*`: backwards-compatible posture summaries by host, CDN, bot
-  class, AI category, bot flag, ASN, ASN type, resource category, and method.
-  This table family is used by TrafficPeak and non-TrafficPeak deployments.
-  For the `akamai` project, prefer fully qualified `akamai.bi_summary_*`
-  tables over `akamai.bot_summary_*` when both are present.
-- `bot_summary_*`: current bundle posture summaries with the same canonical
-  retained dimensions as `bi_summary_*`; use only when metadata proves the
-  preferred `bi_summary_*` family is absent or unsuitable for the requested
-  dimensions.
+- `bi_summary_*`: TrafficPeak posture summaries by host, ASN, user-agent
+  category, bot flag, AI category/source, resource category, method, cache
+  status, status code, path pattern, country, and traffic cohort. For the
+  `demo.trafficpeak.live` Akamai project, use fully qualified
+  `akamai.bi_summary_minute`, `akamai.bi_summary_hour`, or
+  `akamai.bi_summary_day`.
 - `bot_agg_*`: focused hourly and selected daily/minute summaries for host,
   ASN, path, resource, traffic, and bot class drilldowns.
-- `bi_siem_summary_*`: backwards-compatible SIEM summaries by host, action,
-  ASN, and policy. This table family is used by TrafficPeak and
-  non-TrafficPeak deployments. For the `akamai` project, prefer fully
-  qualified `akamai.bi_siem_summary_*`; if a deployment exposes
-  `akamai.bi_summary_siem_*`, treat it as an equivalent deployment-specific
-  alias after metadata inspection.
-- `bot_siem_*`: current bundle SIEM summaries for action, policy, SIEM
-  outcome, Akamai canonical class, and filter-aware views.
+- `bi_siem_policy_summary_*`: TrafficPeak SIEM policy summaries by host, ASN,
+  user-agent category, bot flag, AI category/source, resource category, method,
+  status, country, policy, action class, and SIEM bot type. For the Akamai
+  project, use fully qualified `akamai.bi_siem_policy_summary_minute`,
+  `akamai.bi_siem_policy_summary_hour`, or
+  `akamai.bi_siem_policy_summary_day`.
 
 Canonical field groups:
 
@@ -100,22 +98,21 @@ Canonical field groups:
   `verified_bot_owner`, `ai_category`
 - Security evidence: `attack_data`, `asn_type`
 
-Deployments may expose both current bundle tables and backwards-compatible
-`bi_*` tables. Prefer `akamai.bi_summary_*` for posture and
-`akamai.bi_siem_summary_*` for SIEM on the Akamai project. Treat
-`bi_summary_siem_*` as an alternate SIEM summary spelling only when metadata
-shows that exact table exists. Some legacy or alternate tables may still expose
-source-style Akamai names such as `reqTimeSec`, `reqHost`, `asn`, `country`,
-`city`, `statusCode`, `totalBytes`, or `cacheStatus`; inspect metadata before
-querying and normalize deterministic script input back to the canonical names
-expected by the script.
+TrafficPeak/Akamai summary field aliases:
 
-Project routing heuristic: if the project/database name is omitted or is
-`akamai`, assume the request is probably for a TrafficPeak project until
-metadata proves otherwise. If the project/database name is specified and is not
-`akamai`, assume it is probably a non-TrafficPeak project. Use this heuristic
-only to choose the first schema family to inspect; table metadata remains the
-source of truth for final query text.
+- Posture summaries use source-style names: `reqTimeSec`, `reqHost`, `asn`,
+  `userAgentCategory`, `isBotTraffic`, `aiCategory`, `aiSource`,
+  `trafficCohort`, `resourceCategory`, `reqMethod`, `cacheStatus`,
+  `statusCode`, `requestPathPattern`, and `country`.
+- SIEM policy summaries use `timestamp`, `host`/`reqHost`, `asn`,
+  `userAgentCategory`, `isBotTraffic`, `aiCategory`, `aiSource`,
+  `resourceCategory`, `method`/`reqMethod`, `status`/`statusCode`,
+  `policyId`, `actionClass`, and `botType`.
+- SIEM policy summary aliases are camelCase: `cnt_authFail`, `avg_botScore`,
+  and `uniq_clientIp`.
+
+Inspect metadata before querying and normalize deterministic script input back
+to the canonical names expected by the script.
 
 ## Progressive Disclosure
 
@@ -128,6 +125,8 @@ narrow reference below and load only that file.
   [references/data-model.md](references/data-model.md).
 - For summary inventory, retained dimensions, and summary-first table
   selection, read [references/summary-tables.md](references/summary-tables.md).
+- For the live TrafficPeak demo cluster, Akamai project, and with-SIEM
+  dashboards, read [references/trafficpeak-demo.md](references/trafficpeak-demo.md).
 - For quarter-over-quarter, month-over-month, week-over-week, year-over-year,
   seasonal, previous-window, and control-review baselines, read
   [references/baseline-comparison.md](references/baseline-comparison.md).
@@ -151,8 +150,7 @@ narrow reference below and load only that file.
   reusable investigation packets, read
   [references/scorecard-analysis.md](references/scorecard-analysis.md).
 - For the advanced aggregate-delta attribution CLI, accepted public JSON row
-  shapes, conservative confidence caps, and the boundary between legacy simple
-  movers and `bot_attribution_report.v1`, read
+  shapes and conservative confidence caps, read
   [references/advanced-attribution.md](references/advanced-attribution.md).
 - For executive posture, multi-domain triage, and post-mitigation verification,
   read [references/executive-analysis.md](references/executive-analysis.md).
@@ -168,6 +166,7 @@ narrow reference below and load only that file.
 
 | User intent | Load | Deterministic output or workflow |
 |-------------|------|----------------------------------|
+| Reproduce or explain the live TrafficPeak demo dashboards | `references/trafficpeak-demo.md`; add persona file as needed | Summary-first SQL against `akamai.bi_summary_*` and `akamai.bi_siem_policy_summary_*` |
 | What changed over a baseline? | `references/baseline-comparison.md` | `bot_posture_movement.v1` via `scripts/compare_posture.py --schema posture` |
 | Which entity drove movement? | `references/baseline-comparison.md`; use `references/advanced-attribution.md` only for advanced aggregate-delta reports | `bot_mover_attribution.v1` or `bot_attribution_report.v1` |
 | Did a known mitigation or policy change work? | `references/baseline-comparison.md` | `bot_control_review.v1` |
@@ -178,6 +177,47 @@ narrow reference below and load only that file.
 | Executive posture, routing across teams, mitigation verification | `references/executive-analysis.md`; add `references/reporting.md` for final report rendering | Executive posture artifacts and rendered reports |
 | Rank entities for handoff or repeated triage | `references/scorecard-analysis.md` | `bot_entity_scorecard.v1` and `bot_scorecard_index.v1` |
 | Render saved artifacts | `references/reporting.md` | Markdown or self-contained HTML from `scripts/render_report.py` |
+| Generate an LLM-interpreted executive posture report | `references/reporting.md` | Skill-orchestrated `executive_posture` evidence capture, LLM interpretation handoff, and deterministic final rendering |
+| Capture vetted Bot Insights report evidence | `references/reporting.md`; add `references/summary-tables.md` when selecting presets | `scripts/bot_insights_capture.py` presets only; use Hydrolix MCP/query tools for broad investigation SQL |
+
+## LLM-Interpreted Report Flow
+
+Use this flow when the user wants a finished `executive_posture` or
+`control_review` report with executive or analyst interpretation. Keep the
+report data path deterministic; the LLM may only write the interpretation text
+that is passed into the report template. For SOC triage, crawler governance,
+scorecard brief, or edge/Ops reports, generate the supported artifacts first and
+render them with `scripts/render_report.py`; do not route those report types
+through `scripts/bot_insights_report.py` until that script exposes the report
+type.
+
+1. Confirm or infer the report scope: cluster, database, report type, current
+   window, baseline behavior, output format, and output path. Ask the user only
+   for missing scope that cannot be safely inferred.
+2. Run the skill-owned deterministic script first, normally
+   `scripts/bot_insights_report.py --mode evidence`, and save the
+   `bot_report_evidence.v1` packet. Do not query Hydrolix MCP before the script
+   emits a `bot_hydrolix_mcp_query_request.v1` packet and exits with code `42`.
+3. If the script emits that packet, run only the requested Hydrolix MCP
+   `run_select_query` with the packet's `cluster` and `validated_sql`, save the
+   complete JSON response to `target_raw_output_path`, and resume the same
+   evidence command with `--raw-input`. Do not run exploratory SQL as part of
+   this report flow.
+4. Hand the evidence packet to the LLM with the packet's
+   `interpretation_contract`. Require concise interpretation prose only: no new
+   metrics, no root-cause claims, no malicious-traffic claims without additional
+   artifacts, and no Hydrolix queries from the interpretation step.
+5. Build a `bot_report_input.v1` wrapper with the deterministic artifacts and a
+   single `analyst_notes` entry for the returned prose. Use
+   `author_type: "llm"`, title it `Executive Interpretation` or another
+   user-appropriate label, and set `show_data_sources: false` when citations
+   would duplicate charts and tables already shown as evidence.
+6. Render the wrapper through `scripts/render_report.py`. The renderer owns the
+   template, tables, charts, timelines, warnings, and evidence limits. Do not
+   ask the LLM to emit final HTML or Markdown layout.
+7. Return the final report path plus the raw artifact and evidence packet paths.
+   State whether MCP was used, and if it was used, point to the handoff packet
+   that authorized it.
 
 ## Triage Flow
 
@@ -199,8 +239,8 @@ narrow reference below and load only that file.
    produce scorecard-ready aggregate rows and run
    [scripts/scorecard.py](scripts/scorecard.py) to emit
    `bot_entity_scorecard.v1` packets plus a `bot_scorecard_index.v1`.
-8. Fall back to request-level tables only when a required dimension is absent
-   from summaries, and state the fallback reason.
+8. Use request-level tables only when a required dimension is not retained in
+   summaries, and state the reason.
 
 ## Query Guardrails
 
@@ -209,8 +249,9 @@ narrow reference below and load only that file.
   `reqTimeSec`.
 - Prefer summary tables when retained dimensions fit. Do not assume QoQ queries
   need monthly or quarterly summaries; benchmark daily summaries first.
-- Use string comparisons for `response_status_code`, or cast explicitly with
-  `toUInt32OrZero()` when numeric operations are needed.
+- Use numeric comparisons for TrafficPeak summary `statusCode`/SIEM `status`.
+  Use string comparisons for request-level `response_status_code`, or cast
+  explicitly with `toUInt32OrZero()` when numeric operations are needed.
 - Prefer normalized fields over suppressed raw variants.
 - Support both canonical Bot Insights names and source-style Akamai names. Common
   aliases include `timestamp`/`reqTimeSec`, `request_host`/`reqHost`,
@@ -218,6 +259,9 @@ narrow reference below and load only that file.
   `client_city`/`city`, `response_status_code`/`statusCode`,
   `response_total_bytes`/`totalBytes`, and
   `cache_was_cached`/`cacheStatus`.
+- On `akamai.bi_siem_policy_summary_*`, use metadata-confirmed SIEM names such
+  as `policyId`, `actionClass`, `botType`, `cnt_authFail`, `avg_botScore`, and
+  `uniq_clientIp`, or use the aggregate-state merge functions directly.
 - Be explicit about `hdx_cdn` when comparing Akamai SIEM, Akamai DS2, and other
   CDN sources.
 - Treat Akamai-provided bot fields and Hydrolix-derived bot fields as separate
@@ -232,7 +276,7 @@ narrow reference below and load only that file.
   that formula from pasted current/baseline metric JSON. Use it only for numeric
   deltas; do not use it to classify bot intent or recommend action.
 - Use [scripts/compare_posture.py](scripts/compare_posture.py) for structured
-  posture movement, legacy/simple mover attribution, and control-review JSON.
+  posture movement, simple mover attribution, and control-review JSON.
   It emits the existing `bot_posture_movement.v1`,
   `bot_mover_attribution.v1`, and `bot_control_review.v1` packet shapes. Keep
   simple posture and mover workflows here unless the user explicitly needs the
@@ -259,16 +303,41 @@ narrow reference below and load only that file.
   Insights artifacts into Markdown or self-contained HTML reports. It accepts
   existing artifact JSON only; it does not query Hydrolix, recompute scores, or
   infer missing evidence.
-- Local scripts must not contain database clients, connection configuration, or
-  credential handling. Use the Hydrolix MCP server or host Hydrolix query tool
-  for all database access.
+- Use [scripts/bot_insights_capture.py](scripts/bot_insights_capture.py) for
+  vetted Bot Insights presets and guarded Bot Insights summary SQL. The script
+  first generates and validates SQL, then checks for local Hydrolix credentials.
+  When local or CI credentials are configured, it runs direct Hydrolix `/query/`
+  HTTP, writes local JSON, and prints metadata only. When credentials are absent
+  or unresolved, it emits a `bot_hydrolix_mcp_query_request.v1` packet for the
+  LLM/agent to run through Hydrolix MCP and does not query directly. It is not a
+  generic Hydrolix query runner.
+- Use [scripts/bot_insights_report.py](scripts/bot_insights_report.py) for
+  scripted `executive_posture` report, evidence, and template requests. The
+  script calls the capture script; if capture returns an MCP handoff packet, the
+  report script prints that packet and exits with the documented `needs MCP`
+  code. After the LLM/agent saves the MCP result JSON, rerun with
+  `--raw-input <path>` to add report metadata, produce local artifacts, and emit
+  rendered reports or `bot_report_evidence.v1` packets. The LLM may fill prose
+  in a template from that packet only. For other supported rendered report
+  types, create the deterministic artifacts through their own scripts or query
+  workflow and pass them to `scripts/render_report.py`.
+  `~/src/utils/bot-insights-report` remains a thin executable convenience
+  wrapper around this skill script.
+- Broad, non-preset, exploratory, or non-Bot-Insights SQL investigation belongs
+  in the LLM workflow through the available Hydrolix MCP/query tools, not in
+  `bot_insights_capture.py`.
+- Artifact scripts must not contain database clients, connection configuration,
+  or credential handling. The intentional exceptions are
+  `bot_insights_capture.py` and the report orchestration path that calls it.
 
 ## Reference Map
 
 - [references/data-model.md](references/data-model.md): bundle overview, key
   fields, and personas.
 - [references/summary-tables.md](references/summary-tables.md): summary table
-  inventory, retained dimensions, metrics, and raw fallback guidance.
+  inventory, retained dimensions, metrics, and request-level guidance.
+- [references/trafficpeak-demo.md](references/trafficpeak-demo.md): live
+  `demo.trafficpeak.live` Akamai project and with-SIEM dashboard conventions.
 - [references/baseline-comparison.md](references/baseline-comparison.md):
   comparison methods, granularity selection, confidence reasons, output schemas,
   and SQL templates.
@@ -291,7 +360,7 @@ narrow reference below and load only that file.
   enrichment, and reusable investigation packets.
 - [references/advanced-attribution.md](references/advanced-attribution.md):
   advanced aggregate-delta attribution CLI, accepted v1a public input shapes,
-  confidence caps, and the legacy/simple mover boundary.
+  and confidence caps.
 - [references/executive-analysis.md](references/executive-analysis.md):
   posture, multi-domain triage, and mitigation verification.
 - [references/reporting.md](references/reporting.md): renderer input grammar,
@@ -302,8 +371,8 @@ narrow reference below and load only that file.
 - [scripts/compare_delta.py](scripts/compare_delta.py): compute current versus
   baseline absolute and percentage deltas from simple metric JSON.
 - [scripts/compare_posture.py](scripts/compare_posture.py): emit structured
-  Bot Insights posture movement, legacy/simple mover attribution, and
-  control-review JSON from aggregate JSON.
+  Bot Insights posture movement, simple mover attribution, and control-review
+  JSON from aggregate JSON.
 - [scripts/attribution.py](scripts/attribution.py): emit conservative
   `bot_attribution_report.v1` aggregate-delta attribution reports from public
   aggregate JSON.
@@ -316,4 +385,11 @@ narrow reference below and load only that file.
 - [scripts/render_report.py](scripts/render_report.py): render existing Bot
   Insights artifacts or `bot_report_input.v1` wrappers into Markdown or
   self-contained HTML reports.
+- [scripts/bot_insights_capture.py](scripts/bot_insights_capture.py): capture
+  vetted Bot Insights preset or guarded summary SQL results. It uses direct
+  Hydrolix `/query/` HTTP only when local credentials are configured; otherwise
+  it emits a Hydrolix MCP handoff packet.
+- [scripts/bot_insights_report.py](scripts/bot_insights_report.py): orchestrate
+  deterministic Bot Insights report, evidence, and template generation through
+  capture, MCP handoff, `--raw-input` resume, and local artifacts.
 - [examples/](examples/): complete report-rendering demo payloads.

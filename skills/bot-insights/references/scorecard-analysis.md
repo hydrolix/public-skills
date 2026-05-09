@@ -34,14 +34,15 @@ perform forecast, correlation, ML, or opaque classification.
    `client_asn`, `request_path_norm`, `request_host`, `bot_class`, or
    `ai_category`.
 2. Start from the narrowest summary table whose retained dimensions fit that
-   lens, entity, and requested scope. For SOC/security scorecards, seed the
-   entity population from `bi_siem_summary_*`; do not reuse an Edge/Ops,
-   crawler, or posture top-N population unless that is the explicit scope.
+   lens, entity, and requested scope. For TrafficPeak/Akamai SOC/security
+   scorecards, seed the entity population from `bi_siem_policy_summary_*`; do
+   not reuse an Edge/Ops, crawler, or posture top-N population unless that is
+   the explicit scope.
 3. Aggregate current and baseline windows in Hydrolix, returning one row per
    entity with scorecard-ready fields.
 4. Add SIEM enrichment only when security action or policy evidence is needed.
 5. Fall back to request-level tables only when required dimensions or features
-   are unavailable in summaries, and state the fallback reason.
+   are unavailable in summaries, and state the reason.
 6. Run `scripts/scorecard.py` on the aggregate JSON to create reusable packets.
    Pass `analysis_domains` in the input JSON, or `--domains` on the CLI, when
    generating a lens-specific scorecard such as `security_evidence` for SOC or
@@ -137,22 +138,17 @@ revision.
 - Use `akamai.bi_summary_day`, `akamai.bi_summary_hour`, or
   `akamai.bi_summary_minute` for Akamai-project host, ASN, bot class, AI
   category, bot share, cache miss rate, 429/5xx rate, and origin latency when
-  those retained dimensions answer the question. Use `bot_summary_*` only when
-  metadata proves the preferred `bi_summary_*` family is absent or unsuitable.
+  those retained dimensions answer the question.
 - Use `bot_agg_path_day`, `bot_agg_path_hour`, or `bot_agg_path_minute` for
   normalized path scorecards, especially query-string diversity and cache miss
   evidence.
 - Use `bot_agg_asn_hour` when ASN drilldowns need unique normalized paths.
-- Use `akamai.bi_siem_summary_*` for SIEM blocked requests, auth failures, and
-  policy/action evidence on the Akamai project. Treat `akamai.bi_summary_siem_*`
-  as an equivalent deployment-specific alias only when metadata shows that
-  exact table exists. Use `bot_siem_summary_*`, `bot_siem_filter_summary_*`, or
-  `bot_siem_class_*` only when the preferred `bi_*` SIEM surface is absent or
-  lacks the retained dimensions needed for the question.
-- Fall back to `bot_detection` or `bot_detection_siem` only for fields not
-  retained in summaries, such as exact user agent, verified owner,
-  verification tier, bot confidence, attack payload details, exact query
-  strings, or exact status-code inspection.
+- Use `akamai.bi_siem_policy_summary_*` for SIEM blocked requests, auth
+  failures, and policy/action evidence on the TrafficPeak Akamai project.
+- Use `bot_detection` or `bot_detection_siem` only for fields not retained in
+  summaries, such as exact user agent, verified owner, verification tier, bot
+  confidence, attack payload details, exact query strings, or exact status-code
+  inspection.
 
 If Hydrolix metadata reports aggregate-state columns, replace `sum(metric)`
 with the merge function reported by the table metadata tool.
@@ -200,10 +196,8 @@ Use the Hydrolix MCP server or host query tool to run them.
 
 Replace `<posture_summary_day>` / `<posture_summary_hour>` with
 `akamai.bi_summary_day` / `akamai.bi_summary_hour` for Akamai-project
-scorecards. Replace `<siem_summary_hour>` with `akamai.bi_siem_summary_hour`
-unless metadata confirms a deployment-specific `akamai.bi_summary_siem_hour`
-alias. Use `bot_summary_*` or `bot_siem_summary_*` only as metadata-confirmed
-fallbacks.
+scorecards. Replace `<siem_summary_hour>` with
+`akamai.bi_siem_policy_summary_hour` for TrafficPeak/Akamai.
 
 ### ASN Scorecards
 
@@ -473,8 +467,8 @@ For SOC triage, start from the SIEM-active population and evaluate only the
 `security_evidence` domain. This prevents a SOC scorecard from inheriting an
 Edge/Ops host list that has no SIEM rows, and it prevents unrelated cache,
 origin, crawler, or policy-collateral inputs from appearing as missing SOC
-evidence. Use `akamai.bi_siem_summary_hour` on the Akamai project unless
-metadata proves a different SIEM summary table is required.
+evidence. Use `akamai.bi_siem_policy_summary_hour` on the TrafficPeak Akamai
+project unless metadata proves a different SIEM summary table is required.
 
 ```sql
 WITH
@@ -483,15 +477,15 @@ WITH
   toDateTime('<baseline_start>') AS baseline_start,
   toDateTime('<baseline_end>') AS baseline_end
 SELECT
-  request_host,
+  reqHost AS request_host,
   countMergeIf(`count()`, timestamp >= current_start AND timestamp < current_end) AS current_requests,
   countMergeIf(`count()`, timestamp >= baseline_start AND timestamp < baseline_end) AS baseline_requests,
   countIfMergeIf(
-    `countIf(or(equals(action_taken, 'deny'), equals(action_taken, 'block')))`,
+    `countIf(equals(actionClass, 'deny'))`,
     timestamp >= current_start AND timestamp < current_end
   ) AS siem_blocked_requests,
   countIfMergeIf(
-    `countIf(equals(auth_outcome, 'fail'))`,
+    `countIf(equals(authOutcome, 'fail'))`,
     timestamp >= current_start AND timestamp < current_end
   ) AS siem_auth_fail_requests,
   0 AS bad_bot_share_pct
@@ -510,7 +504,7 @@ Wrap the rows with lens metadata before running the script:
 {
   "entity_type": "request_host",
   "analysis_domains": ["security_evidence"],
-  "table_used": "akamai.bi_siem_summary_hour",
+  "table_used": "akamai.bi_siem_policy_summary_hour",
   "rows": []
 }
 ```
@@ -538,14 +532,14 @@ WITH
   toDateTime('<current_start>') AS current_start,
   toDateTime('<current_end>') AS current_end
 SELECT
-  client_asn,
+  asn AS client_asn,
   countMerge(`count()`) AS siem_requests,
-  countIfMerge(`countIf(or(equals(action_taken, 'deny'), equals(action_taken, 'block')))`) AS siem_blocked_requests,
-  countIfMerge(`countIf(equals(auth_outcome, 'fail'))`) AS siem_auth_fail_requests
+  countIfMerge(`countIf(equals(actionClass, 'deny'))`) AS siem_blocked_requests,
+  countIfMerge(`countIf(equals(authOutcome, 'fail'))`) AS siem_auth_fail_requests
 FROM <project>.<siem_summary_hour>
 WHERE timestamp >= current_start
   AND timestamp < current_end
-  AND request_host = '<host>'
+  AND reqHost = '<host>'
 GROUP BY client_asn
 ORDER BY siem_blocked_requests DESC, siem_auth_fail_requests DESC
 LIMIT 50

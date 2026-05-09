@@ -47,7 +47,7 @@
         "scope": {
           "request_host": "www.example.com"
         },
-        "table_used": "bot_summary_hour",
+        "table_used": "bi_summary_hour",
         "total_ranked_entities": 2
       },
       "producer_limit": 5,
@@ -271,7 +271,7 @@
             "request_host": "www.example.com"
           },
           "score": 64,
-          "table_used": "bot_summary_hour"
+          "table_used": "bi_summary_hour"
         },
         {
           "band": "medium_review",
@@ -464,7 +464,7 @@
             "request_host": "www.example.com"
           },
           "score": 50,
-          "table_used": "bot_summary_hour"
+          "table_used": "bi_summary_hour"
         }
       ],
       "total_ranked_entities": 2

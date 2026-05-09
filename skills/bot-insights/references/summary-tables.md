@@ -2,44 +2,45 @@
 
 Bot Insights has request-level records plus summary tables at minute, hour, and
 day granularity. Prefer summaries when their retained dimensions answer the
-question. Fall back to request-level `bot_detection` or `bot_detection_siem`
-only when the required field is missing from the summary surface.
+question. Use request-level `bot_detection` or `bot_detection_siem` only when
+the required field is not retained in the summary surface.
 
 Before querying a deployed Hydrolix summary table, inspect table metadata with
 the Hydrolix MCP server or the host agent's Hydrolix query tool. If a metric is
 stored as an aggregate state, query it with the merge function reported by the
 tool. Do not add database clients or credentials to local scripts.
 
-Deployments may expose both current bundle table names and backwards-compatible
-`bi_*` table names:
+Spec table names for the TrafficPeak Akamai project:
 
-- `bi_summary_*` mirrors the canonical posture dimensions expected from
-  `bot_summary_*`. It is used by both TrafficPeak and non-TrafficPeak
-  deployments and should be treated as the preferred posture summary surface
-  for the `akamai` project. Prefer fully qualified `akamai.bi_summary_*` over
-  `akamai.bot_summary_*` when both are present.
-- `bi_siem_summary_*` mirrors the host/action/ASN/policy SIEM summary expected
-  from `bot_siem_summary_*`. It is used by both TrafficPeak and
-  non-TrafficPeak deployments and should be treated as the preferred SIEM
-  control summary surface for the `akamai` project. Prefer fully qualified
-  `akamai.bi_siem_summary_*`; if a deployment exposes
-  `akamai.bi_summary_siem_*`, treat that as an equivalent deployment-specific
-  alias after metadata inspection.
-- Some alternate or legacy tables may expose source-style Akamai names, such as
-  `reqTimeSec`, `reqHost`, `asn`, `statusCode`, `totalBytes`, and
-  `cacheStatus`.
+- `bi_summary_*` is the posture summary surface. Use fully qualified
+  `akamai.bi_summary_minute`, `akamai.bi_summary_hour`, or
+  `akamai.bi_summary_day`. These tables retain source-style fields including
+  `reqTimeSec`, `reqHost`, `asn`, `userAgentCategory`, `isBotTraffic`,
+  `aiCategory`, `aiSource`, `trafficCohort`, `resourceCategory`, `reqMethod`,
+  `cacheStatus`, `statusCode`, `requestPathPattern`, and `country`.
+- `bi_siem_policy_summary_*` is the with-SIEM dashboard surface. Use fully
+  qualified `akamai.bi_siem_policy_summary_minute`,
+  `akamai.bi_siem_policy_summary_hour`, or
+  `akamai.bi_siem_policy_summary_day`. These tables retain `timestamp`,
+  `host`/`reqHost`, `asn`, `userAgentCategory`, `isBotTraffic`, `aiCategory`,
+  `aiSource`, `resourceCategory`, `method`/`reqMethod`,
+  `status`/`statusCode`, `country`, `policyId`, `actionClass`, and `botType`.
 
 Use metadata as the source of truth for query text. Keep analysis artifacts and
 local script inputs canonical when possible. The attribution SQL renderer
 accepts canonical dimension and filter names, resolves them to metadata-backed
 physical columns, and aliases grouped output back to canonical names.
 
-When the project/database name is absent or equals `akamai`, start discovery as
-though the target is probably TrafficPeak and inspect `bi_summary_*` /
-`bi_siem_summary_*` before `bot_summary_*` / `bot_siem_summary_*`. When the
-project/database name is present and is not `akamai`, start discovery as though
-the target is probably non-TrafficPeak. This is a routing heuristic for table
-discovery only; always confirm with table metadata before writing SQL.
+For `demo.trafficpeak.live`, start from the `akamai` database and confirm table
+metadata before writing SQL.
+
+## Contents
+
+- [Attribution SQL Template Rendering](#attribution-sql-template-rendering)
+- [Selection Rules](#selection-rules)
+- [Inventory](#inventory)
+- [Metric Aliases](#metric-aliases)
+- [Request-Level Dimensions](#request-level-dimensions)
 
 ## Attribution SQL Template Rendering
 
@@ -83,15 +84,17 @@ denominators are computed in the `scored` CTE before the final output `LIMIT`.
 
 ## Selection Rules
 
-- Use day summaries for quarter-over-quarter, month-over-month, year-over-year,
+- Use minute summaries for windows under 3 hours.
+- Use hour summaries for windows under 48 hours.
+- Use day summaries for windows of 48 hours or longer, including
+  quarter-over-quarter, month-over-month, year-over-year,
   same-week-last-year, and executive posture movement.
-- Use hour summaries for same-weekday-hour-last-week, same-hour-yesterday,
-  daily rhythm, and weekday/hour seasonality.
-- Use minute summaries for short policy-change review, detailed timelines, and
-  incident-style follow-up.
 - Choose the narrowest summary that retains the requested dimensions. If a
   requested dimension is absent, either answer at the retained dimension level
   or explicitly fall back to raw request-level data with a tight time filter.
+- Do not use request-level raw tables for standard Bot Insights report
+  captures. Standard reports must use `bi_summary_*`, `bot_agg_*`, or
+  `bi_siem_policy_summary_*`.
 - Do not assume quarter-over-quarter queries need monthly or quarterly
   summaries. Benchmark against daily summaries first.
 
@@ -99,9 +102,9 @@ denominators are computed in the `scored` CTE before the final output `LIMIT`.
 
 | Table | Granularity | Parent | Retained dimensions | Metric support |
 |-------|-------------|--------|---------------------|----------------|
-| `bi_summary_day` / `bot_summary_day` | day | `bot_detection` | `timestamp`, `request_host`, `hdx_cdn`, `bot_class`, `ai_category`, `is_bot_traffic`, `client_asn`, `asn_type`, `resource_category`, `request_method` | requests, 2xx/4xx/429/5xx, cache hit/miss, avg TTFB, avg/p95/p99 origin TTFB, unique client IPs, source latency |
-| `bi_summary_hour` / `bot_summary_hour` | hour | `bot_detection` | same as `bi_summary_day` | same as `bi_summary_day` |
-| `bi_summary_minute` / `bot_summary_minute` | minute | `bot_detection` | same as `bi_summary_day` | same as `bi_summary_day` |
+| `bi_summary_day` | day | `akamai.logs` | `reqTimeSec`, `reqHost`, `asn`, `userAgentCategory`, `isBotTraffic`, `aiCategory`, `aiSource`, `trafficCohort`, `resourceCategory`, `reqMethod`, `cacheStatus`, `statusCode`, `requestPathPattern`, `country` | requests, bytes, status mix, cache hit/miss, average origin TaT, average TTFB, query-string presence/diversity |
+| `bi_summary_hour` | hour | same as `bi_summary_day` | same as `bi_summary_day` | same as `bi_summary_day` |
+| `bi_summary_minute` | minute | same as `bi_summary_day` | same as `bi_summary_day` | same as `bi_summary_day` |
 | `bi_summary_month` | month | `bot_detection` | same as `bi_summary_day` when deployed | same as `bi_summary_day` when deployed |
 | `bot_agg_hour` | hour | `bot_detection` | `timestamp`, `request_host` | requests, 2xx/4xx/429/5xx, cache hit/miss, avg TTFB, avg/p95/p99 origin TTFB, unique client IPs, source latency |
 | `bot_agg_asn_hour` | hour | `bot_detection` | `timestamp`, `request_host`, `client_asn`, `asn_type` | same as `bot_agg_hour`, plus unique normalized paths |
@@ -113,15 +116,9 @@ denominators are computed in the `scored` CTE before the final output `LIMIT`.
 | `bot_agg_resource_day` | day | `bot_detection` | `timestamp`, `request_host`, `resource_category` | same as `bot_agg_path_day` |
 | `bot_agg_resource_hour` | hour | `bot_detection` | same as `bot_agg_resource_day` | same as `bot_agg_path_day` |
 | `bot_agg_resource_minute` | minute | `bot_detection` | same as `bot_agg_resource_day` | same as `bot_agg_path_day` |
-| `bi_siem_summary_day` / `bot_siem_summary_day` | day | `bot_detection_siem` | `timestamp`, `request_host`, `action_taken`, `client_asn`, `policy_id` | requests, blocked requests, auth failures, business failures, avg bot score, 2xx/4xx/5xx, unique client IPs, cache misses |
-| `bi_siem_summary_hour` / `bot_siem_summary_hour` | hour | `bot_detection_siem` | same as `bi_siem_summary_day` | same as `bi_siem_summary_day` |
-| `bi_siem_summary_minute` / `bot_siem_summary_minute` | minute | `bot_detection_siem` | same as `bi_siem_summary_day` | same as `bi_siem_summary_day` |
-| `bot_siem_filter_summary_day` | day | `bot_detection_siem` | `timestamp`, `request_host`, `client_asn`, `is_bot_traffic`, `ai_category`, `resource_category` | same metric family as `bi_siem_summary_day` / `bot_siem_summary_day` |
-| `bot_siem_filter_summary_hour` | hour | `bot_detection_siem` | same as `bot_siem_filter_summary_day` | same metric family as `bi_siem_summary_day` / `bot_siem_summary_day` |
-| `bot_siem_filter_summary_minute` | minute | `bot_detection_siem` | same as `bot_siem_filter_summary_day` | same metric family as `bi_siem_summary_day` / `bot_siem_summary_day` |
-| `bot_siem_class_day` | day | `bot_detection_siem` | `timestamp`, `request_host`, `client_asn`, `akamai_canonical_bot_class` | requests, avg bot score, unique client IPs |
-| `bot_siem_class_hour` | hour | `bot_detection_siem` | same as `bot_siem_class_day` | same as `bot_siem_class_day` |
-| `bot_siem_class_minute` | minute | `bot_detection_siem` | same as `bot_siem_class_day` | same as `bot_siem_class_day` |
+| `bi_siem_policy_summary_day` | day | `akamai.siem` | `timestamp`, `host`/`reqHost`, `asn`, `userAgentCategory`, `isBotTraffic`, `aiCategory`, `aiSource`, `resourceCategory`, `method`/`reqMethod`, `status`/`statusCode`, `country`, `policyId`, `actionClass`, `botType` | requests, blocked requests, auth failures, avg bot score, 2xx/3xx/4xx/5xx, unique client IPs |
+| `bi_siem_policy_summary_hour` | hour | same as `bi_siem_policy_summary_day` | same as `bi_siem_policy_summary_day` | same as `bi_siem_policy_summary_day` |
+| `bi_siem_policy_summary_minute` | minute | same as `bi_siem_policy_summary_day` | same as `bi_siem_policy_summary_day` | same as `bi_siem_policy_summary_day` |
 
 ## Metric Aliases
 
@@ -137,6 +134,9 @@ Common summary metric columns:
 - `uniq_qs`: unique query-string count on path and resource summaries.
 - `cnt_blocked`, `cnt_auth_fail`, `cnt_biz_fail`: SIEM control outcomes.
 - `avg_bot_score`: average Akamai bot score on SIEM summaries.
+- TrafficPeak/Akamai SIEM aliases are camelCase: `cnt_authFail`,
+  `avg_botScore`, and `uniq_clientIp`. Use those names or the exact
+  aggregate-state merge functions from metadata.
 
 Derived posture metrics should be computed from aggregate rows, for example:
 
@@ -153,10 +153,12 @@ function. For example, use the reported `countMerge` function around the
 `count()` aggregate column for total requests, and `countMergeIf` around that
 same aggregate column for bot-request subsets when supported.
 
-## Raw Fallback Dimensions
+## Request-Level Dimensions
 
 Use request-level tables when the question depends on fields not retained in the
 summary catalog, such as `verified_bot_owner`, `bot_confidence`, `bot_intent`,
-`bot_category`, `bot_type`, `client_country_iso_code`, `edge_pop`,
-`response_status_code`, `attack_data`, `user_agent`, or `user_agent_category`.
-State the fallback reason and keep the time range narrow.
+canonical `bot_category`, canonical `bot_type`, `edge_pop`, `attack_data`, or
+exact `user_agent`. Summary-retained fields include `trafficCohort`,
+`userAgentCategory`, `aiCategory`, `aiSource`, `requestPathPattern`, numeric
+`statusCode`, `cacheStatus`, `policyId`, `actionClass`, and `botType`. State
+the reason and keep the time range narrow.

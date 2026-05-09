@@ -5,7 +5,7 @@
 - [Analysis Patterns](#analysis-patterns)
 - [What Moved - Summary Delta](#what-moved--summary-delta-soc-director)
 - [Mover Attribution](#mover-attribution-soc)
-- [Raw Fallback - Newly Seen Entities](#raw-fallback--newly-seen-entities-soc)
+- [Request-Level Query - Newly Seen Entities](#request-level-query--newly-seen-entities-soc)
 - [SOC Evidence - Behavioral Fingerprint](#soc-evidence--behavioral-fingerprint-soc)
 - [Bot Classification Deep Dive](#bot-classification-deep-dive-soc)
 - [Spoof Detection - Three-Signal Verification](#spoof-detection--three-signal-verification-soc)
@@ -22,13 +22,20 @@ summary dimensions explain it. Use hour summaries for same-hour-yesterday or
 same-weekday-hour-last-week comparisons, and minute summaries for detailed
 policy-change timelines.
 In SQL templates, replace `<posture_summary_hour>` with `bi_summary_hour` or an
-equivalent metadata-confirmed `bot_summary_hour`.
+`bi_summary_hour`.
 
 When producing SOC scorecards, seed the entity population from
-`bi_siem_summary_*` / `bot_siem_summary_*`, not from an Edge/Ops or crawler
-top-N list. Feed those rows to `scripts/scorecard.py` with
+`bi_siem_policy_summary_*` on TrafficPeak/Akamai, or from another
+metadata-confirmed SIEM summary table, not from an Edge/Ops or crawler top-N
+list. Feed those rows to `scripts/scorecard.py` with
 `analysis_domains: ["security_evidence"]` or `--domains security_evidence` so
 only SOC-relevant evidence and missing inputs are evaluated.
+
+For live `demo.trafficpeak.live` Akamai queries, prefer the dashboard field
+names in `references/trafficpeak-demo.md`: `reqTimeSec`, `trafficCohort`,
+`aiCategory`, `userAgentCategory`, `requestPathPattern`, `statusCode`, and
+`cacheStatus` on posture summaries; `policyId`, `actionClass`, and `botType`
+on SIEM policy summaries.
 
 ### What Moved — Summary Delta [SOC, Director+]
 
@@ -90,10 +97,10 @@ LIMIT 20
 Use `scripts/compare_posture.py` to add contribution percentages and
 `bot_mover_attribution.v1` interpretation constraints.
 
-### Raw Fallback — Newly Seen Entities [SOC]
+### Request-Level Query — Newly Seen Entities [SOC]
 
 Newly seen exact IPs, user agents, and unretained dimensions require
-request-level fallback with narrow windows.
+request-level queries with narrow windows.
 
 ```sql
 
@@ -162,7 +169,7 @@ LIMIT 10
 ### Bot Classification Deep Dive [SOC]
 
 ```sql
--- Summary-backed class movement. Use raw fallback for bot_intent.
+-- Summary-backed class movement. Use request-level query for bot_intent.
 SELECT
     bot_class,
     sum(cnt_all) as requests,
@@ -194,8 +201,8 @@ ORDER BY score_bucket
 Uses `bot_confidence` to identify bots claiming to be legitimate crawlers but
 originating from suspicious networks. The three signals are: UA pattern match,
 vendor-published IP ranges, and ASN type.
-`bot_confidence`, exact `user_agent`, and verification details are not retained
-in current summaries, so these are request-level fallback queries.
+`bot_confidence`, exact `user_agent`, and verification details are request-level
+fields, so these are request-level queries.
 
 ```sql
 -- Suspicious bots: UA claims bot, but source IP is residential
