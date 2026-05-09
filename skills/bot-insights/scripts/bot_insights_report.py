@@ -309,6 +309,13 @@ SCORECARD_ENTITY_SQL = {
     "ai_category": "toString(aiCategory)",
 }
 
+SOC_ENTITY_SQL = {
+    "client_asn": "toString(asn)",
+    "request_host": "toString(reqHost)",
+    "bot_class": "toString(userAgentCategory)",
+    "ai_category": "toString(aiCategory)",
+}
+
 
 def scorecard_sql(
     database: str,
@@ -346,6 +353,57 @@ WHERE reqTimeSec >= baseline_start
 GROUP BY {entity_type}
 ORDER BY current_requests DESC
 {limit_clause}
+""".strip()
+
+
+def scorecard_soc_sql(
+    database: str,
+    start: datetime,
+    end: datetime,
+    baseline_start: datetime,
+    entity_type: str,
+    producer_limit: int,
+) -> str:
+    granularity = choose_granularity(start, end)
+    table = f"{database}.bi_siem_policy_summary_{granularity}"
+    if entity_type not in SOC_ENTITY_SQL:
+        raise SystemExit(
+            "--entity-type "
+            + entity_type
+            + " is not supported for soc_triage; use one of "
+            + ", ".join(sorted(SOC_ENTITY_SQL))
+        )
+    entity_expr = SOC_ENTITY_SQL[entity_type]
+    limit_clause = f"\nLIMIT {producer_limit}" if producer_limit > 0 else ""
+    return f"""
+WITH
+  toDateTime('{sql_ts(start)}', 'UTC') AS current_start,
+  toDateTime('{sql_ts(end)}', 'UTC') AS current_end,
+  toDateTime('{sql_ts(baseline_start)}', 'UTC') AS baseline_start
+SELECT
+  {entity_expr} AS {entity_type},
+  countMergeIf(`count()`, timestamp >= current_start AND timestamp < current_end) AS current_requests,
+  countMergeIf(`count()`, timestamp >= baseline_start AND timestamp < current_start) AS baseline_requests,
+  countIfMergeIf(
+    `countIf(equals(actionClass, 'deny'))`,
+    timestamp >= current_start AND timestamp < current_end
+  ) AS siem_blocked_requests,
+  countIfMergeIf(
+    `countIf(equals(authOutcome, 'fail'))`,
+    timestamp >= current_start AND timestamp < current_end
+  ) AS siem_auth_fail_requests,
+  avgIfMergeIf(
+    `avgIf(botScore, greater(botScore, 0))`,
+    timestamp >= current_start AND timestamp < current_end
+  ) AS current_avg_bot_score,
+  uniqMergeIf(`uniq(clientIP)`, timestamp >= current_start AND timestamp < current_end) AS current_unique_client_ips
+FROM {table}
+WHERE timestamp >= baseline_start
+  AND timestamp < current_end
+  AND {entity_expr} != ''
+GROUP BY {entity_type}
+HAVING current_requests > 0 OR siem_blocked_requests > 0 OR siem_auth_fail_requests > 0
+ORDER BY siem_blocked_requests DESC, siem_auth_fail_requests DESC, current_requests DESC{limit_clause}
 """.strip()
 
 
@@ -759,6 +817,32 @@ def select_scorecard(
     return scorecards[0]
 
 
+SOC_INTERPRETATION_CONTRACT: dict[str, list[str]] = {
+    "allowed": [
+        "Summarize the SIEM-active SOC scorecard rows and emitted security_evidence features.",
+        "Use score, band, confidence, blocked-request and auth-failure volumes, and recommended next steps.",
+        "Describe SOC rowset limits and missing security inputs explicitly.",
+    ],
+    "forbidden": [
+        "Do not call traffic malicious without additional artifacts.",
+        "Do not invent SIEM metrics or other security evidence inputs.",
+        "Do not query Hydrolix from the interpretation step.",
+        "Do not emit final HTML or Markdown layout.",
+    ],
+}
+
+SOC_TEMPLATE_SECTIONS = [
+    "SOC Triage Summary",
+    "Top Risky Entities",
+    "Selected Entity",
+    "Domain Scores",
+    "Evaluated Security Evidence",
+    "Missing Security Inputs",
+    "Recommended Next Steps",
+    "Method and Caveats",
+]
+
+
 def build_scorecard_evidence_packet(
     *,
     args: argparse.Namespace,
@@ -771,10 +855,44 @@ def build_scorecard_evidence_packet(
     baseline_start: datetime,
 ) -> dict:
     index = artifacts.get("index") if isinstance(artifacts.get("index"), dict) else {}
+    is_soc = args.report == "soc_triage"
+    default_title = (
+        "Bot Insights SOC Triage" if is_soc else "Bot Insights Scorecard Brief"
+    )
+    interpretation_contract = (
+        SOC_INTERPRETATION_CONTRACT
+        if is_soc
+        else {
+            "allowed": [
+                "Summarize only the selected scorecard entity and emitted feature evidence.",
+                "Use score, band, confidence, domain scores, missing inputs, and recommended next steps.",
+                "Describe rowset limits and provenance caveats when present.",
+            ],
+            "forbidden": [
+                "Do not invent metrics or missing scorecard inputs.",
+                "Do not query Hydrolix from the interpretation step.",
+                "Do not claim root cause or malicious intent from scorecard rules alone.",
+                "Do not emit final HTML or Markdown layout.",
+            ],
+        }
+    )
+    template_sections = (
+        SOC_TEMPLATE_SECTIONS
+        if is_soc
+        else [
+            "Scorecard Interpretation",
+            "Selected Entity",
+            "Domain Scores",
+            "Evaluated Feature Evidence",
+            "Missing Scorecard Inputs",
+            "Recommended Next Steps",
+            "Method and Caveats",
+        ]
+    )
     return {
         "schema_version": "bot_report_evidence.v1",
         "report_type": args.report,
-        "title": args.title or "Bot Insights Scorecard Brief",
+        "title": args.title or default_title,
         "scope": {"cluster": args.cluster, "database": args.database},
         "query_context": {
             "cluster": args.cluster,
@@ -826,30 +944,8 @@ def build_scorecard_evidence_packet(
         "baseline_windows": selected_card.get("baseline_windows"),
         "analysis_domains": selected_card.get("analysis_domains")
         or index.get("analysis_domains"),
-        "interpretation_contract": {
-            "allowed": [
-                "Summarize only the selected scorecard entity and emitted feature evidence.",
-                "Use score, band, confidence, domain scores, missing inputs, and recommended next steps.",
-                "Describe rowset limits and provenance caveats when present.",
-            ],
-            "forbidden": [
-                "Do not invent metrics or missing scorecard inputs.",
-                "Do not query Hydrolix from the interpretation step.",
-                "Do not claim root cause or malicious intent from scorecard rules alone.",
-                "Do not emit final HTML or Markdown layout.",
-            ],
-        },
-        "template": {
-            "sections": [
-                "Scorecard Interpretation",
-                "Selected Entity",
-                "Domain Scores",
-                "Evaluated Feature Evidence",
-                "Missing Scorecard Inputs",
-                "Recommended Next Steps",
-                "Method and Caveats",
-            ]
-        },
+        "interpretation_contract": interpretation_contract,
+        "template": {"sections": template_sections},
         "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "baseline_start": baseline_start.isoformat().replace("+00:00", "Z"),
     }
@@ -1103,6 +1199,7 @@ def analyst_note_from_args(args: argparse.Namespace) -> dict | None:
             "executive_posture": "Executive Interpretation",
             "control_review": "Control Review Interpretation",
             "scorecard_brief": "Scorecard Interpretation",
+            "soc_triage": "SOC Triage Interpretation",
         }.get(args.report, "Analyst Interpretation"),
         "text": text.strip(),
         "show_data_sources": False,
@@ -1254,7 +1351,12 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--report",
-        choices=("executive_posture", "control_review", "scorecard_brief"),
+        choices=(
+            "executive_posture",
+            "control_review",
+            "scorecard_brief",
+            "soc_triage",
+        ),
         default="executive_posture",
         help="Report type to generate.",
     )
@@ -1349,10 +1451,21 @@ def main() -> int:
         raise SystemExit("--baseline-start must be earlier than --start")
     if args.scorecard_limit < 0:
         raise SystemExit("--scorecard-limit must be zero or a positive integer.")
-    if args.report != "scorecard_brief" and args.entity_value:
+    if args.report not in {"scorecard_brief", "soc_triage"} and args.entity_value:
         raise SystemExit(
-            "--entity-value is only supported with --report scorecard_brief."
+            "--entity-value is only supported with --report scorecard_brief or --report soc_triage."
         )
+    if args.report == "soc_triage" and args.entity_type not in SOC_ENTITY_SQL:
+        raise SystemExit(
+            "--entity-type "
+            + args.entity_type
+            + " is not supported for soc_triage; use one of "
+            + ", ".join(sorted(SOC_ENTITY_SQL))
+        )
+    if args.report == "soc_triage" and not args.domains:
+        # SOC scorecards must evaluate only the security_evidence domain so
+        # crawler/Edge/Ops features do not surface as missing SOC evidence.
+        args.domains = "security_evidence"
 
     sample_dir = (
         Path(args.sample_dir).expanduser().resolve()
@@ -1399,6 +1512,18 @@ def main() -> int:
         )
         granularity = choose_granularity(start, end)
         table_used = f"{args.database}.bi_summary_{granularity}"
+        compare_schema = None
+    elif args.report == "soc_triage":
+        sql = scorecard_soc_sql(
+            args.database,
+            start,
+            end,
+            baseline_start,
+            args.entity_type,
+            args.scorecard_limit,
+        )
+        granularity = choose_granularity(start, end)
+        table_used = f"{args.database}.bi_siem_policy_summary_{granularity}"
         compare_schema = None
     else:
         raise AssertionError(args.report)
@@ -1447,7 +1572,7 @@ def main() -> int:
                     "granularity": granularity,
                 }
             )
-            if args.report == "scorecard_brief":
+            if args.report in {"scorecard_brief", "soc_triage"}:
                 report_context.update(
                     {
                         "entity_type": args.entity_type,
@@ -1532,7 +1657,7 @@ def main() -> int:
             table_used=table_used,
             baseline_start=baseline_start,
         )
-    elif args.report == "scorecard_brief":
+    elif args.report in {"scorecard_brief", "soc_triage"}:
         raw_value = add_scorecard_metadata(
             raw_value=raw_value,
             args=args,
@@ -1546,7 +1671,7 @@ def main() -> int:
         json.dumps(raw_value, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
 
-    if args.report == "scorecard_brief":
+    if args.report in {"scorecard_brief", "soc_triage"}:
         scorecard_cmd = [
             "uv",
             "run",
@@ -1616,7 +1741,7 @@ def main() -> int:
             table_used=table_used,
             baseline_start=baseline_start,
         )
-    elif args.report == "scorecard_brief":
+    elif args.report in {"scorecard_brief", "soc_triage"}:
         selected_card = select_scorecard(
             artifact,
             entity_type=args.entity_type if args.entity_value else None,
@@ -1654,6 +1779,15 @@ def main() -> int:
             render_artifacts = [selected_card]
             if isinstance(artifact.get("index"), dict):
                 render_artifacts.append(artifact["index"])
+        elif args.report == "soc_triage":
+            render_artifacts = []
+            if isinstance(artifact.get("index"), dict):
+                render_artifacts.append(artifact["index"])
+            scorecards = artifact.get("scorecards")
+            if isinstance(scorecards, list):
+                render_artifacts.extend(
+                    card for card in scorecards if isinstance(card, dict)
+                )
         else:
             render_artifacts = [artifact, *companion_artifacts]
         wrapper = build_report_wrapper(

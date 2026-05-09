@@ -79,35 +79,52 @@ The LLM does not own report layout, metric values, chart values, ranked rows,
 evidence limits, or final HTML/Markdown. Those remain deterministic renderer
 responsibilities.
 
-| Report type | Required artifact schemas | Capture path | `bot_report_evidence.v1` | `bot_report_input.v1` rendering | LLM handoff | MCP boundary | Migration readiness |
-|-------------|---------------------------|--------------|---------------------------|----------------------------------|-------------|--------------|---------------------|
-| `executive_posture` | `bot_posture_movement.v1`; optional `bot_scorecard_index.v1`, `bot_entity_scorecard.v1`, `bot_mover_attribution.v1`, `bot_timeseries.v1` | `bot_insights_report.py --report executive_posture` via vetted summary SQL | Implemented | Implemented and covered by example wrapper | Implemented: pass evidence packet to LLM for prose only | Explicit: run MCP only from emitted `bot_hydrolix_mcp_query_request.v1`, then resume with `--raw-input` | Reference implementation |
-| `soc_triage` | `bot_scorecard_index.v1`; optional compatible `bot_entity_scorecard.v1`, `bot_posture_movement.v1`, `bot_mover_attribution.v1` | Aggregate rows from Hydrolix MCP/host query tool, then `scorecard.py`; no skill-owned evidence capture yet | Not yet | Implemented and covered by example wrapper | Not yet scripted; LLM prose must be inserted as `analyst_notes` only | Manual aggregate capture may use MCP; deterministic report capture must wait for a scripted handoff packet | Next after scorecard evidence-packet orchestration |
-| `control_review` | `bot_control_review.v1`; optional compatible `bot_posture_movement.v1`, `bot_mover_attribution.v1` | `bot_insights_report.py --report control_review` via vetted SIEM policy summary SQL, then `compare_posture.py --schema control` | Implemented | Implemented and covered by example wrapper; report mode renders a `bot_report_input.v1` wrapper | Implemented: pass evidence packet to LLM for prose only, then insert prose as `analyst_notes` | Explicit: run MCP only from emitted `bot_hydrolix_mcp_query_request.v1`, then resume with `--raw-input` | Migrated |
-| `scorecard_brief` | One `bot_entity_scorecard.v1`; optional compatible `bot_scorecard_index.v1` | Aggregate rows from Hydrolix MCP/host query tool, then `scorecard.py` | Not yet | Implemented; no checked-in wrapper example yet | Not yet scripted; LLM prose must be inserted as `analyst_notes` only | Manual aggregate capture may use MCP; deterministic report capture must wait for a scripted handoff packet | High: renderer and deterministic scorecard artifact exist |
-| `crawler_governance` | One or more `bot_entity_scorecard.v1` artifacts with evaluated `crawler_governance` features; optional compatible `bot_scorecard_index.v1`, `bot_posture_movement.v1`, `bot_mover_attribution.v1` | Crawler aggregate rows from Hydrolix MCP/host query tool, then `scorecard.py` | Not yet | Implemented and covered by example wrapper | Not yet scripted; LLM prose must be inserted as `analyst_notes` only | Manual aggregate capture may use MCP; deterministic report capture must wait for a scripted handoff packet | Medium: needs crawler-specific evidence-packet orchestration |
-| `edge_ops_impact` | One or more `bot_entity_scorecard.v1` artifacts with evaluated `cache_busting` or `origin_impact` features; optional compatible `bot_scorecard_index.v1`, `bot_posture_movement.v1`, `bot_mover_attribution.v1` | Path-grain aggregate rows into `cache_origin_impact.py` and/or `scorecard.py`; renderer consumes scorecard features | Not yet | Implemented; no checked-in wrapper example yet | Not yet scripted; LLM prose must be inserted as `analyst_notes` only | Manual aggregate capture may use MCP; deterministic report capture must wait for a scripted handoff packet | Medium: needs scorecard/evidence-packet alignment for Edge/Ops artifacts |
+Every wired report follows the same two-state contract — when local
+credentials resolve, the firewall is on and capture runs the SQL directly;
+when credentials don't resolve, the script emits a
+`bot_hydrolix_mcp_query_request.v1` packet, the LLM runs MCP exactly once with
+that packet's `cluster` and `validated_sql`, and the script resumes with
+`--raw-input`. See [Query Execution Boundary](#query-execution-boundary) for
+the canonical statement and [SKILL.md "Data Firewall"](../SKILL.md#data-firewall)
+for the decision rule.
 
-Next migration work should favor reports that already have deterministic
-artifacts and renderer coverage: `scorecard_brief`, `soc_triage`,
-`crawler_governance`, then `edge_ops_impact`. Keep `executive_posture` and
-`control_review` as reference paths for scripted evidence packets, handoff
-behavior, wrapper construction, and renderer verification.
+| Report type | Required artifact schemas | Creds resolved (firewall on) | No creds (handoff path) | Migration readiness |
+|-------------|---------------------------|------------------------------|--------------------------|---------------------|
+| `executive_posture` | `bot_posture_movement.v1`; optional `bot_scorecard_index.v1`, `bot_entity_scorecard.v1`, `bot_mover_attribution.v1`, `bot_timeseries.v1` | `bot_insights_report.py --report executive_posture --mode evidence` runs vetted summary SQL via `/query/` and writes the evidence packet locally | Same command exits `42` with handoff packet; rerun with `--raw-input <saved.json>` | Reference implementation |
+| `control_review` | `bot_control_review.v1`; optional compatible `bot_posture_movement.v1`, `bot_mover_attribution.v1` | `bot_insights_report.py --report control_review --mode evidence` runs vetted SIEM policy summary SQL via `/query/` and writes the evidence packet locally | Same command exits `42`; rerun with `--raw-input <saved.json>` | Migrated |
+| `scorecard_brief` | One `bot_entity_scorecard.v1`; optional compatible `bot_scorecard_index.v1` | `bot_insights_report.py --report scorecard_brief --mode evidence` runs scorecard-grain summary SQL via `/query/`, then `scorecard.py` produces the artifact and evidence packet locally | Same command exits `42`; rerun with `--raw-input <saved.json>` | Migrated |
+| `soc_triage` | `bot_scorecard_index.v1`; optional compatible `bot_entity_scorecard.v1`, `bot_posture_movement.v1`, `bot_mover_attribution.v1` | `bot_insights_report.py --report soc_triage --mode evidence` runs SIEM policy summary SQL via `/query/`, then `scorecard.py --domains security_evidence` produces the SOC artifact and evidence packet locally | Same command exits `42`; rerun with `--raw-input <saved.json>` | Migrated |
+| `crawler_governance` | One or more `bot_entity_scorecard.v1` artifacts with evaluated `crawler_governance` features; optional compatible `bot_scorecard_index.v1`, `bot_posture_movement.v1`, `bot_mover_attribution.v1` | Not yet wired in `bot_insights_report.py` — capture crawler aggregate rows through Hydrolix MCP and feed `scorecard.py --domains crawler_governance` directly. Flag this exception when reporting | Same — exploratory MCP path until orchestration lands | Medium: needs crawler-specific evidence-packet orchestration |
+| `edge_ops_impact` | One or more `bot_entity_scorecard.v1` artifacts with evaluated `cache_busting` or `origin_impact` features; optional compatible `bot_scorecard_index.v1`, `bot_posture_movement.v1`, `bot_mover_attribution.v1` | Not yet wired in `bot_insights_report.py` — capture path-grain aggregate rows through Hydrolix MCP and feed `cache_origin_impact.py` and/or `scorecard.py` directly. Flag this exception when reporting | Same — exploratory MCP path until orchestration lands | Medium: needs scorecard/evidence-packet alignment for Edge/Ops artifacts |
+
+Next migration work: `crawler_governance`, then `edge_ops_impact`. They share
+the scorecard-evidence-packet shape `scorecard_brief` and `soc_triage` use, so
+the increment is small.
 
 ## Query Execution Boundary
 
-Customers normally use Hydrolix MCP for query execution. The Bot Insights
-capture script can still run direct Hydrolix `/query/` HTTP as an optimization
-for local or CI environments that have `HYDROLIX_HOST`/`HDX_HOSTNAME` plus a
-token or username/password credentials configured. If those credentials are
-missing or an `op://` value cannot be resolved by `op run --env-file`, capture
-prints a `bot_hydrolix_mcp_query_request.v1` packet and exits with code `42`
-instead of treating missing credentials as a query failure.
+This section restates the two credential states for predefined report
+captures. The canonical statement of the policy and the decision rule for
+when MCP is forbidden vs. required lives in
+[SKILL.md "Data Firewall"](../SKILL.md#data-firewall).
 
-For skill-owned deterministic report captures, MCP is allowed only through this
-explicit packet. When it appears, the LLM/agent should run Hydrolix MCP
-`run_select_query` with exactly the packet's `cluster` and `validated_sql`, save
-the complete JSON result to `target_raw_output_path`, then resume:
+**Creds resolved (firewall on).** When `~/.config/hydrolix/clusters/<cluster>.env`
+(or the same `HYDROLIX_HOST`/`HDX_HOSTNAME` plus token or user/password vars)
+resolves and no value is an unresolved `op://`, capture runs the validated SQL
+through Hydrolix `/query/` HTTP and writes only the JSON result to the local
+output path. The LLM never sees the raw response — it sees the producer
+script's deterministic artifact (`bot_posture_movement.v1`,
+`bot_entity_scorecard.v1`, etc.) and the `bot_report_evidence.v1` packet built
+from it. The LLM MUST NOT call `mcp__*__run_select_query` for this report's
+data in this state.
+
+**No creds (handoff path).** When credentials are absent or an `op://`
+reference can't be resolved by `op run --env-file`, capture prints a
+`bot_hydrolix_mcp_query_request.v1` packet and exits with code `42` instead of
+treating missing credentials as a query failure. The LLM/agent then runs
+Hydrolix MCP `run_select_query` with exactly the packet's `cluster` and
+`validated_sql`, saves the complete JSON result to `target_raw_output_path`,
+then resumes the same command with `--raw-input`:
 
 ```bash
 uv run python skills/bot-insights/scripts/bot_insights_report.py \

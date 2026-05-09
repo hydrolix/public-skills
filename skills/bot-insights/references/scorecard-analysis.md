@@ -192,7 +192,14 @@ caller provides displacement inputs.
 ## SQL Templates
 
 These templates intentionally omit clients, credentials, and execution logic.
-Use the Hydrolix MCP server or host query tool to run them.
+For the predefined report types these templates feed (`soc_triage`,
+`scorecard_brief`, `crawler_governance`, `edge_ops_impact`), prefer the
+script-orchestrated path documented in [reporting.md](reporting.md) —
+`bot_insights_capture.py` runs the query directly when local credentials
+resolve and emits a `bot_hydrolix_mcp_query_request.v1` handoff packet
+otherwise. Run these templates directly via Hydrolix MCP only when no script
+path covers the report type, or for exploratory analysis outside a predefined
+report. See [SKILL.md "Data Firewall"](../SKILL.md#data-firewall).
 
 Replace `<posture_summary_day>` / `<posture_summary_hour>` with
 `akamai.bi_summary_day` / `akamai.bi_summary_hour` for Akamai-project

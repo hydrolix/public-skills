@@ -219,6 +219,59 @@ type.
    State whether MCP was used, and if it was used, point to the handoff packet
    that authorized it.
 
+## Data Firewall
+
+Predefined Bot Insights report types — `executive_posture`, `control_review`,
+`soc_triage`, `scorecard_brief`, `crawler_governance`, `edge_ops_impact` — run
+through a deterministic capture path. When local Hydrolix credentials are
+configured, this path runs the validated SQL directly against the cluster's
+`/query/` endpoint and writes only the JSON result to disk. The LLM never sees
+the raw response — it sees the post-aggregation deterministic artifacts the
+producer scripts emit (`bot_posture_movement.v1`,
+`bot_entity_scorecard.v1`, etc.) plus a `bot_report_evidence.v1` packet. That
+is the firewall.
+
+When credentials don't resolve, the same capture path emits a
+`bot_hydrolix_mcp_query_request.v1` handoff packet and exits with code `42`.
+Only then does the LLM run `mcp__*__run_select_query` — with the packet's exact
+`cluster` and `validated_sql`, saving the response to the path the packet
+specifies, then resuming the capture or report script with `--raw-input`.
+
+Which scripts are in scope:
+
+- Run queries (capture path): [scripts/bot_insights_capture.py](scripts/bot_insights_capture.py),
+  and [scripts/bot_insights_report.py](scripts/bot_insights_report.py) which
+  delegates to it.
+- Never run queries: [scripts/scorecard.py](scripts/scorecard.py),
+  [scripts/attribution.py](scripts/attribution.py),
+  [scripts/cache_origin_impact.py](scripts/cache_origin_impact.py),
+  [scripts/compare_posture.py](scripts/compare_posture.py),
+  [scripts/compare_delta.py](scripts/compare_delta.py),
+  [scripts/baselines.py](scripts/baselines.py), and
+  [scripts/render_report.py](scripts/render_report.py). They consume saved
+  JSON only.
+
+Exploratory analysis — broad investigation SQL that doesn't fit a predefined
+report — is unaffected. Use Hydrolix MCP / host query tools as today; you can't
+write a deterministic capture for an open-ended investigation.
+
+Decision rule before running any `run_select_query`:
+
+1. Is this a predefined report type? If no, MCP is fine.
+2. Is there a `~/.config/hydrolix/clusters/<cluster>.env` file (or
+   `HYDROLIX_HOST`/`HDX_HOSTNAME` plus a token or user/password) where every
+   value resolves and isn't an unresolved `op://` reference? If yes, MCP is
+   forbidden for this report's data — run the capture script.
+3. Otherwise, run the capture script first. Only call `run_select_query` if
+   the script emits a `bot_hydrolix_mcp_query_request.v1` packet and exits
+   `42`, and then only with the packet's exact `cluster` and `validated_sql`.
+
+Reports for which the script-orchestrated capture path is wired:
+`executive_posture`, `control_review`, `soc_triage`, and `scorecard_brief`.
+`crawler_governance` and `edge_ops_impact` are not yet wired — flag the
+exception when you produce one of those reports and capture aggregate rows
+through MCP into `scorecard.py` directly.
+
 ## Triage Flow
 
 1. Identify the persona and decision: SOC, SEO, Edge/Ops, or executive posture.
@@ -304,28 +357,27 @@ type.
   existing artifact JSON only; it does not query Hydrolix, recompute scores, or
   infer missing evidence.
 - Use [scripts/bot_insights_capture.py](scripts/bot_insights_capture.py) for
-  vetted Bot Insights presets and guarded Bot Insights summary SQL. The script
-  first generates and validates SQL, then checks for local Hydrolix credentials.
-  When local or CI credentials are configured, it runs direct Hydrolix `/query/`
-  HTTP, writes local JSON, and prints metadata only. When credentials are absent
-  or unresolved, it emits a `bot_hydrolix_mcp_query_request.v1` packet for the
-  LLM/agent to run through Hydrolix MCP and does not query directly. It is not a
-  generic Hydrolix query runner.
+  vetted Bot Insights presets and guarded Bot Insights summary SQL. It is the
+  one script that may reach Hydrolix; how it routes between direct `/query/`
+  HTTP and an MCP handoff packet is governed by the [Data Firewall](#data-firewall).
+  It is not a generic Hydrolix query runner.
 - Use [scripts/bot_insights_report.py](scripts/bot_insights_report.py) for
-  scripted `executive_posture` report, evidence, and template requests. The
-  script calls the capture script; if capture returns an MCP handoff packet, the
-  report script prints that packet and exits with the documented `needs MCP`
-  code. After the LLM/agent saves the MCP result JSON, rerun with
-  `--raw-input <path>` to add report metadata, produce local artifacts, and emit
-  rendered reports or `bot_report_evidence.v1` packets. The LLM may fill prose
-  in a template from that packet only. For other supported rendered report
-  types, create the deterministic artifacts through their own scripts or query
-  workflow and pass them to `scripts/render_report.py`.
-  `~/src/utils/bot-insights-report` remains a thin executable convenience
-  wrapper around this skill script.
+  scripted `executive_posture`, `control_review`, `scorecard_brief`, and
+  `soc_triage` report, evidence, and template requests. The script calls
+  capture; if capture returns an MCP handoff packet, the report script prints
+  that packet and exits with the documented `needs MCP` code. After the
+  LLM/agent saves the MCP result JSON, rerun with `--raw-input <path>` to add
+  report metadata, produce local artifacts, and emit rendered reports or
+  `bot_report_evidence.v1` packets. The LLM may fill prose in a template from
+  that packet only. For supported report types not yet wired here
+  (`crawler_governance`, `edge_ops_impact`), create the deterministic artifacts
+  through their own scripts or query workflow and pass them to
+  `scripts/render_report.py`. `~/src/utils/bot-insights-report` remains a thin
+  executable convenience wrapper around this skill script.
 - Broad, non-preset, exploratory, or non-Bot-Insights SQL investigation belongs
-  in the LLM workflow through the available Hydrolix MCP/query tools, not in
-  `bot_insights_capture.py`.
+  in the LLM workflow through Hydrolix MCP / host query tools, not in
+  `bot_insights_capture.py` — see the Data Firewall section's exploratory
+  carve-out.
 - Artifact scripts must not contain database clients, connection configuration,
   or credential handling. The intentional exceptions are
   `bot_insights_capture.py` and the report orchestration path that calls it.

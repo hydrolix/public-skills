@@ -16,6 +16,15 @@
 
 ## Analysis Patterns
 
+For predefined SOC reports (`soc_triage`), prefer the script-orchestrated
+capture path documented in [reporting.md](reporting.md): `bot_insights_report.py
+--report soc_triage` runs the SQL directly when local Hydrolix credentials
+resolve and emits a `bot_hydrolix_mcp_query_request.v1` handoff packet
+otherwise. The SQL templates below are intended for that capture path or for
+exploratory SOC investigation outside a predefined report — see
+[SKILL.md "Data Firewall"](../SKILL.md#data-firewall) for the rule on when MCP
+is forbidden.
+
 SOC analysis remains available for short-window investigation, but the first
 Bot Insights pass should still ask what posture moved and which retained
 summary dimensions explain it. Use hour summaries for same-hour-yesterday or

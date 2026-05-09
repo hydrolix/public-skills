@@ -1699,6 +1699,384 @@ class BotInsightsScriptTests(unittest.TestCase):
             )
             self.assertFalse(wrapper_seen["analyst_notes"][0]["show_data_sources"])
 
+    def test_bot_insights_report_soc_triage_handoff_packet(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output = Path(tmpdir) / "soc-evidence.json"
+            sample_dir = Path(tmpdir) / "sample"
+            handoff = {
+                "schema_version": "bot_hydrolix_mcp_query_request.v1",
+                "cluster": "demo",
+                "database": "akamai",
+                "validated_sql": "SELECT 1 FROM akamai.bi_siem_policy_summary_hour WHERE timestamp >= now() FORMAT JSON",
+                "target_raw_output_path": str(sample_dir / "soc_triage-raw.json"),
+                "mcp": {
+                    "server": "hydrolix_mux",
+                    "tool": "run_select_query",
+                    "arguments": {
+                        "cluster": "demo",
+                        "query": "SELECT 1 FROM akamai.bi_siem_policy_summary_hour WHERE timestamp >= now() FORMAT JSON",
+                    },
+                },
+            }
+            captured_sql: dict[str, str] = {}
+
+            def fake_run(cmd, *, stdout_path=None, cwd=None, allowed_returncodes=()):
+                joined = " ".join(map(str, cmd))
+                if "bot_insights_capture.py" in joined:
+                    self.assertIn(
+                        self.bot_insights_report.NEEDS_MCP_EXIT, allowed_returncodes
+                    )
+                    sql_index = cmd.index("--sql") + 1
+                    captured_sql["sql"] = cmd[sql_index]
+                    return json.dumps(handoff)
+                raise AssertionError(cmd)
+
+            argv = [
+                "bot-insights-report",
+                "--cluster",
+                "demo",
+                "--database",
+                "akamai",
+                "--report",
+                "soc_triage",
+                "--mode",
+                "evidence",
+                "--entity-type",
+                "request_host",
+                "--start",
+                "2026-05-02T00:00:00Z",
+                "--end",
+                "2026-05-03T00:00:00Z",
+                "--output",
+                str(output),
+                "--sample-dir",
+                str(sample_dir),
+            ]
+            stdout = io.StringIO()
+            with (
+                mock.patch.object(sys, "argv", argv),
+                mock.patch.object(
+                    self.bot_insights_report, "run", side_effect=fake_run
+                ),
+                mock.patch("sys.stdout", stdout),
+            ):
+                self.assertEqual(
+                    self.bot_insights_report.main(),
+                    self.bot_insights_report.NEEDS_MCP_EXIT,
+                )
+
+            printed = json.loads(stdout.getvalue())
+            self.assertEqual(
+                printed["schema_version"], "bot_hydrolix_mcp_query_request.v1"
+            )
+            self.assertEqual(printed["report_context"]["report"], "soc_triage")
+            self.assertEqual(
+                printed["report_context"]["table_used"],
+                "akamai.bi_siem_policy_summary_hour",
+            )
+            self.assertEqual(
+                printed["report_context"]["analysis_domains"], "security_evidence"
+            )
+            self.assertIn("bi_siem_policy_summary_hour", captured_sql["sql"])
+            self.assertIn("countIfMergeIf", captured_sql["sql"])
+            self.assertFalse(output.exists())
+
+    def test_bot_insights_report_soc_triage_raw_input_emits_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output = Path(tmpdir) / "soc-evidence.json"
+            sample_dir = Path(tmpdir) / "sample"
+            raw_input = Path(tmpdir) / "mcp-result.json"
+            raw_input.write_text(
+                json.dumps(
+                    {
+                        "data": [
+                            {
+                                "request_host": "www.example.com",
+                                "current_requests": 200,
+                                "baseline_requests": 50,
+                                "siem_blocked_requests": 30,
+                                "siem_auth_fail_requests": 12,
+                            }
+                        ],
+                        "rows": 1,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            scorecard_invocations: list[list[str]] = []
+
+            def fake_run(cmd, *, stdout_path=None, cwd=None, allowed_returncodes=()):
+                joined = " ".join(map(str, cmd))
+                if "bot_insights_capture.py" in joined:
+                    raise AssertionError("capture should be skipped with --raw-input")
+                if "scorecard.py" in joined and stdout_path is not None:
+                    scorecard_invocations.append(list(cmd))
+                    stdout_path.write_text(
+                        json.dumps(
+                            {
+                                "schema_version": "bot_scorecard_artifacts.v1",
+                                "scorecards": [
+                                    {
+                                        "schema_version": "bot_entity_scorecard.v1",
+                                        "entity_type": "request_host",
+                                        "entity": "www.example.com",
+                                        "score": 78,
+                                        "band": "high_review",
+                                        "primary_domain": "security_evidence",
+                                        "confidence": "medium",
+                                        "domain_scores": {"security_evidence": 78},
+                                        "features": [
+                                            {
+                                                "name": "siem_blocked_present",
+                                                "domain": "security_evidence",
+                                                "evidence": "SIEM summary reports 30 blocked requests.",
+                                            }
+                                        ],
+                                        "not_evaluated_features": [],
+                                        "recommended_next_steps": [
+                                            "Inspect SIEM block reasons."
+                                        ],
+                                    }
+                                ],
+                                "index": {
+                                    "schema_version": "bot_scorecard_index.v1",
+                                    "ranked_entities": [
+                                        {
+                                            "rank": 1,
+                                            "entity_type": "request_host",
+                                            "entity": "www.example.com",
+                                            "score": 78,
+                                        }
+                                    ],
+                                    "analysis_domains": ["security_evidence"],
+                                },
+                            }
+                        ),
+                        encoding="utf-8",
+                    )
+                    return ""
+                raise AssertionError(cmd)
+
+            argv = [
+                "bot-insights-report",
+                "--cluster",
+                "demo",
+                "--database",
+                "akamai",
+                "--report",
+                "soc_triage",
+                "--mode",
+                "evidence",
+                "--start",
+                "2026-05-02T00:00:00Z",
+                "--end",
+                "2026-05-03T00:00:00Z",
+                "--output",
+                str(output),
+                "--sample-dir",
+                str(sample_dir),
+                "--raw-input",
+                str(raw_input),
+            ]
+            stdout = io.StringIO()
+            with (
+                mock.patch.object(sys, "argv", argv),
+                mock.patch.object(
+                    self.bot_insights_report, "run", side_effect=fake_run
+                ),
+                mock.patch("sys.stdout", stdout),
+            ):
+                self.assertEqual(self.bot_insights_report.main(), 0)
+
+            self.assertEqual(len(scorecard_invocations), 1)
+            scorecard_cmd = scorecard_invocations[0]
+            self.assertIn("--domains", scorecard_cmd)
+            domains_value = scorecard_cmd[scorecard_cmd.index("--domains") + 1]
+            self.assertEqual(domains_value, "security_evidence")
+
+            packet = json.loads(output.read_text())
+            self.assertEqual(packet["schema_version"], "bot_report_evidence.v1")
+            self.assertEqual(packet["report_type"], "soc_triage")
+            self.assertEqual(packet["title"], "Bot Insights SOC Triage")
+            self.assertEqual(
+                packet["query_context"]["table_used"],
+                "akamai.bi_siem_policy_summary_hour",
+            )
+            self.assertEqual(packet["selected_entity"]["entity"], "www.example.com")
+            self.assertEqual(packet["selected_entity"]["rank"], 1)
+            forbidden = " ".join(packet["interpretation_contract"]["forbidden"])
+            self.assertIn("malicious", forbidden)
+            allowed = " ".join(packet["interpretation_contract"]["allowed"])
+            self.assertIn("SOC", allowed)
+            self.assertIn("SOC Triage Summary", packet["template"]["sections"])
+
+    def test_bot_insights_report_soc_triage_report_mode_renders_wrapper(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output = Path(tmpdir) / "soc-triage.html"
+            sample_dir = Path(tmpdir) / "sample"
+            raw_input = Path(tmpdir) / "mcp-result.json"
+            raw_input.write_text(json.dumps({"data": [], "rows": 0}), encoding="utf-8")
+            wrapper_seen: dict = {}
+
+            def fake_run(cmd, *, stdout_path=None, cwd=None, allowed_returncodes=()):
+                joined = " ".join(map(str, cmd))
+                if "bot_insights_capture.py" in joined:
+                    raise AssertionError("capture should be skipped")
+                if "scorecard.py" in joined and stdout_path is not None:
+                    stdout_path.write_text(
+                        json.dumps(
+                            {
+                                "schema_version": "bot_scorecard_artifacts.v1",
+                                "scorecards": [
+                                    {
+                                        "schema_version": "bot_entity_scorecard.v1",
+                                        "entity_type": "request_host",
+                                        "entity": "www.example.com",
+                                        "score": 78,
+                                        "band": "high_review",
+                                        "primary_domain": "security_evidence",
+                                        "confidence": "medium",
+                                        "domain_scores": {"security_evidence": 78},
+                                        "features": [],
+                                        "not_evaluated_features": [],
+                                        "scope": {
+                                            "cluster": "demo",
+                                            "database": "akamai",
+                                            "entity_type": "request_host",
+                                        },
+                                        "comparison_type": "previous_window",
+                                        "table_used": "akamai.bi_siem_policy_summary_hour",
+                                        "current_window": {
+                                            "start": "2026-05-02T00:00:00Z",
+                                            "end": "2026-05-03T00:00:00Z",
+                                        },
+                                        "baseline_windows": [
+                                            {
+                                                "start": "2026-05-01T00:00:00Z",
+                                                "end": "2026-05-02T00:00:00Z",
+                                            }
+                                        ],
+                                    }
+                                ],
+                                "index": {
+                                    "schema_version": "bot_scorecard_index.v1",
+                                    "scope": {
+                                        "cluster": "demo",
+                                        "database": "akamai",
+                                        "entity_type": "request_host",
+                                    },
+                                    "comparison_type": "previous_window",
+                                    "table_used": "akamai.bi_siem_policy_summary_hour",
+                                    "current_window": {
+                                        "start": "2026-05-02T00:00:00Z",
+                                        "end": "2026-05-03T00:00:00Z",
+                                    },
+                                    "baseline_windows": [
+                                        {
+                                            "start": "2026-05-01T00:00:00Z",
+                                            "end": "2026-05-02T00:00:00Z",
+                                        }
+                                    ],
+                                    "ranked_entities": [
+                                        {
+                                            "rank": 1,
+                                            "entity_type": "request_host",
+                                            "entity": "www.example.com",
+                                            "score": 78,
+                                        }
+                                    ],
+                                    "analysis_domains": ["security_evidence"],
+                                },
+                            }
+                        ),
+                        encoding="utf-8",
+                    )
+                    return ""
+                if "render_report.py" in joined:
+                    wrapper_path = Path(cmd[cmd.index("--file") + 1])
+                    wrapper_seen.update(json.loads(wrapper_path.read_text()))
+                    Path(cmd[cmd.index("--output") + 1]).write_text(
+                        "<html>ok</html>", encoding="utf-8"
+                    )
+                    return ""
+                raise AssertionError(cmd)
+
+            argv = [
+                "bot-insights-report",
+                "--cluster",
+                "demo",
+                "--database",
+                "akamai",
+                "--report",
+                "soc_triage",
+                "--mode",
+                "report",
+                "--start",
+                "2026-05-02T00:00:00Z",
+                "--end",
+                "2026-05-03T00:00:00Z",
+                "--output",
+                str(output),
+                "--sample-dir",
+                str(sample_dir),
+                "--raw-input",
+                str(raw_input),
+                "--analyst-notes",
+                "SIEM-active hosts cluster around www.example.com; review SIEM block reasons.",
+            ]
+            stdout = io.StringIO()
+            with (
+                mock.patch.object(sys, "argv", argv),
+                mock.patch.object(
+                    self.bot_insights_report, "run", side_effect=fake_run
+                ),
+                mock.patch("sys.stdout", stdout),
+            ):
+                self.assertEqual(self.bot_insights_report.main(), 0)
+
+            self.assertEqual(wrapper_seen["schema_version"], "bot_report_input.v1")
+            self.assertEqual(wrapper_seen["report_type"], "soc_triage")
+            self.assertEqual(wrapper_seen["title"], "SOC Triage")
+            schemas = [
+                artifact["schema_version"] for artifact in wrapper_seen["artifacts"]
+            ]
+            self.assertEqual(schemas[0], "bot_scorecard_index.v1")
+            self.assertIn("bot_entity_scorecard.v1", schemas)
+            self.assertEqual(
+                wrapper_seen["analyst_notes"][0]["title"],
+                "SOC Triage Interpretation",
+            )
+
+    def test_bot_insights_report_soc_triage_rejects_path_entity_type(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            argv = [
+                "bot-insights-report",
+                "--cluster",
+                "demo",
+                "--database",
+                "akamai",
+                "--report",
+                "soc_triage",
+                "--mode",
+                "evidence",
+                "--entity-type",
+                "request_path_norm",
+                "--start",
+                "2026-05-02T00:00:00Z",
+                "--end",
+                "2026-05-03T00:00:00Z",
+                "--output",
+                str(Path(tmpdir) / "soc-evidence.json"),
+                "--sample-dir",
+                str(Path(tmpdir) / "sample"),
+            ]
+            with (
+                mock.patch.object(sys, "argv", argv),
+                self.assertRaises(SystemExit) as cm,
+            ):
+                self.bot_insights_report.main()
+            self.assertIn("request_path_norm", str(cm.exception))
+
     def render_args(self, **overrides):
         defaults = {
             "text": [],
