@@ -59,8 +59,7 @@ INTERPRETATION_CONSTRAINT_LABELS = {
     "rule_based_scorecard": "Rule-based scorecard",
     "mechanical_features_only": "Mechanical features only",
     "no_causal_claim": "No causal claim",
-    "llm_may_summarize_structured_evidence_only":
-        "LLM may summarize structured evidence only",
+    "llm_may_summarize_structured_evidence_only": "LLM may summarize structured evidence only",
     "summary_first": "Summary-first analysis",
     "no_query_during_interpretation": "No Hydrolix queries during interpretation",
 }
@@ -70,6 +69,19 @@ RULE_STATUS_LABELS = {
     "evaluated_zero": "Below threshold",
     "missing_input": "Inputs missing",
     "not_evaluated": "Not evaluated",
+}
+
+# Display labels for the entity_type axis on per-entity scorecards. The SOC
+# triage queue heading reads "ASN risk queue" / "host risk queue" / "IP risk
+# queue" depending on what the producer ranked. Unknown identifiers fall
+# back to humanize_identifier.
+ENTITY_TYPE_LABELS = {
+    "client_asn": "ASN",
+    "request_host": "host",
+    "client_ip": "IP",
+    "user_agent": "user agent",
+    "country": "country",
+    "bot_class": "bot class",
 }
 
 # Override map for known cluster/database names where the simple Title Case
@@ -134,3 +146,13 @@ def humanize_constraint(s: str) -> str:
 
 def humanize_status(s: str) -> str:
     return RULE_STATUS_LABELS.get(s, humanize_identifier(s))
+
+
+def humanize_entity_type(s: str) -> str:
+    """Reader-facing noun for an entity_type identifier (e.g. ``client_asn``).
+
+    Used in the SOC triage H1 ("…ASN risk queue") and as the unit label on
+    per-entity tables and pills. Unknown entity types fall back to
+    humanize_identifier so a new producer dimension still renders sensibly.
+    """
+    return ENTITY_TYPE_LABELS.get(s, humanize_identifier(s))

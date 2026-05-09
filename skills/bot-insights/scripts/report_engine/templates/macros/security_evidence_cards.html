@@ -1,0 +1,80 @@
+{# Per-entity card surfacing the security_evidence triggered features.
+
+   Renders one card per Assign or Watch entity. Foregrounds the SIEM /
+   bad-bot rules at the top, then lists adjacent triggered features
+   (movement, etc.) below as supporting context. The confidence chip is
+   a coverage hint, not a verdict — a thin-coverage card still ranks
+   in the queue. #}
+{% macro security_evidence_cards(cards) %}
+{% if cards %}
+<section class="sec-evidence-section">
+  <div class="section-eyebrow">Security evidence</div>
+  <h2>{{ cards | length }} entit{{ "y" if cards | length == 1 else "ies" }} need analyst attention</h2>
+  <div class="sec-evidence-grid">
+    {% for c in cards %}
+      <article class="sec-evidence-card sec-evidence-{{ c.verdict_tone }}">
+        <header class="sec-evidence-head">
+          <div class="sec-evidence-title">
+            <span class="sec-evidence-entity">{{ c.entity_display }}</span>
+            {% if c.rank %}<span class="sec-evidence-rank">#{{ c.rank }}</span>{% endif %}
+          </div>
+          <div class="sec-evidence-meta">
+            <span class="pill pill-{{ c.verdict_tone }} pill-sm">{{ c.verdict_label }}</span>
+            <span class="sec-evidence-score">Score {{ c.score }}</span>
+            {% if c.primary_domain_label %}
+              <span class="domain-pill">{{ c.primary_domain_label }}</span>
+            {% endif %}
+            {% if c.confidence_chip %}
+              <span class="pill pill-{{ c.confidence_chip.tone }} pill-sm">{{ c.confidence_chip.label }}</span>
+            {% endif %}
+          </div>
+        </header>
+
+        {% if c.security_features %}
+          <div class="sec-evidence-block">
+            <div class="sec-evidence-block-label">Security signals</div>
+            <ul class="sec-evidence-rules">
+              {% for f in c.security_features %}
+                <li class="sec-evidence-rule">
+                  <div class="sec-evidence-rule-head">
+                    <span class="sec-evidence-rule-name">{{ f.name_label }}</span>
+                    {% if f.points is not none %}
+                      <span class="sec-evidence-rule-points">+{{ f.points }} pts</span>
+                    {% endif %}
+                  </div>
+                  {% if f.evidence %}
+                    <p class="sec-evidence-rule-evidence">{{ f.evidence | normalize_percents }}</p>
+                  {% endif %}
+                </li>
+              {% endfor %}
+            </ul>
+          </div>
+        {% endif %}
+
+        {% if c.other_features %}
+          <div class="sec-evidence-block">
+            <div class="sec-evidence-block-label">Supporting movement signals</div>
+            <ul class="sec-evidence-rules">
+              {% for f in c.other_features %}
+                <li class="sec-evidence-rule">
+                  <div class="sec-evidence-rule-head">
+                    <span class="sec-evidence-rule-name">{{ f.name_label }}</span>
+                    <span class="sec-evidence-rule-domain">{{ f.domain_label }}</span>
+                    {% if f.points is not none %}
+                      <span class="sec-evidence-rule-points">+{{ f.points }} pts</span>
+                    {% endif %}
+                  </div>
+                  {% if f.evidence %}
+                    <p class="sec-evidence-rule-evidence">{{ f.evidence | normalize_percents }}</p>
+                  {% endif %}
+                </li>
+              {% endfor %}
+            </ul>
+          </div>
+        {% endif %}
+      </article>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+{% endmacro %}

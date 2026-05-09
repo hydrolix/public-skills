@@ -1124,6 +1124,9 @@ def build_report_wrapper(
             "executive_posture": "Bot & Edge Movement",
             "control_review": "Bot Insights Control Review",
             "scorecard_brief": "Bot Insights Scorecard Brief",
+            # The auto-generated form lowercases the SOC acronym ("Soc
+            # Triage") which reads wrong; spell it explicitly.
+            "soc_triage": "SOC Triage",
         }.get(args.report, f"Bot Insights {args.report.replace('_', ' ').title()}"),
         "scope_label": f"{args.cluster}/{args.database}",
         "artifacts": artifacts,

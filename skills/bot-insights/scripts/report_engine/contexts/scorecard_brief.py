@@ -6,6 +6,7 @@ from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from statistics import median
 
+from .. import scorecards as scorecards_mod
 from .. import verdicts as verdicts_mod
 from .. import volume_impact as vi
 from ..findings import Finding, build_scorecard_brief_findings
@@ -91,7 +92,10 @@ def prepare(artifact: dict) -> dict:
     n_with_triggers = sum(
         1
         for sc in scorecards
-        if any(r["status"] == "triggered" for r in sc["rule_results"])
+        if any(
+            r.get("status") == "triggered"
+            for r in scorecards_mod.normalize_rule_results(sc)
+        )
     )
     n_clean = n_total - n_with_triggers
     n_moved = sum(1 for sc in scorecards if sc.get("score_delta_points", 0) != 0)
@@ -339,8 +343,10 @@ def _compute_dek(
 def _aggregate_coverage(scorecards: list[dict]) -> dict[str, dict[str, int]]:
     coverage: dict[str, Counter] = defaultdict(Counter)
     for sc in scorecards:
-        for rule in sc["rule_results"]:
-            coverage[rule["domain"]][rule["status"]] += 1
+        for rule in scorecards_mod.normalize_rule_results(sc):
+            domain = rule.get("domain") or "other"
+            status = rule.get("status") or "missing_input"
+            coverage[domain][status] += 1
     return {d: dict(c) for d, c in coverage.items()}
 
 
@@ -593,16 +599,7 @@ def _actionable_summary(
 
 
 def _rule_counts(sc: dict) -> dict:
-    rule_results = sc.get("rule_results") or []
-    triggered = sum(1 for r in rule_results if r.get("status") == "triggered")
-    below = sum(1 for r in rule_results if r.get("status") == "evaluated_zero")
-    missing = sum(1 for r in rule_results if r.get("status") == "missing_input")
-    return {
-        "triggered": triggered,
-        "below_threshold": below,
-        "missing_input": missing,
-        "total": len(rule_results),
-    }
+    return scorecards_mod.rule_counts(sc)
 
 
 def _triage_strip(verdicts_by_entity: dict[str, dict], n_total: int) -> dict:
@@ -675,7 +672,7 @@ def _shared_signal(scorecards: list[dict], n_total: int) -> dict | None:
     triggered_counts: Counter = Counter()
     triggered_hosts: dict[str, set[str]] = defaultdict(set)
     for sc in scorecards:
-        for r in sc.get("rule_results") or []:
+        for r in scorecards_mod.normalize_rule_results(sc):
             if r.get("status") == "triggered":
                 name = r.get("name") or ""
                 triggered_counts[name] += 1
@@ -729,7 +726,7 @@ def _fleet_coverage_detail(scorecards: list[dict], n_total: int) -> dict | None:
     """
     by_rule: dict[str, dict] = {}
     for sc in scorecards:
-        for r in sc.get("rule_results") or []:
+        for r in scorecards_mod.normalize_rule_results(sc):
             if r.get("status") != "missing_input":
                 continue
             name = r.get("name") or ""
@@ -782,7 +779,9 @@ def _queue_rows(entities: list[dict]) -> list[dict]:
 
 def _entity_row(sc: dict, rank_lookup: dict[str, int]) -> dict:
     triggered_rules = [
-        r["name"] for r in sc["rule_results"] if r["status"] == "triggered"
+        r.get("name") or ""
+        for r in scorecards_mod.normalize_rule_results(sc)
+        if r.get("status") == "triggered"
     ]
     evidence = sc.get("evidence_summary") or []
     domain_label = DOMAIN_LABELS.get(sc["primary_domain"], sc["primary_domain"])
@@ -790,6 +789,10 @@ def _entity_row(sc: dict, rank_lookup: dict[str, int]) -> dict:
     return {
         "rank": rank_lookup.get(sc["entity"], "—"),
         "entity": sc["entity"],
+        # Reader-facing rendering of the entity. The brief reuses the bare
+        # identifier (request hosts read fine as-is); SOC overrides with a
+        # noun-prefixed form ("ASN 64500") downstream.
+        "entity_display": sc["entity"],
         "score": sc["score"],
         "delta": delta,
         "primary_domain": sc["primary_domain"],

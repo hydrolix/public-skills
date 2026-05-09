@@ -1,0 +1,178 @@
+{
+  "schema_version": "bot_report_input.v1",
+  "report_type": "soc_triage",
+  "title": "SOC Triage - single entity - 2026-04-14",
+  "scope_label": "www.example.com",
+  "analyst_notes": [],
+  "artifacts": [
+    {
+      "artifact_id": "scorecard-pack-1",
+      "schema_version": "bot_scorecard_artifacts.v1",
+      "producer_limit": 5,
+      "result_row_count": 1,
+      "result_truncated": false,
+      "total_ranked_entities": 1,
+      "index": {
+        "schema_version": "bot_scorecard_index.v1",
+        "comparison_type": "week_over_week",
+        "scope": {
+          "request_host": "www.example.com",
+          "cluster": "demo",
+          "database": "bot_insights"
+        },
+        "table_used": "bi_summary_hour",
+        "current_window": {
+          "start": "2026-04-07T00:00:00Z",
+          "end": "2026-04-14T00:00:00Z"
+        },
+        "baseline_windows": [
+          {
+            "start": "2026-03-31T00:00:00Z",
+            "end": "2026-04-07T00:00:00Z"
+          }
+        ],
+        "producer_limit": 5,
+        "result_row_count": 1,
+        "result_truncated": false,
+        "total_ranked_entities": 1,
+        "interpretation_constraints": [
+          "rule_based_scorecard",
+          "mechanical_features_only",
+          "no_causal_claim"
+        ],
+        "ranked_entities": [
+          {
+            "rank": 1,
+            "entity": "64500",
+            "entity_type": "client_asn",
+            "score": 72,
+            "band": "high_review",
+            "confidence": "high",
+            "primary_domain": "security_evidence"
+          }
+        ]
+      },
+      "scorecards": [
+        {
+          "schema_version": "bot_entity_scorecard.v1",
+          "entity": "64500",
+          "entity_type": "client_asn",
+          "score": 72,
+          "baseline_score": 30,
+          "score_delta_points": 42,
+          "band": "high_review",
+          "confidence": "high",
+          "confidence_reasons": [
+            "summary_table_used",
+            "current_count_sufficient",
+            "baseline_count_sufficient",
+            "feature_input_complete"
+          ],
+          "primary_domain": "security_evidence",
+          "scope": {
+            "request_host": "www.example.com",
+            "cluster": "demo",
+            "database": "bot_insights"
+          },
+          "table_used": "bi_summary_hour",
+          "comparison_type": "week_over_week",
+          "current_window": {
+            "start": "2026-04-07T00:00:00Z",
+            "end": "2026-04-14T00:00:00Z"
+          },
+          "baseline_windows": [
+            {
+              "start": "2026-03-31T00:00:00Z",
+              "end": "2026-04-07T00:00:00Z"
+            }
+          ],
+          "interpretation_constraints": [
+            "rule_based_scorecard",
+            "mechanical_features_only",
+            "no_causal_claim"
+          ],
+          "entity_metrics": {
+            "current_requests": 500000,
+            "baseline_requests": 100000
+          },
+          "domain_scores": {
+            "security_evidence": 50,
+            "movement": 22,
+            "cache_busting": 0,
+            "crawler_governance": 0,
+            "origin_impact": 0,
+            "policy_collateral": 0,
+            "signal_alignment": 0
+          },
+          "evidence_summary": [
+            "Bad bot share is 78%.",
+            "SIEM summary reports 2400 blocked requests.",
+            "Request volume increased by 400000 (400%)."
+          ],
+          "features": [
+            {
+              "name": "bad_bot_share_high",
+              "domain": "security_evidence",
+              "current": 78,
+              "threshold": 50,
+              "points": 18,
+              "evidence": "Bad bot share is 78%."
+            },
+            {
+              "name": "siem_blocked_present",
+              "domain": "security_evidence",
+              "current": 2400,
+              "threshold": 0,
+              "points": 16,
+              "evidence": "SIEM summary reports 2400 blocked requests."
+            },
+            {
+              "name": "siem_auth_fail_present",
+              "domain": "security_evidence",
+              "current": 350,
+              "threshold": 0,
+              "points": 16,
+              "evidence": "SIEM summary reports 350 auth failures."
+            },
+            {
+              "name": "volume_delta_high",
+              "domain": "movement",
+              "current": 500000,
+              "baseline": 100000,
+              "threshold": 100,
+              "points": 14,
+              "evidence": "Request volume increased by 400000 (400%).",
+              "supporting_metrics": {
+                "absolute_delta": 400000,
+                "pct_change": 400
+              }
+            },
+            {
+              "name": "bot_share_delta_high",
+              "domain": "movement",
+              "current": 78,
+              "baseline": 22,
+              "threshold": 10,
+              "points": 8,
+              "evidence": "Bot share increased by 56 percentage points.",
+              "supporting_metrics": {
+                "absolute_delta_points": 56
+              }
+            }
+          ],
+          "not_evaluated_features": [],
+          "recommended_next_steps": [
+            {
+              "summary": "Investigate the volume mover.",
+              "detail": "Pull per-host attribution for ASN 64500 over the affected window and confirm the SIEM-blocked uplift correlates with the volume mover."
+            },
+            {
+              "summary": "Review SIEM events.",
+              "detail": "Pull the SIEM auth-fail and blocked-request events for ASN 64500 in this window and confirm the policy that fired."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

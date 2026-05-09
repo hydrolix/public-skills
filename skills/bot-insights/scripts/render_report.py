@@ -4167,16 +4167,18 @@ def table_to_html(lines: list[str]) -> str:
     return "".join(output)
 
 
-def _render_executive_posture_via_engine(
+def _render_via_engine(
+    *,
+    report_type: str,
     value: Any,
     artifacts: list[dict[str, Any]],
     notes: list[dict[str, Any]],
     ctx: ReportContext,
 ) -> str | None:
-    """Route HTML rendering through the report_engine when the input is a
-    wrapper carrying ``executive_posture``. Returns None when the engine
-    can't accept this input (raw artifact mode, missing schema, etc.) so
-    the caller can fall back to the legacy markdown→HTML path.
+    """Route HTML rendering through the report_engine for a given
+    wrapper ``report_type``. Returns ``None`` when the engine can't
+    accept this input (raw artifact mode, missing schema, registry miss)
+    so the caller can fall back to the legacy markdown→HTML path.
     """
     try:
         from report_engine import render as engine_render
@@ -4187,12 +4189,12 @@ def _render_executive_posture_via_engine(
     is_wrapper = (
         isinstance(value, dict)
         and value.get("schema_version") == "bot_report_input.v1"
-        and value.get("report_type") == "executive_posture"
+        and value.get("report_type") == report_type
     )
     if not is_wrapper:
         return None
 
-    module = REPORT_TYPE_REGISTRY.get("executive_posture")
+    module = REPORT_TYPE_REGISTRY.get(report_type)
     if module is None:
         return None
 
@@ -4200,7 +4202,7 @@ def _render_executive_posture_via_engine(
         artifact = module.assemble(artifacts)
     except (ValueError, KeyError) as exc:
         ctx.warnings.append(
-            f"executive_posture report_engine assembly failed ({exc}); "
+            f"{report_type} report_engine assembly failed ({exc}); "
             "falling back to legacy markdown path."
         )
         return None
@@ -4216,6 +4218,22 @@ def _render_executive_posture_via_engine(
     env = engine_render.build_env()
     template = env.get_template(module.TEMPLATE)
     return template.render(**template_ctx)
+
+
+def _render_executive_posture_via_engine(
+    value: Any,
+    artifacts: list[dict[str, Any]],
+    notes: list[dict[str, Any]],
+    ctx: ReportContext,
+) -> str | None:
+    """Backwards-compat shim — kept so any external caller still works."""
+    return _render_via_engine(
+        report_type="executive_posture",
+        value=value,
+        artifacts=artifacts,
+        notes=notes,
+        ctx=ctx,
+    )
 
 
 def render(
@@ -4247,13 +4265,17 @@ def render(
     scan_metadata_warnings(artifacts, ctx)
     validate_analyst_notes(notes, artifacts)
     if args.format == "html":
-        # Dual-route: HTML for executive_posture goes through the new
-        # report_engine path so callers get the Bot & Edge Movement
-        # brief. Markdown callers (md_executive) stay on the legacy
-        # path. Other report types are unchanged.
-        if report_type == "executive_posture":
-            engine_html = _render_executive_posture_via_engine(
-                value, artifacts, notes, ctx
+        # Dual-route: HTML for ``executive_posture`` and ``soc_triage``
+        # goes through the new report_engine path. Markdown callers
+        # (``md_executive``, ``md_soc``) stay on the legacy path. Other
+        # report types are unchanged.
+        if report_type in {"executive_posture", "soc_triage"}:
+            engine_html = _render_via_engine(
+                report_type=report_type,
+                value=value,
+                artifacts=artifacts,
+                notes=notes,
+                ctx=ctx,
             )
             if engine_html is not None:
                 return engine_html, ctx.warnings

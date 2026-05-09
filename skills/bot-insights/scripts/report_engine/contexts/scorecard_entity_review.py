@@ -13,6 +13,7 @@ from collections import Counter
 from dataclasses import asdict
 from datetime import datetime, timezone
 
+from .. import scorecards as scorecards_mod
 from .. import verdicts as verdicts_mod
 from .. import volume_impact as vi
 from ..findings import Finding
@@ -192,13 +193,15 @@ def prepare(artifact: dict) -> dict:
     confidence = sc["confidence"]
     primary_domain = sc.get("primary_domain") or "none"
 
-    rule_results = sc.get("rule_results") or []
+    rule_results = scorecards_mod.normalize_rule_results(sc)
     triggered = [r for r in rule_results if r.get("status") == "triggered"]
     below_threshold = [r for r in rule_results if r.get("status") == "evaluated_zero"]
     missing = [r for r in rule_results if r.get("status") == "missing_input"]
 
     triggered_rows = [_triggered_row(r) for r in triggered]
-    triggered_by_domain = Counter(r.get("domain") for r in triggered)
+    triggered_by_domain: Counter[str] = Counter(
+        (r.get("domain") or "") for r in triggered
+    )
 
     # Fleet context — render only when wrapper actually carries a multi-host
     # index. Lets the reader place this host within a broader review.
@@ -224,12 +227,7 @@ def prepare(artifact: dict) -> dict:
         rank_clause = ""
     headline = f"{cluster_label} — {entity}{rank_clause}"
 
-    rule_counts = {
-        "triggered": len(triggered),
-        "below_threshold": len(below_threshold),
-        "missing_input": len(missing),
-        "total": len(rule_results),
-    }
+    rule_counts = scorecards_mod.rule_counts(sc)
     verdict = verdicts_mod.classify(band, rule_counts)
     confidence_chip = verdicts_mod.confidence_chip(rule_counts)
     entity_metrics = sc.get("entity_metrics") or {}

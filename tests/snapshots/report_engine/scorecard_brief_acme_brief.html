@@ -887,6 +887,166 @@ section > h2 {
   font-size: 13px;
 }
 
+/* SOC triage — degraded-mode banner. Surfaced when the wrapper carried
+   the ranking index but no per-entity scorecards. */
+.degraded-banner {
+  margin: 4px 0 24px;
+  padding: 12px 16px;
+  background: var(--surface-2);
+  border-left: 3px solid var(--monitor);
+  border-radius: 0 6px 6px 0;
+}
+.degraded-banner-eyebrow {
+  display: block;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+.degraded-banner p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.5;
+}
+
+/* SOC triage — security evidence cards. One card per Assign / Watch
+   entity. Foregrounds the SIEM / bad-bot rules, then movement signals
+   below as supporting context. */
+.sec-evidence-section { margin-bottom: 48px; }
+.sec-evidence-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+}
+@media (min-width: 760px) {
+  .sec-evidence-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+.sec-evidence-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--observe);
+  border-radius: 8px;
+  padding: 18px 20px;
+}
+.sec-evidence-card.sec-evidence-escalate { border-left-color: var(--escalate); }
+.sec-evidence-card.sec-evidence-monitor { border-left-color: var(--monitor); }
+.sec-evidence-card.sec-evidence-observe { border-left-color: var(--observe); }
+.sec-evidence-head {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+.sec-evidence-title {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.sec-evidence-entity {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+  word-break: break-all;
+}
+.sec-evidence-rank {
+  font-size: 11px;
+  color: var(--muted-2);
+  font-variant-numeric: tabular-nums;
+}
+.sec-evidence-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.sec-evidence-score {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.sec-evidence-block { margin-top: 12px; }
+.sec-evidence-block:first-child { margin-top: 0; }
+.sec-evidence-block-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+.sec-evidence-rules {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.sec-evidence-rule {
+  background: var(--surface-2);
+  border-radius: 6px;
+  padding: 8px 12px;
+}
+.sec-evidence-rule-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.sec-evidence-rule-name {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text);
+}
+.sec-evidence-rule-domain {
+  font-size: 11px;
+  color: var(--muted-2);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.sec-evidence-rule-points {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--escalate);
+}
+.sec-evidence-rule-evidence {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.5;
+}
+
+/* Domain score matrix — entities × domains grid. Empty cells render as
+   muted dashes; non-zero cells render as tinted pills. */
+.domain-matrix .domain-matrix-col {
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-align: center;
+  white-space: nowrap;
+}
+.domain-matrix .domain-matrix-cell {
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  vertical-align: middle;
+}
+.domain-matrix .domain-matrix-empty {
+  color: var(--muted-2);
+}
+.domain-matrix .domain-matrix-pill {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
 /* Method */
 .method {
   display: grid;

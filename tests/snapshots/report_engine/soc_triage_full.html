@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Bot Scorecard Brief — Acme</title>
+  <title>SOC Triage</title>
   <style>:root {
   --bg: #fafaf9;
   --surface: #ffffff;
@@ -1140,13 +1140,13 @@ footer {
 
     <header class="report-header">
       <div class="header-titles">
-        <div class="kicker">Bot &amp; Cache Health Scorecard — fleet review</div>
-        <h1>Acme — 20 request hosts reviewed</h1>
-<p class="dek">16 of 20 hosts triggered at least one rule; no host scores moved versus baseline.</p>      </div>
+        <div class="kicker">Bot Insights — security risk triage</div>
+        <h1>SOC Triage — www.example.com, ASN risk queue</h1>
+<p class="dek">Top entities ranked by mechanical risk indicators for the current window.</p>      </div>
       <div class="window">
         <div class="window-label">Comparison window</div>
-        <div>2026-05-07 00:00 → 2026-05-08 00:00 UTC</div>
-        <div class="window-vs">vs 2026-05-06 00:00 → 2026-05-07 00:00 UTC</div>
+        <div>2026-04-07 00:00 → 2026-04-14 00:00 UTC</div>
+        <div class="window-vs">vs 2026-03-31 00:00 → 2026-04-07 00:00 UTC</div>
       </div>
     </header>
 
@@ -1154,50 +1154,31 @@ footer {
   <div class="section-eyebrow">Executive summary</div>
   <h2>What this report says</h2>
     <div class="prose">
-      <p><strong>16 of 20 hosts share Cache miss rate high — investigate as one issue, not 16.</strong></p>
-        <p class="exec-body">4 cannot be judged from this report alone.</p>
+      <p><strong>1 of 2 ASN needs analyst attention — start with ASN 64500 (bad-bot share 65%, SIEM evidence present).</strong></p>
+        <p class="exec-body">1 to watch.</p>
         <p class="exec-recommendation">
           <span class="exec-recommendation-label">Recommended action</span>
-          Audit query-string and cache-key behavior — investigate as one cause, not 16.
+          Enrich with SIEM action, policy, auth-failure, and blocked-request summaries for the same entity.
         </p>
-        <p class="exec-caveat">Coverage is thin — 68% of rule evaluations had missing inputs. Real risk may be higher than the score implies.</p>
+        <p class="exec-caveat">Coverage is thin — 80% of rule evaluations had missing inputs. Real risk may be higher than the score implies.</p>
     </div>
 </section>
 
 
-
-    <section>
-  <div class="section-eyebrow">Score landscape</div>
-  <h2>Where the work sits in the queue</h2>
-  <div class="landscape-grid ">
-    <div class="lowest-host-card">
-      <div class="lowest-host-label">Lowest scoring host</div>
-        <div class="lowest-host-entity">apihub.acme.com</div>
-        <div class="lowest-host-meta">
-          <span class="lowest-host-score">Score 90</span>
-          <span class="pill pill-observe">Watch</span>
-        </div>
-    </div>
-    <div class="hist-card">
-      <div class="hist-label">Triage state distribution</div>
-      <svg viewBox="0 0 660 200" class="triage-hist" role="img" aria-label="Triage state distribution"><line x1="36" y1="156" x2="640" y2="156" stroke="#d4d4d8" stroke-width="1" /><rect x="36.0" y="156.0" width="137.5" height="0.0" fill="#E15759" fill-opacity="0.35" rx="3" /><text x="104.8" y="150.0" text-anchor="middle" class="hist-bar-count">0</text><text x="104.8" y="174.0" text-anchor="middle" class="hist-axis-tick">Assign</text><rect x="191.5" y="32.0" width="137.5" height="124.0" fill="#F28E2B" fill-opacity="1" rx="3" /><text x="260.2" y="26.0" text-anchor="middle" class="hist-bar-count">16</text><text x="260.2" y="174.0" text-anchor="middle" class="hist-axis-tick">Watch</text><rect x="347.0" y="125.0" width="137.5" height="31.0" fill="#71717a" fill-opacity="1" rx="3" /><text x="415.8" y="119.0" text-anchor="middle" class="hist-bar-count">4</text><text x="415.8" y="174.0" text-anchor="middle" class="hist-axis-tick">Insufficient</text><rect x="502.5" y="156.0" width="137.5" height="0.0" fill="#4E79A7" fill-opacity="0.35" rx="3" /><text x="571.2" y="150.0" text-anchor="middle" class="hist-bar-count">0</text><text x="571.2" y="174.0" text-anchor="middle" class="hist-axis-tick">Close — expected</text></svg>
-    </div>
-  </div>
-</section>
 
 
   <header class="verdict-strip" aria-label="Fleet triage">
   <div class="verdict-pills">
-      <span class="pill pill-escalate triage-count pill-muted">
-        <strong>0</strong>
+      <span class="pill pill-escalate triage-count">
+        <strong>1</strong>
         <span class="triage-pill-label">Assign</span>
       </span>
       <span class="pill pill-monitor triage-count">
-        <strong>16</strong>
+        <strong>1</strong>
         <span class="triage-pill-label">Watch</span>
       </span>
-      <span class="pill pill-neutral triage-count">
-        <strong>4</strong>
+      <span class="pill pill-neutral triage-count pill-muted">
+        <strong>0</strong>
         <span class="triage-pill-label">Insufficient data</span>
       </span>
       <span class="pill pill-observe triage-count pill-muted">
@@ -1205,47 +1186,115 @@ footer {
         <span class="triage-pill-label">Close — expected</span>
       </span>
   </div>
-    <p class="verdict-rationale">16 to watch; 4 cannot be judged from this report alone (out of 20).</p>
-    <div class="shared-signal-banner" role="note">
-      <span class="shared-signal-eyebrow">Shared signal</span>
-      <p>16 of 20 hosts share Cache miss rate high — investigate as one issue, not 16.</p>
-    </div>
+    <p class="verdict-rationale">1 ASN needs analyst attention; 1 to watch (out of 2).</p>
 </header>
 
 
-  
+  <section class="sec-evidence-section">
+  <div class="section-eyebrow">Security evidence</div>
+  <h2>2 entities need analyst attention</h2>
+  <div class="sec-evidence-grid">
+      <article class="sec-evidence-card sec-evidence-monitor">
+        <header class="sec-evidence-head">
+          <div class="sec-evidence-title">
+            <span class="sec-evidence-entity">ASN 64500</span>
+<span class="sec-evidence-rank">#1</span>          </div>
+          <div class="sec-evidence-meta">
+            <span class="pill pill-monitor pill-sm">Assign</span>
+            <span class="sec-evidence-score">Score 58</span>
+              <span class="domain-pill">Security evidence</span>
+              <span class="pill pill-neutral pill-sm">Low confidence: 11 of 16 rules missing inputs</span>
+          </div>
+        </header>
 
-    <section>
-  <div class="section-eyebrow">Headline findings</div>
-  <h2>What changed and what it means</h2>
-  <ol class="findings">
-      <li class="finding">
-        <h3>16 of 20 hosts share Cache miss rate high — investigate as one issue, not 16</h3>
-        <p>4 cannot be judged from this report alone.</p>
-      </li>
-      <li class="finding">
-        <h3>16 hosts share one cache busting signal — investigate as one issue, not 16</h3>
-        <p>`cache_miss_rate_high` fired on 16 of 20 hosts; the other triggered rules are sparse. A shared signal more often points to a single fleet-wide cause than to 16 independent occurrences.</p>
-      </li>
-      <li class="finding">
-        <h3>Confidence is bounded by feature coverage — 68.18% of rule evaluations had missing inputs</h3>
-        <p>300 of 440 rule evaluations could not be scored because their feature inputs were not available. Real risk may be higher than the score implies.</p>
-      </li>
-      <li class="finding">
-        <h3>No host scores moved versus baseline</h3>
-        <p>All 20 hosts have a score delta of 0 against the prior equivalent window. This report describes the current health snapshot, not change over time.</p>
-      </li>
-  </ol>
+          <div class="sec-evidence-block">
+            <div class="sec-evidence-block-label">Security signals</div>
+            <ul class="sec-evidence-rules">
+                <li class="sec-evidence-rule">
+                  <div class="sec-evidence-rule-head">
+                    <span class="sec-evidence-rule-name">Bad bot share high</span>
+                      <span class="sec-evidence-rule-points">+14 pts</span>
+                  </div>
+                    <p class="sec-evidence-rule-evidence">Bad bot share is 65.00%.</p>
+                </li>
+                <li class="sec-evidence-rule">
+                  <div class="sec-evidence-rule-head">
+                    <span class="sec-evidence-rule-name">Siem auth fail present</span>
+                      <span class="sec-evidence-rule-points">+12 pts</span>
+                  </div>
+                    <p class="sec-evidence-rule-evidence">SIEM summary reports 200 auth failures.</p>
+                </li>
+                <li class="sec-evidence-rule">
+                  <div class="sec-evidence-rule-head">
+                    <span class="sec-evidence-rule-name">Siem blocked present</span>
+                      <span class="sec-evidence-rule-points">+12 pts</span>
+                  </div>
+                    <p class="sec-evidence-rule-evidence">SIEM summary reports 1200 blocked requests.</p>
+                </li>
+            </ul>
+          </div>
+
+          <div class="sec-evidence-block">
+            <div class="sec-evidence-block-label">Supporting movement signals</div>
+            <ul class="sec-evidence-rules">
+                <li class="sec-evidence-rule">
+                  <div class="sec-evidence-rule-head">
+                    <span class="sec-evidence-rule-name">Volume delta high</span>
+                    <span class="sec-evidence-rule-domain">Movement</span>
+                      <span class="sec-evidence-rule-points">+12 pts</span>
+                  </div>
+                    <p class="sec-evidence-rule-evidence">Request volume increased by 340000 (425.00%).</p>
+                </li>
+                <li class="sec-evidence-rule">
+                  <div class="sec-evidence-rule-head">
+                    <span class="sec-evidence-rule-name">Bot share delta high</span>
+                    <span class="sec-evidence-rule-domain">Movement</span>
+                      <span class="sec-evidence-rule-points">+8 pts</span>
+                  </div>
+                    <p class="sec-evidence-rule-evidence">Bot share increased by 44.1 percentage points.</p>
+                </li>
+            </ul>
+          </div>
+      </article>
+      <article class="sec-evidence-card sec-evidence-observe">
+        <header class="sec-evidence-head">
+          <div class="sec-evidence-title">
+            <span class="sec-evidence-entity">ASN 64600</span>
+<span class="sec-evidence-rank">#2</span>          </div>
+          <div class="sec-evidence-meta">
+            <span class="pill pill-observe pill-sm">Watch</span>
+            <span class="sec-evidence-score">Score 12</span>
+              <span class="domain-pill">Security evidence</span>
+              <span class="pill pill-neutral pill-sm">Low confidence: 13 of 14 rules missing inputs</span>
+          </div>
+        </header>
+
+          <div class="sec-evidence-block">
+            <div class="sec-evidence-block-label">Security signals</div>
+            <ul class="sec-evidence-rules">
+                <li class="sec-evidence-rule">
+                  <div class="sec-evidence-rule-head">
+                    <span class="sec-evidence-rule-name">Siem blocked present</span>
+                      <span class="sec-evidence-rule-points">+12 pts</span>
+                  </div>
+                    <p class="sec-evidence-rule-evidence">SIEM summary reports 40 blocked requests.</p>
+                </li>
+            </ul>
+          </div>
+
+      </article>
+  </div>
 </section>
 
-    <section>
+
+  <section>
   <div class="section-eyebrow">Triage queue</div>
-  <h2>20 hosts, ordered by what to do</h2>
+  <h2>2 ASNs, ordered by what to do</h2>
   <table class="data-table queue-table">
     <thead>
       <tr>
         <th>Verdict</th>
-        <th>Host</th>
+        <th>Asn</th>
         <th>Score</th>
         <th>Δ</th>
         <th>Primary domain</th>
@@ -1254,453 +1303,110 @@ footer {
     </thead>
     <tbody>
           <tr class="queue-state-divider">
+            <td colspan="6"><span class="pill pill-monitor">Assign</span></td>
+          </tr>
+        <tr>
+          <td><span class="pill pill-monitor pill-sm">Assign</span></td>
+          <td class="entity">ASN 64500</td>
+          <td class="score-cell">
+            <span class="score-num">58</span>
+            <svg viewBox="0 0 88 8" class="score-bar" role="img" aria-label="Score 58"><rect x="0" y="0" width="88" height="8" rx="2" fill="#f4f4f5" /><rect x="0" y="0" width="51.0" height="8" rx="2" fill="#F28E2B" /></svg>
+          </td>
+          <td>
+<span class="delta-flat">±0</span>
+          </td>
+          <td>
+            <span class="domain-pill primary-active">Security evidence</span>
+          </td>
+          <td class="evidence-cell">Bad bot share is 65.00%.</td>
+        </tr>
+          <tr class="queue-state-divider">
             <td colspan="6"><span class="pill pill-observe">Watch</span></td>
           </tr>
         <tr>
           <td><span class="pill pill-observe pill-sm">Watch</span></td>
-          <td class="entity">apihub.acme.com</td>
+          <td class="entity">ASN 64600</td>
           <td class="score-cell">
-            <span class="score-num">90</span>
-            <svg viewBox="0 0 88 8" class="score-bar" role="img" aria-label="Score 90"><rect x="0" y="0" width="88" height="8" rx="2" fill="#f4f4f5" /><rect x="0" y="0" width="79.2" height="8" rx="2" fill="#4E79A7" /></svg>
+            <span class="score-num">12</span>
+            <svg viewBox="0 0 88 8" class="score-bar" role="img" aria-label="Score 12"><rect x="0" y="0" width="88" height="8" rx="2" fill="#f4f4f5" /><rect x="0" y="0" width="10.6" height="8" rx="2" fill="#E15759" /></svg>
           </td>
           <td>
 <span class="delta-flat">±0</span>
           </td>
           <td>
-            <span class="domain-pill primary-active">Cache busting</span>
+            <span class="domain-pill primary-active">Security evidence</span>
           </td>
-          <td class="evidence-cell">Cache miss rate is 99.99%.</td>
-        </tr>
-        <tr>
-          <td><span class="pill pill-observe pill-sm">Watch</span></td>
-          <td class="entity">b2b-api.acme.com</td>
-          <td class="score-cell">
-            <span class="score-num">90</span>
-            <svg viewBox="0 0 88 8" class="score-bar" role="img" aria-label="Score 90"><rect x="0" y="0" width="88" height="8" rx="2" fill="#f4f4f5" /><rect x="0" y="0" width="79.2" height="8" rx="2" fill="#4E79A7" /></svg>
-          </td>
-          <td>
-<span class="delta-flat">±0</span>
-          </td>
-          <td>
-            <span class="domain-pill primary-active">Cache busting</span>
-          </td>
-          <td class="evidence-cell">Cache miss rate is 100.00%.</td>
-        </tr>
-        <tr>
-          <td><span class="pill pill-observe pill-sm">Watch</span></td>
-          <td class="entity">chatbot.acme.com</td>
-          <td class="score-cell">
-            <span class="score-num">90</span>
-            <svg viewBox="0 0 88 8" class="score-bar" role="img" aria-label="Score 90"><rect x="0" y="0" width="88" height="8" rx="2" fill="#f4f4f5" /><rect x="0" y="0" width="79.2" height="8" rx="2" fill="#4E79A7" /></svg>
-          </td>
-          <td>
-<span class="delta-flat">±0</span>
-          </td>
-          <td>
-            <span class="domain-pill primary-active">Cache busting</span>
-          </td>
-          <td class="evidence-cell">Cache miss rate is 65.82%.</td>
-        </tr>
-        <tr>
-          <td><span class="pill pill-observe pill-sm">Watch</span></td>
-          <td class="entity">digital.acme.com</td>
-          <td class="score-cell">
-            <span class="score-num">90</span>
-            <svg viewBox="0 0 88 8" class="score-bar" role="img" aria-label="Score 90"><rect x="0" y="0" width="88" height="8" rx="2" fill="#f4f4f5" /><rect x="0" y="0" width="79.2" height="8" rx="2" fill="#4E79A7" /></svg>
-          </td>
-          <td>
-<span class="delta-flat">±0</span>
-          </td>
-          <td>
-            <span class="domain-pill primary-active">Cache busting</span>
-          </td>
-          <td class="evidence-cell">Cache miss rate is 99.99%.</td>
-        </tr>
-        <tr>
-          <td><span class="pill pill-observe pill-sm">Watch</span></td>
-          <td class="entity">digitalapps.acme.com</td>
-          <td class="score-cell">
-            <span class="score-num">90</span>
-            <svg viewBox="0 0 88 8" class="score-bar" role="img" aria-label="Score 90"><rect x="0" y="0" width="88" height="8" rx="2" fill="#f4f4f5" /><rect x="0" y="0" width="79.2" height="8" rx="2" fill="#4E79A7" /></svg>
-          </td>
-          <td>
-<span class="delta-flat">±0</span>
-          </td>
-          <td>
-            <span class="domain-pill primary-active">Cache busting</span>
-          </td>
-          <td class="evidence-cell">Cache miss rate is 94.05%.</td>
-        </tr>
-        <tr>
-          <td><span class="pill pill-observe pill-sm">Watch</span></td>
-          <td class="entity">digitalauth.acme.com</td>
-          <td class="score-cell">
-            <span class="score-num">90</span>
-            <svg viewBox="0 0 88 8" class="score-bar" role="img" aria-label="Score 90"><rect x="0" y="0" width="88" height="8" rx="2" fill="#f4f4f5" /><rect x="0" y="0" width="79.2" height="8" rx="2" fill="#4E79A7" /></svg>
-          </td>
-          <td>
-<span class="delta-flat">±0</span>
-          </td>
-          <td>
-            <span class="domain-pill primary-active">Cache busting</span>
-          </td>
-          <td class="evidence-cell">Cache miss rate is 100.00%.</td>
-        </tr>
-        <tr>
-          <td><span class="pill pill-observe pill-sm">Watch</span></td>
-          <td class="entity">digitalinvestor.acme.com</td>
-          <td class="score-cell">
-            <span class="score-num">90</span>
-            <svg viewBox="0 0 88 8" class="score-bar" role="img" aria-label="Score 90"><rect x="0" y="0" width="88" height="8" rx="2" fill="#f4f4f5" /><rect x="0" y="0" width="79.2" height="8" rx="2" fill="#4E79A7" /></svg>
-          </td>
-          <td>
-<span class="delta-flat">±0</span>
-          </td>
-          <td>
-            <span class="domain-pill primary-active">Cache busting</span>
-          </td>
-          <td class="evidence-cell">Cache miss rate is 67.98%.</td>
-        </tr>
-        <tr>
-          <td><span class="pill pill-observe pill-sm">Watch</span></td>
-          <td class="entity">digitalomni-intg.acme.com</td>
-          <td class="score-cell">
-            <span class="score-num">90</span>
-            <svg viewBox="0 0 88 8" class="score-bar" role="img" aria-label="Score 90"><rect x="0" y="0" width="88" height="8" rx="2" fill="#f4f4f5" /><rect x="0" y="0" width="79.2" height="8" rx="2" fill="#4E79A7" /></svg>
-          </td>
-          <td>
-<span class="delta-flat">±0</span>
-          </td>
-          <td>
-            <span class="domain-pill primary-active">Cache busting</span>
-          </td>
-          <td class="evidence-cell">Cache miss rate is 56.98%.</td>
-        </tr>
-        <tr>
-          <td><span class="pill pill-observe pill-sm">Watch</span></td>
-          <td class="entity">digitalomni-perf.acme.com</td>
-          <td class="score-cell">
-            <span class="score-num">90</span>
-            <svg viewBox="0 0 88 8" class="score-bar" role="img" aria-label="Score 90"><rect x="0" y="0" width="88" height="8" rx="2" fill="#f4f4f5" /><rect x="0" y="0" width="79.2" height="8" rx="2" fill="#4E79A7" /></svg>
-          </td>
-          <td>
-<span class="delta-flat">±0</span>
-          </td>
-          <td>
-            <span class="domain-pill primary-active">Cache busting</span>
-          </td>
-          <td class="evidence-cell">Cache miss rate is 99.95%.</td>
-        </tr>
-        <tr>
-          <td><span class="pill pill-observe pill-sm">Watch</span></td>
-          <td class="entity">digitalomni.acme.com</td>
-          <td class="score-cell">
-            <span class="score-num">90</span>
-            <svg viewBox="0 0 88 8" class="score-bar" role="img" aria-label="Score 90"><rect x="0" y="0" width="88" height="8" rx="2" fill="#f4f4f5" /><rect x="0" y="0" width="79.2" height="8" rx="2" fill="#4E79A7" /></svg>
-          </td>
-          <td>
-<span class="delta-flat">±0</span>
-          </td>
-          <td>
-            <span class="domain-pill primary-active">Cache busting</span>
-          </td>
-          <td class="evidence-cell">Cache miss rate is 94.32%.</td>
-        </tr>
-        <tr>
-          <td><span class="pill pill-observe pill-sm">Watch</span></td>
-          <td class="entity">mlosext.acme.com</td>
-          <td class="score-cell">
-            <span class="score-num">90</span>
-            <svg viewBox="0 0 88 8" class="score-bar" role="img" aria-label="Score 90"><rect x="0" y="0" width="88" height="8" rx="2" fill="#f4f4f5" /><rect x="0" y="0" width="79.2" height="8" rx="2" fill="#4E79A7" /></svg>
-          </td>
-          <td>
-<span class="delta-flat">±0</span>
-          </td>
-          <td>
-            <span class="domain-pill primary-active">Cache busting</span>
-          </td>
-          <td class="evidence-cell">Cache miss rate is 100.00%.</td>
-        </tr>
-        <tr>
-          <td><span class="pill pill-observe pill-sm">Watch</span></td>
-          <td class="entity">acme.com</td>
-          <td class="score-cell">
-            <span class="score-num">90</span>
-            <svg viewBox="0 0 88 8" class="score-bar" role="img" aria-label="Score 90"><rect x="0" y="0" width="88" height="8" rx="2" fill="#f4f4f5" /><rect x="0" y="0" width="79.2" height="8" rx="2" fill="#4E79A7" /></svg>
-          </td>
-          <td>
-<span class="delta-flat">±0</span>
-          </td>
-          <td>
-            <span class="domain-pill primary-active">Cache busting</span>
-          </td>
-          <td class="evidence-cell">Cache miss rate is 80.93%.</td>
-        </tr>
-        <tr>
-          <td><span class="pill pill-observe pill-sm">Watch</span></td>
-          <td class="entity">onlinechat-sso.acme.com</td>
-          <td class="score-cell">
-            <span class="score-num">90</span>
-            <svg viewBox="0 0 88 8" class="score-bar" role="img" aria-label="Score 90"><rect x="0" y="0" width="88" height="8" rx="2" fill="#f4f4f5" /><rect x="0" y="0" width="79.2" height="8" rx="2" fill="#4E79A7" /></svg>
-          </td>
-          <td>
-<span class="delta-flat">±0</span>
-          </td>
-          <td>
-            <span class="domain-pill primary-active">Cache busting</span>
-          </td>
-          <td class="evidence-cell">Cache miss rate is 100.00%.</td>
-        </tr>
-        <tr>
-          <td><span class="pill pill-observe pill-sm">Watch</span></td>
-          <td class="entity">signon.acme.com</td>
-          <td class="score-cell">
-            <span class="score-num">90</span>
-            <svg viewBox="0 0 88 8" class="score-bar" role="img" aria-label="Score 90"><rect x="0" y="0" width="88" height="8" rx="2" fill="#f4f4f5" /><rect x="0" y="0" width="79.2" height="8" rx="2" fill="#4E79A7" /></svg>
-          </td>
-          <td>
-<span class="delta-flat">±0</span>
-          </td>
-          <td>
-            <span class="domain-pill primary-active">Cache busting</span>
-          </td>
-          <td class="evidence-cell">Cache miss rate is 97.00%.</td>
-        </tr>
-        <tr>
-          <td><span class="pill pill-observe pill-sm">Watch</span></td>
-          <td class="entity">sso1.sd.acme.com</td>
-          <td class="score-cell">
-            <span class="score-num">90</span>
-            <svg viewBox="0 0 88 8" class="score-bar" role="img" aria-label="Score 90"><rect x="0" y="0" width="88" height="8" rx="2" fill="#f4f4f5" /><rect x="0" y="0" width="79.2" height="8" rx="2" fill="#4E79A7" /></svg>
-          </td>
-          <td>
-<span class="delta-flat">±0</span>
-          </td>
-          <td>
-            <span class="domain-pill primary-active">Cache busting</span>
-          </td>
-          <td class="evidence-cell">Cache miss rate is 65.86%.</td>
-        </tr>
-        <tr>
-          <td><span class="pill pill-observe pill-sm">Watch</span></td>
-          <td class="entity">ssoauth.acme.com</td>
-          <td class="score-cell">
-            <span class="score-num">90</span>
-            <svg viewBox="0 0 88 8" class="score-bar" role="img" aria-label="Score 90"><rect x="0" y="0" width="88" height="8" rx="2" fill="#f4f4f5" /><rect x="0" y="0" width="79.2" height="8" rx="2" fill="#4E79A7" /></svg>
-          </td>
-          <td>
-<span class="delta-flat">±0</span>
-          </td>
-          <td>
-            <span class="domain-pill primary-active">Cache busting</span>
-          </td>
-          <td class="evidence-cell">Cache miss rate is 82.24%.</td>
-        </tr>
-          <tr class="queue-state-divider">
-            <td colspan="6"><span class="pill pill-neutral">Insufficient data</span></td>
-          </tr>
-        <tr>
-          <td><span class="pill pill-neutral pill-sm">Insufficient data</span></td>
-          <td class="entity">links.acme.com</td>
-          <td class="score-cell">
-            <span class="score-num">100</span>
-            <svg viewBox="0 0 88 8" class="score-bar" role="img" aria-label="Score 100"><rect x="0" y="0" width="88" height="8" rx="2" fill="#f4f4f5" /><rect x="0" y="0" width="88.0" height="8" rx="2" fill="#4E79A7" /></svg>
-          </td>
-          <td>
-<span class="delta-flat">±0</span>
-          </td>
-          <td>
-            <span class="domain-pill primary-none">No domain triggered</span>
-          </td>
-          <td class="evidence-cell">No evaluated scorecard rules crossed their thresholds.</td>
-        </tr>
-        <tr>
-          <td><span class="pill pill-neutral pill-sm">Insufficient data</span></td>
-          <td class="entity">vendoor.acme.com</td>
-          <td class="score-cell">
-            <span class="score-num">100</span>
-            <svg viewBox="0 0 88 8" class="score-bar" role="img" aria-label="Score 100"><rect x="0" y="0" width="88" height="8" rx="2" fill="#f4f4f5" /><rect x="0" y="0" width="88.0" height="8" rx="2" fill="#4E79A7" /></svg>
-          </td>
-          <td>
-<span class="delta-flat">±0</span>
-          </td>
-          <td>
-            <span class="domain-pill primary-none">No domain triggered</span>
-          </td>
-          <td class="evidence-cell">No evaluated scorecard rules crossed their thresholds.</td>
-        </tr>
-        <tr>
-          <td><span class="pill pill-neutral pill-sm">Insufficient data</span></td>
-          <td class="entity">web.acme.com</td>
-          <td class="score-cell">
-            <span class="score-num">100</span>
-            <svg viewBox="0 0 88 8" class="score-bar" role="img" aria-label="Score 100"><rect x="0" y="0" width="88" height="8" rx="2" fill="#f4f4f5" /><rect x="0" y="0" width="88.0" height="8" rx="2" fill="#4E79A7" /></svg>
-          </td>
-          <td>
-<span class="delta-flat">±0</span>
-          </td>
-          <td>
-            <span class="domain-pill primary-none">No domain triggered</span>
-          </td>
-          <td class="evidence-cell">No evaluated scorecard rules crossed their thresholds.</td>
-        </tr>
-        <tr>
-          <td><span class="pill pill-neutral pill-sm">Insufficient data</span></td>
-          <td class="entity">www.acme.com</td>
-          <td class="score-cell">
-            <span class="score-num">100</span>
-            <svg viewBox="0 0 88 8" class="score-bar" role="img" aria-label="Score 100"><rect x="0" y="0" width="88" height="8" rx="2" fill="#f4f4f5" /><rect x="0" y="0" width="88.0" height="8" rx="2" fill="#4E79A7" /></svg>
-          </td>
-          <td>
-<span class="delta-flat">±0</span>
-          </td>
-          <td>
-            <span class="domain-pill primary-none">No domain triggered</span>
-          </td>
-          <td class="evidence-cell">No evaluated scorecard rules crossed their thresholds.</td>
+          <td class="evidence-cell">SIEM summary reports 40 blocked requests.</td>
         </tr>
     </tbody>
   </table>
 </section>
 
-    <section>
-  <div class="section-eyebrow">Recommended next steps</div>
-  <h2>Investigations to queue from this report</h2>
-    <ol class="actions">
-        <li class="action">
-          <div class="action-step">Inspect query-string diversity, cache-key behavior, and cache miss concentration by host and path.</div>
-          <div class="action-meta">
-            <strong>16</strong> hosts · apihub.acme.com, b2b-api.acme.com, chatbot.acme.com (+13 more)          </div>
-        </li>
-        <li class="action">
-          <div class="action-step">Regenerate aggregate rows with the missing scorecard feature inputs listed in not_evaluated_features.</div>
-          <div class="action-meta">
-            <strong>4</strong> hosts · links.acme.com, vendoor.acme.com, web.acme.com (+1 more)          </div>
-        </li>
-    </ol>
+
+  <section>
+  <div class="section-eyebrow">Domain score matrix</div>
+  <h2>How risk points distribute across domains</h2>
+  <table class="data-table domain-matrix">
+    <thead>
+      <tr>
+        <th>Asn</th>
+        <th class="num">Score</th>
+          <th class="domain-matrix-col">Cache busting</th>
+          <th class="domain-matrix-col">Crawler governance</th>
+          <th class="domain-matrix-col">Movement</th>
+          <th class="domain-matrix-col">Origin impact</th>
+          <th class="domain-matrix-col">Policy collateral</th>
+          <th class="domain-matrix-col">Security evidence</th>
+      </tr>
+    </thead>
+    <tbody>
+        <tr>
+          <td class="entity">ASN 64500</td>
+          <td class="num"><span class="score-num">58</span></td>
+              <td class="domain-matrix-cell domain-matrix-empty">—</td>
+              <td class="domain-matrix-cell domain-matrix-empty">—</td>
+              <td class="domain-matrix-cell">
+                <span class="pill pill-monitor pill-sm domain-matrix-pill">20</span>
+              </td>
+              <td class="domain-matrix-cell domain-matrix-empty">—</td>
+              <td class="domain-matrix-cell domain-matrix-empty">—</td>
+              <td class="domain-matrix-cell">
+                <span class="pill pill-escalate pill-sm domain-matrix-pill">38</span>
+              </td>
+        </tr>
+        <tr>
+          <td class="entity">ASN 64600</td>
+          <td class="num"><span class="score-num">12</span></td>
+              <td class="domain-matrix-cell domain-matrix-empty">—</td>
+              <td class="domain-matrix-cell domain-matrix-empty">—</td>
+              <td class="domain-matrix-cell domain-matrix-empty">—</td>
+              <td class="domain-matrix-cell domain-matrix-empty">—</td>
+              <td class="domain-matrix-cell domain-matrix-empty">—</td>
+              <td class="domain-matrix-cell">
+                <span class="pill pill-monitor pill-sm domain-matrix-pill">12</span>
+              </td>
+        </tr>
+    </tbody>
+  </table>
 </section>
 
 
-    <details class="disclosure">
-      <summary>
-        <span>Coverage detail</span>
-        <span class="disclosure-summary-stat">
-          0 rules unscored on at least one host
-        </span>
-      </summary>
-      <div class="disclosure-body">
-        <p class="muted">
-          Rules listed below were not scored on the indicated hosts because
-          their inputs are absent from the source rows. They are not scored
-          as safe.
-        </p>
-          <div class="coverage-group">
-            <h3 class="coverage-domain">Cache busting</h3>
-            <ul class="coverage-rules">
-                <li>
-                  <code>querystring_diversity_high</code>
-                  <span class="muted-small">— missing on 20 of 20 hosts</span>
-                    <span class="muted-small">; needs qs_diversity_ratio</span>
-                </li>
-                <li>
-                  <code>querystring_diversity_with_high_miss_rate</code>
-                  <span class="muted-small">— missing on 20 of 20 hosts</span>
-                    <span class="muted-small">; needs qs_diversity_ratio</span>
-                </li>
-            </ul>
-          </div>
-          <div class="coverage-group">
-            <h3 class="coverage-domain">Crawler governance</h3>
-            <ul class="coverage-rules">
-                <li>
-                  <code>ai_crawler_growth_high</code>
-                  <span class="muted-small">— missing on 20 of 20 hosts</span>
-                    <span class="muted-small">; needs baseline_ai_crawler_requests, current_ai_crawler_requests</span>
-                </li>
-                <li>
-                  <code>good_bot_429_present</code>
-                  <span class="muted-small">— missing on 20 of 20 hosts</span>
-                    <span class="muted-small">; needs good_bot_429_requests</span>
-                </li>
-                <li>
-                  <code>good_bot_error_rate_high</code>
-                  <span class="muted-small">— missing on 20 of 20 hosts</span>
-                    <span class="muted-small">; needs good_bot_error_rate_pct</span>
-                </li>
-                <li>
-                  <code>policy_surface_failure_present</code>
-                  <span class="muted-small">— missing on 20 of 20 hosts</span>
-                    <span class="muted-small">; needs policy_surface_failures</span>
-                </li>
-            </ul>
-          </div>
-          <div class="coverage-group">
-            <h3 class="coverage-domain">Movement</h3>
-            <ul class="coverage-rules">
-                <li>
-                  <code>contribution_to_total_delta_high</code>
-                  <span class="muted-small">— missing on 20 of 20 hosts</span>
-                    <span class="muted-small">; needs contribution_pct</span>
-                </li>
-            </ul>
-          </div>
-          <div class="coverage-group">
-            <h3 class="coverage-domain">Origin impact</h3>
-            <ul class="coverage-rules">
-                <li>
-                  <code>origin_cost_contribution_high</code>
-                  <span class="muted-small">— missing on 20 of 20 hosts</span>
-                    <span class="muted-small">; needs origin_cost_contribution_pct</span>
-                </li>
-                <li>
-                  <code>origin_p95_delta_high</code>
-                  <span class="muted-small">— missing on 20 of 20 hosts</span>
-                    <span class="muted-small">; needs baseline_origin_p95_ms, current_origin_p95_ms</span>
-                </li>
-            </ul>
-          </div>
-          <div class="coverage-group">
-            <h3 class="coverage-domain">Policy collateral</h3>
-            <ul class="coverage-rules">
-                <li>
-                  <code>displacement_delta_high</code>
-                  <span class="muted-small">— missing on 20 of 20 hosts</span>
-                    <span class="muted-small">; needs baseline_displacement_requests, current_displacement_requests</span>
-                </li>
-                <li>
-                  <code>good_bot_policy_collateral_present</code>
-                  <span class="muted-small">— missing on 20 of 20 hosts</span>
-                    <span class="muted-small">; needs good_bot_collateral_429_requests</span>
-                </li>
-                <li>
-                  <code>policy_collateral_error_rate_high</code>
-                  <span class="muted-small">— missing on 20 of 20 hosts</span>
-                    <span class="muted-small">; needs policy_collateral_error_rate_pct</span>
-                </li>
-            </ul>
-          </div>
-          <div class="coverage-group">
-            <h3 class="coverage-domain">Security evidence</h3>
-            <ul class="coverage-rules">
-                <li>
-                  <code>bad_bot_share_high</code>
-                  <span class="muted-small">— missing on 20 of 20 hosts</span>
-                    <span class="muted-small">; needs bad_bot_share_pct</span>
-                </li>
-                <li>
-                  <code>siem_auth_fail_present</code>
-                  <span class="muted-small">— missing on 20 of 20 hosts</span>
-                    <span class="muted-small">; needs siem_auth_fail_requests</span>
-                </li>
-                <li>
-                  <code>siem_blocked_present</code>
-                  <span class="muted-small">— missing on 20 of 20 hosts</span>
-                    <span class="muted-small">; needs siem_blocked_requests</span>
-                </li>
-            </ul>
-          </div>
-      </div>
-    </details>
+  <section>
+    <div class="section-eyebrow">Recommended next steps</div>
+    <h2>Investigations to queue from this report</h2>
+      <ol class="actions">
+          <li class="action">
+            <div class="action-step">Enrich with SIEM action, policy, auth-failure, and blocked-request summaries for the same entity.</div>
+            <div class="action-meta">
+                2 ASNs · ASN 64500, ASN 64600            </div>
+          </li>
+          <li class="action">
+            <div class="action-step">Review mover attribution for the same scope and confirm comparable current/baseline windows.</div>
+            <div class="action-meta">
+                1 ASN · ASN 64500            </div>
+          </li>
+      </ol>
+  </section>
 
     <section>
   <div class="section-eyebrow">Coverage</div>
@@ -1709,8 +1415,8 @@ footer {
     <summary>
       Rule coverage by domain
       <span class="disclosure-summary-stat">
-        — 6 domains evaluated,
-        68.18% of rule evaluations had missing inputs
+        — 5 domains evaluated,
+        80.00% of rule evaluations had missing inputs
       </span>
     </summary>
     <div class="disclosure-body">
@@ -1727,66 +1433,60 @@ footer {
         <tbody>
             <tr>
               <td class="domain-name">Cache busting</td>
-              <td class="num">16</td>
-              <td class="num">24</td>
-              <td class="num">40</td>
-              <td><svg viewBox="0 0 360 14" class="coverage-bar" role="img" aria-label="Rule coverage"><rect x="0.0" y="0" width="72.0" height="14" fill="#4E79A7" /><rect x="72.0" y="0" width="108.0" height="14" fill="#a1a1aa" /><rect x="180.0" y="0" width="180.0" height="14" fill="#F8C58A" /></svg></td>
+              <td class="num">0</td>
+              <td class="num">0</td>
+              <td class="num">8</td>
+              <td><svg viewBox="0 0 360 14" class="coverage-bar" role="img" aria-label="Rule coverage"><rect x="0.0" y="0" width="360.0" height="14" fill="#F8C58A" /></svg></td>
             </tr>
             <tr>
               <td class="domain-name">Crawler governance</td>
               <td class="num">0</td>
-              <td class="num">40</td>
-              <td class="num">80</td>
-              <td><svg viewBox="0 0 360 14" class="coverage-bar" role="img" aria-label="Rule coverage"><rect x="0.0" y="0" width="120.0" height="14" fill="#a1a1aa" /><rect x="120.0" y="0" width="240.0" height="14" fill="#F8C58A" /></svg></td>
+              <td class="num">0</td>
+              <td class="num">9</td>
+              <td><svg viewBox="0 0 360 14" class="coverage-bar" role="img" aria-label="Rule coverage"><rect x="0.0" y="0" width="360.0" height="14" fill="#F8C58A" /></svg></td>
             </tr>
             <tr>
               <td class="domain-name">Movement</td>
+              <td class="num">2</td>
               <td class="num">0</td>
-              <td class="num">60</td>
-              <td class="num">20</td>
-              <td><svg viewBox="0 0 360 14" class="coverage-bar" role="img" aria-label="Rule coverage"><rect x="0.0" y="0" width="270.0" height="14" fill="#a1a1aa" /><rect x="270.0" y="0" width="90.0" height="14" fill="#F8C58A" /></svg></td>
+              <td class="num">2</td>
+              <td><svg viewBox="0 0 360 14" class="coverage-bar" role="img" aria-label="Rule coverage"><rect x="0.0" y="0" width="180.0" height="14" fill="#4E79A7" /><rect x="180.0" y="0" width="180.0" height="14" fill="#F8C58A" /></svg></td>
             </tr>
             <tr>
               <td class="domain-name">Origin impact</td>
               <td class="num">0</td>
               <td class="num">0</td>
-              <td class="num">40</td>
-              <td><svg viewBox="0 0 360 14" class="coverage-bar" role="img" aria-label="Rule coverage"><rect x="0.0" y="0" width="360.0" height="14" fill="#F8C58A" /></svg></td>
-            </tr>
-            <tr>
-              <td class="domain-name">Policy collateral</td>
-              <td class="num">0</td>
-              <td class="num">0</td>
-              <td class="num">60</td>
+              <td class="num">4</td>
               <td><svg viewBox="0 0 360 14" class="coverage-bar" role="img" aria-label="Rule coverage"><rect x="0.0" y="0" width="360.0" height="14" fill="#F8C58A" /></svg></td>
             </tr>
             <tr>
               <td class="domain-name">Security evidence</td>
+              <td class="num">4</td>
               <td class="num">0</td>
-              <td class="num">0</td>
-              <td class="num">60</td>
-              <td><svg viewBox="0 0 360 14" class="coverage-bar" role="img" aria-label="Rule coverage"><rect x="0.0" y="0" width="360.0" height="14" fill="#F8C58A" /></svg></td>
+              <td class="num">1</td>
+              <td><svg viewBox="0 0 360 14" class="coverage-bar" role="img" aria-label="Rule coverage"><rect x="0.0" y="0" width="288.0" height="14" fill="#4E79A7" /><rect x="288.0" y="0" width="72.0" height="14" fill="#F8C58A" /></svg></td>
             </tr>
         </tbody>
       </table>
       <p class="muted" style="margin-top:12px;font-size:12px;">
         Confidence:
-Medium · 20.
+Medium · 2.
         Reasons:
-Baseline window has enough rows, Current window has enough rows, Some feature inputs missing, Dimensions fit retained schema, SIEM data unavailable, Summary table used.
+Baseline window has enough rows, Current window has enough rows, Some feature inputs missing, Dimensions fit retained schema, Summary table used.
       </p>
     </div>
   </details>
 </section>
 
-    <section>
+
+  <section>
   <div class="section-eyebrow">Method &amp; caveats</div>
     <h2>What this report is and isn't</h2>
     <p class="prose">
-      Rule-based scorecard for Acme ·
-      Akamai, built from mechanical features
+      Rule-based scorecard for  ·
+      , built from mechanical features
       only, compared against
-      previous window.
+      week over week.
       It reports what was measured, not why. Missing feature inputs are
       reported as such — they are not scored as safe.
     </p>
@@ -1794,14 +1494,14 @@ Baseline window has enough rows, Current window has enough rows, Some feature in
       <summary>Schema, source table, and constraints</summary>
       <dl class="method">
         <dt>Schema</dt><dd><code>bot_scorecard_artifacts.v1</code></dd>
-          <dt>Comparison</dt><dd>Previous window</dd>
-          <dt>Producer limit</dt><dd>20 (returned 20, truncated: false)</dd>
-        <dt>Tenant / database</dt><dd>Acme · Akamai</dd>
-        <dt>Table</dt><dd><code>akamai.bi_summary_hour</code></dd>
+          <dt>Comparison</dt><dd>Week over week</dd>
+          <dt>Producer limit</dt><dd>5 (returned 2, truncated: false)</dd>
+        <dt>Tenant / database</dt><dd> · </dd>
+        <dt>Table</dt><dd><code>bi_summary_hour</code></dd>
           <dt>Constraints</dt>
           <dd>Rule-based scorecard; Mechanical features only; No causal claim; LLM may summarize structured evidence only</dd>
           <dt>Confidence reasons</dt>
-          <dd>Baseline window has enough rows; Current window has enough rows; Some feature inputs missing; Dimensions fit retained schema; SIEM data unavailable; Summary table used</dd>
+          <dd>Baseline window has enough rows; Current window has enough rows; Some feature inputs missing; Dimensions fit retained schema; Summary table used</dd>
       </dl>
     </details>
 </section>
@@ -1815,11 +1515,11 @@ Baseline window has enough rows, Current window has enough rows, Some feature in
       <section class="purpose-strip" aria-label="Report orientation">
   <div class="purpose-cell">
     <div class="purpose-label">What this measures</div>
-    <p>A health score for each request host on a 0–100 scale. Every host starts at 100 and loses points when mechanical signals — cache-miss rate, query-string churn, error rate, bot-share movement — cross thresholds. This window&#39;s scores are compared with the prior equivalent window.</p>
+    <p>A risk score for each ranked entity (typically ASN) on a 0–100 scale. Higher scores reflect more triggered security signals — bad-bot share, SIEM auth failures, SIEM blocked requests — plus movement-side context.</p>
   </div>
   <div class="purpose-cell">
     <div class="purpose-label">How to read the score</div>
-    <p>Higher is healthier (100 = clean); lower = more triggered rules. Bands: escalate 0–40, monitor 40–70, observe 70–100.</p>
+    <p>Higher score = more triggered security/movement rules. Bands: escalate, monitor, observe.</p>
     <ul class="purpose-key">
       <li><span class="key-dot" style="background: #E15759"></span>escalate · 0–40</li>
       <li><span class="key-dot" style="background: #F28E2B"></span>monitor · 40–70</li>
@@ -1828,7 +1528,7 @@ Baseline window has enough rows, Current window has enough rows, Some feature in
   </div>
   <div class="purpose-cell">
     <div class="purpose-label">What this can't say</div>
-    <p>Not a root-cause diagnosis or a malicious-traffic call. Missing inputs are reported as missing — they are not scored as safe.</p>
+    <p>Not a confirmed-malicious determination. Missing inputs are reported as missing — they are not scored as safe.</p>
   </div>
 </section>
 

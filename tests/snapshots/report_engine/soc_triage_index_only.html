@@ -1,14 +1,19 @@
-:root {
-  --bg: {{ palette.bg }};
-  --surface: {{ palette.surface }};
-  --surface-2: {{ palette.surface_2 }};
-  --text: {{ palette.text }};
-  --muted: {{ palette.muted }};
-  --muted-2: {{ palette.muted_2 }};
-  --border: {{ palette.border }};
-  --observe: {{ palette.observe }};
-  --monitor: {{ palette.monitor }};
-  --escalate: {{ palette.escalate }};
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>SOC Triage — Demo</title>
+  <style>:root {
+  --bg: #fafaf9;
+  --surface: #ffffff;
+  --surface-2: #f4f4f5;
+  --text: #18181b;
+  --muted: #71717a;
+  --muted-2: #a1a1aa;
+  --border: #e4e4e7;
+  --observe: #4E79A7;
+  --monitor: #F28E2B;
+  --escalate: #E15759;
 }
 * { box-sizing: border-box; }
 html, body {
@@ -670,19 +675,19 @@ section > h2 {
   border: 1px solid transparent;
 }
 .pill-observe {
-  background: {{ palette.observe_pill_bg }};
-  color: {{ palette.observe_pill_text }};
-  border-color: {{ palette.observe_pill_border }};
+  background: #EDF2F8;
+  color: #2D4A6B;
+  border-color: #B5C7DC;
 }
 .pill-monitor {
-  background: {{ palette.monitor_pill_bg }};
-  color: {{ palette.monitor_pill_text }};
-  border-color: {{ palette.monitor_pill_border }};
+  background: #FDF1E2;
+  color: #8C4A0A;
+  border-color: #F8C58A;
 }
 .pill-escalate {
-  background: {{ palette.escalate_pill_bg }};
-  color: {{ palette.escalate_pill_text }};
-  border-color: {{ palette.escalate_pill_border }};
+  background: #FBE7E7;
+  color: #8B2728;
+  border-color: #F0A8A9;
 }
 .pill-neutral {
   background: var(--surface-2);
@@ -712,7 +717,7 @@ section > h2 {
   font-weight: 500;
 }
 .delta-down {
-  color: {{ palette.delta_down }};
+  color: #3F8C5A;
   font-variant-numeric: tabular-nums;
   font-size: 13px;
   font-weight: 500;
@@ -1128,4 +1133,189 @@ footer {
   /* Group-row host lists also expand in print so reviewers see all hostnames. */
   .host-list > summary { font-weight: 500; }
   .host-list-items { display: block !important; }
-}
+}</style>
+</head>
+<body>
+<main>
+
+    <header class="report-header">
+      <div class="header-titles">
+        <div class="kicker">Bot Insights — security risk triage</div>
+        <h1>SOC Triage — Demo, ASN risk queue</h1>
+<p class="dek">Top entities ranked by mechanical risk indicators for the current window.</p>      </div>
+      <div class="window">
+        <div class="window-label">Comparison window</div>
+        <div>2026-04-07 00:00 → 2026-04-14 00:00 UTC</div>
+        <div class="window-vs">vs 2026-03-31 00:00 → 2026-04-07 00:00 UTC</div>
+      </div>
+    </header>
+
+  <section class="narrative-slot exec-summary">
+  <div class="section-eyebrow">Executive summary</div>
+  <h2>What this report says</h2>
+    <div class="prose">
+      <p><strong>1 of 2 ASN needs analyst attention — start with ASN 64500.</strong></p>
+    </div>
+</section>
+
+
+
+    <div class="degraded-banner" role="note">
+      <span class="degraded-banner-eyebrow">Degraded mode</span>
+      <p>
+        Per-entity scorecards were not bundled with this report. The
+        queue table below reflects the producer-supplied ranking only —
+        per-rule evidence, domain breakdowns, and recommended next steps
+        are not available.
+      </p>
+    </div>
+
+  <header class="verdict-strip" aria-label="Fleet triage">
+  <div class="verdict-pills">
+      <span class="pill pill-escalate triage-count">
+        <strong>1</strong>
+        <span class="triage-pill-label">Assign</span>
+      </span>
+      <span class="pill pill-monitor triage-count pill-muted">
+        <strong>0</strong>
+        <span class="triage-pill-label">Watch</span>
+      </span>
+      <span class="pill pill-neutral triage-count pill-muted">
+        <strong>0</strong>
+        <span class="triage-pill-label">Insufficient data</span>
+      </span>
+      <span class="pill pill-observe triage-count">
+        <strong>1</strong>
+        <span class="triage-pill-label">Close — expected</span>
+      </span>
+  </div>
+    <p class="verdict-rationale">1 ASN needs analyst attention (out of 2).</p>
+</header>
+
+
+  
+
+  <section>
+  <div class="section-eyebrow">Triage queue</div>
+  <h2>2 ASNs, ordered by what to do</h2>
+  <table class="data-table queue-table">
+    <thead>
+      <tr>
+        <th>Verdict</th>
+        <th>Asn</th>
+        <th>Score</th>
+        <th>Δ</th>
+        <th>Primary domain</th>
+        <th>Top evidence</th>
+      </tr>
+    </thead>
+    <tbody>
+          <tr class="queue-state-divider">
+            <td colspan="6"><span class="pill pill-monitor">Assign</span></td>
+          </tr>
+        <tr>
+          <td><span class="pill pill-monitor pill-sm">Assign</span></td>
+          <td class="entity">ASN 64500</td>
+          <td class="score-cell">
+            <span class="score-num">58</span>
+            <svg viewBox="0 0 88 8" class="score-bar" role="img" aria-label="Score 58"><rect x="0" y="0" width="88" height="8" rx="2" fill="#f4f4f5" /><rect x="0" y="0" width="51.0" height="8" rx="2" fill="#F28E2B" /></svg>
+          </td>
+          <td>
+<span class="delta-flat">±0</span>
+          </td>
+          <td>
+            <span class="domain-pill primary-active">Security evidence</span>
+          </td>
+          <td class="evidence-cell"></td>
+        </tr>
+          <tr class="queue-state-divider">
+            <td colspan="6"><span class="pill pill-observe">Close — expected</span></td>
+          </tr>
+        <tr>
+          <td><span class="pill pill-observe pill-sm">Close — expected</span></td>
+          <td class="entity">ASN 64600</td>
+          <td class="score-cell">
+            <span class="score-num">12</span>
+            <svg viewBox="0 0 88 8" class="score-bar" role="img" aria-label="Score 12"><rect x="0" y="0" width="88" height="8" rx="2" fill="#f4f4f5" /><rect x="0" y="0" width="10.6" height="8" rx="2" fill="#E15759" /></svg>
+          </td>
+          <td>
+<span class="delta-flat">±0</span>
+          </td>
+          <td>
+            <span class="domain-pill primary-active">Security evidence</span>
+          </td>
+          <td class="evidence-cell"></td>
+        </tr>
+    </tbody>
+  </table>
+</section>
+
+
+  
+
+  <section>
+    <div class="section-eyebrow">Recommended next steps</div>
+    <h2>Investigations to queue from this report</h2>
+      <p class="muted">No entities had producer-supplied recommended next steps.</p>
+  </section>
+
+
+  <section>
+  <div class="section-eyebrow">Method &amp; caveats</div>
+    <h2>What this report is and isn't</h2>
+    <p class="prose">
+      Rule-based scorecard for Demo ·
+      Bot Insights, built from mechanical features
+      only, compared against
+      week over week.
+      It reports what was measured, not why. Missing feature inputs are
+      reported as such — they are not scored as safe.
+    </p>
+    <details class="disclosure method-disclosure">
+      <summary>Schema, source table, and constraints</summary>
+      <dl class="method">
+        <dt>Schema</dt><dd><code>bot_scorecard_artifacts.v1</code></dd>
+          <dt>Comparison</dt><dd>Week over week</dd>
+          <dt>Producer limit</dt><dd>5 (returned 0, truncated: false)</dd>
+        <dt>Tenant / database</dt><dd>Demo · Bot Insights</dd>
+        <dt>Table</dt><dd><code>bi_summary_hour</code></dd>
+          <dt>Constraints</dt>
+          <dd>Rule-based scorecard; Mechanical features only; No causal claim</dd>
+      </dl>
+    </details>
+</section>
+
+
+  <details class="disclosure">
+    <summary>
+      <span>Orientation — what this report measures</span>
+    </summary>
+    <div class="disclosure-body">
+      <section class="purpose-strip" aria-label="Report orientation">
+  <div class="purpose-cell">
+    <div class="purpose-label">What this measures</div>
+    <p>A risk score for each ranked entity (typically ASN) on a 0–100 scale. Higher scores reflect more triggered security signals — bad-bot share, SIEM auth failures, SIEM blocked requests — plus movement-side context.</p>
+  </div>
+  <div class="purpose-cell">
+    <div class="purpose-label">How to read the score</div>
+    <p>Higher score = more triggered security/movement rules. Bands: escalate, monitor, observe.</p>
+    <ul class="purpose-key">
+      <li><span class="key-dot" style="background: #E15759"></span>escalate · 0–40</li>
+      <li><span class="key-dot" style="background: #F28E2B"></span>monitor · 40–70</li>
+      <li><span class="key-dot" style="background: #4E79A7"></span>observe · 70–100</li>
+    </ul>
+  </div>
+  <div class="purpose-cell">
+    <div class="purpose-label">What this can't say</div>
+    <p>Not a confirmed-malicious determination. Missing inputs are reported as missing — they are not scored as safe.</p>
+  </div>
+</section>
+
+    </div>
+  </details>
+
+  <footer>
+    Generated <FROZEN> · artifact bot_scorecard_artifacts.v1  </footer>
+</main>
+</body>
+</html>

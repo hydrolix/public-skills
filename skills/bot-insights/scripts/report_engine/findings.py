@@ -13,6 +13,7 @@ from __future__ import annotations
 from collections import Counter
 from dataclasses import dataclass
 
+from . import scorecards as scorecards_mod
 from .theme import DOMAIN_LABELS
 
 
@@ -45,9 +46,9 @@ def build_scorecard_brief_findings(
 
     rule_fires: Counter = Counter()
     for sc in scorecards:
-        for r in sc["rule_results"]:
-            if r["status"] == "triggered":
-                rule_fires[r["name"]] += 1
+        for r in scorecards_mod.normalize_rule_results(sc):
+            if r.get("status") == "triggered":
+                rule_fires[r.get("name") or ""] += 1
 
     if rule_fires and n_with_triggers > 0:
         top_rule, top_n = rule_fires.most_common(1)[0]

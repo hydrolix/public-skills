@@ -1,13 +1,15 @@
-{% macro queue_table(rows) %}
+{% macro queue_table(rows, unit_label="host", unit_label_plural=None, score_axis="lower-is-worse") %}
 {% set ns = namespace(last_state="") %}
+{% set noun = unit_label %}
+{% set noun_plural = unit_label_plural or (noun ~ "s") %}
 <section>
   <div class="section-eyebrow">Triage queue</div>
-  <h2>{{ rows | length }} host{{ "s" if rows | length != 1 else "" }}, ordered by what to do</h2>
+  <h2>{{ rows | length }} {{ noun if rows | length == 1 else noun_plural }}, ordered by what to do</h2>
   <table class="data-table queue-table">
     <thead>
       <tr>
         <th>Verdict</th>
-        <th>Host</th>
+        <th>{{ noun | capitalize }}</th>
         <th>Score</th>
         <th>Δ</th>
         <th>Primary domain</th>
@@ -24,7 +26,7 @@
         {% endif %}
         <tr>
           <td><span class="pill pill-{{ r.verdict_tone }} pill-sm">{{ r.verdict_label }}</span></td>
-          <td class="entity">{{ r.entity }}</td>
+          <td class="entity">{{ r.entity_display }}</td>
           <td class="score-cell">
             <span class="score-num">{{ r.score }}</span>
             {{ score_bar(r.score) }}

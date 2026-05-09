@@ -1,0 +1,44 @@
+{# Entities × domains grid of per-cell point totals.
+
+   Each row is one ranked entity; each column is one scoring domain.
+   Empty cells render as muted dashes; non-zero cells render as a tinted
+   pill (escalate-tinted at high points, monitor-tinted at lower). The
+   grid lets the analyst see at a glance whether the report concentrates
+   on security_evidence or whether movement carried significant weight
+   too. #}
+{% macro domain_score_matrix(matrix, entity_label="Entity") %}
+{% if matrix and matrix.rows %}
+<section>
+  <div class="section-eyebrow">Domain score matrix</div>
+  <h2>How risk points distribute across domains</h2>
+  <table class="data-table domain-matrix">
+    <thead>
+      <tr>
+        <th>{{ entity_label }}</th>
+        <th class="num">Score</th>
+        {% for d in matrix.domains %}
+          <th class="domain-matrix-col">{{ d.domain_label }}</th>
+        {% endfor %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in matrix.rows %}
+        <tr>
+          <td class="entity">{{ row.entity_display }}</td>
+          <td class="num"><span class="score-num">{{ row.score }}</span></td>
+          {% for cell in row.cells %}
+            {% if cell.value > 0 %}
+              <td class="domain-matrix-cell">
+                <span class="pill pill-{{ cell.tone }} pill-sm domain-matrix-pill">{{ cell.value }}</span>
+              </td>
+            {% else %}
+              <td class="domain-matrix-cell domain-matrix-empty">—</td>
+            {% endif %}
+          {% endfor %}
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+{% endmacro %}

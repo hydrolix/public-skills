@@ -1,0 +1,58 @@
+{
+  "schema_version": "bot_report_input.v1",
+  "report_type": "soc_triage",
+  "title": "SOC Triage - degraded - 2026-04-14",
+  "scope_label": "www.example.com",
+  "analyst_notes": [],
+  "artifacts": [
+    {
+      "schema_version": "bot_scorecard_index.v1",
+      "comparison_type": "week_over_week",
+      "scope": {
+        "request_host": "www.example.com",
+        "cluster": "demo",
+        "database": "bot_insights"
+      },
+      "table_used": "bi_summary_hour",
+      "current_window": {
+        "start": "2026-04-07T00:00:00Z",
+        "end": "2026-04-14T00:00:00Z"
+      },
+      "baseline_windows": [
+        {
+          "start": "2026-03-31T00:00:00Z",
+          "end": "2026-04-07T00:00:00Z"
+        }
+      ],
+      "producer_limit": 5,
+      "result_row_count": 2,
+      "result_truncated": false,
+      "total_ranked_entities": 2,
+      "interpretation_constraints": [
+        "rule_based_scorecard",
+        "mechanical_features_only",
+        "no_causal_claim"
+      ],
+      "ranked_entities": [
+        {
+          "rank": 1,
+          "entity": "64500",
+          "entity_type": "client_asn",
+          "score": 58,
+          "band": "medium_review",
+          "confidence": "medium",
+          "primary_domain": "security_evidence"
+        },
+        {
+          "rank": 2,
+          "entity": "64600",
+          "entity_type": "client_asn",
+          "score": 12,
+          "band": "observe",
+          "confidence": "medium",
+          "primary_domain": "security_evidence"
+        }
+      ]
+    }
+  ]
+}
