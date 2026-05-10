@@ -503,7 +503,7 @@ WITH
   toDateTime('{sql_ts(baseline_start)}', 'UTC') AS baseline_start,
   cluster_total AS (
     SELECT
-      sum(countMergeIf(`count()`, reqTimeSec >= current_start) * 1.0) AS cluster_requests
+      countMergeIf(`count()`, reqTimeSec >= current_start) * 1.0 AS cluster_requests
     FROM {table}
     WHERE reqTimeSec >= baseline_start
       AND reqTimeSec < current_end
@@ -1979,23 +1979,34 @@ def main() -> int:
                 args.scorecard_limit,
             )
             path_table_used = f"{args.database}.bot_agg_path_{granularity}"
-            path_capture_text = run(
-                [
-                    sys.executable,
-                    str(CAPTURE),
-                    "--cluster",
-                    args.cluster,
-                    "--database",
-                    args.database,
-                    "--sql",
-                    path_grain_sql,
-                    "--output",
-                    str(path_raw_path),
-                ],
-                allowed_returncodes=(NEEDS_MCP_EXIT,),
-            )
             try:
-                path_capture_summary = json.loads(path_capture_text)
+                path_capture_text = run(
+                    [
+                        sys.executable,
+                        str(CAPTURE),
+                        "--cluster",
+                        args.cluster,
+                        "--database",
+                        args.database,
+                        "--sql",
+                        path_grain_sql,
+                        "--output",
+                        str(path_raw_path),
+                    ],
+                    allowed_returncodes=(NEEDS_MCP_EXIT,),
+                )
+            except SystemExit as exc:
+                # Path-grain summary table may not exist on every cluster
+                # (bot_agg_path_* is optional infrastructure). Degrade
+                # gracefully to entity-grain only.
+                print(
+                    f"WARNING: path-grain capture failed ({exc}); "
+                    "path artifact will be omitted.",
+                    file=sys.stderr,
+                )
+                path_capture_text = ""
+            try:
+                path_capture_summary = json.loads(path_capture_text) if path_capture_text else {}
             except json.JSONDecodeError:
                 print(
                     "WARNING: path-grain capture did not return machine-readable JSON; "
