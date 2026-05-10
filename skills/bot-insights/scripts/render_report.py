@@ -19,6 +19,18 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+# Re-exports from the report_engine humanize module. The canonical home for
+# these label/stringification helpers is ``report_engine.humanize``;
+# importing them here keeps ``render_report.<name>`` accessible to the
+# legacy path and to existing tests without duplicating the definitions.
+from report_engine.humanize import (  # noqa: E402
+    METRIC_LABELS,
+    display_label,
+    human_metric_name,
+    rule_label_parts,
+    stringify,
+)
+
 
 WRAPPER_SCHEMA = "bot_report_input.v1"
 POSTURE_SCHEMA = "bot_posture_movement.v1"
@@ -141,86 +153,6 @@ def read_input(args: argparse.Namespace) -> str:
     if args.text:
         return " ".join(args.text)
     return sys.stdin.read()
-
-
-def stringify(value: Any) -> str:
-    if value is None:
-        return "unavailable"
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    if isinstance(value, (int, float)):
-        return str(value)
-    if isinstance(value, str):
-        return value
-    return json.dumps(value, sort_keys=True, separators=(",", ": "))
-
-
-METRIC_LABELS = {
-    "ai_requests": "AI requests",
-    "bot_like_requests": "Bot-like requests",
-    "cache_misses": "Cache misses",
-    "error_5xx_requests": "5xx errors",
-    "rate_limited_requests": "429 rate-limited requests",
-    "requests": "Total requests",
-    "avg_bot_score": "Average bot score",
-    "siem_auth_fail_requests": "SIEM auth failures",
-    "siem_blocked_requests": "SIEM blocked requests",
-    "unique_client_ips": "Unique client IPs",
-}
-
-
-def human_metric_name(value: Any) -> str:
-    text = stringify(value)
-    return METRIC_LABELS.get(text, text)
-
-
-def display_label(value: Any) -> str:
-    acronym_tokens = {"ai", "api", "asn", "cdn", "ip", "seo", "siem", "url"}
-    token_labels = {"querystring": "Query String"}
-    words: list[str] = []
-    for token in stringify(value).replace("_", " ").split():
-        lower = token.lower()
-        if lower in token_labels:
-            words.append(token_labels[lower])
-        elif lower in acronym_tokens:
-            words.append(lower.upper())
-        elif token and token[0].isdigit():
-            words.append(token)
-        else:
-            words.append(token[:1].upper() + token[1:].lower())
-    return " ".join(words)
-
-
-def rule_label_parts(value: Any) -> tuple[str, str]:
-    text = stringify(value)
-    known = {
-        "new_entity": ("Entity", "New"),
-        "volume_delta_high": ("Request Volume", "High Increase"),
-        "contribution_to_total_delta_high": ("Contribution To Total", "High Delta"),
-        "bot_share_delta_high": ("Bot Share", "High Increase"),
-        "cache_miss_rate_high": ("Cache Miss Rate", "High"),
-        "cache_miss_delta_high": ("Cache Miss Rate", "High Increase"),
-        "origin_p95_delta_high": ("Origin P95", "High Increase"),
-        "origin_cost_contribution_high": ("Origin Cost Contribution", "High"),
-        "querystring_diversity_high": ("Query String Diversity", "High"),
-        "querystring_diversity_with_high_miss_rate": (
-            "Query String Diversity",
-            "With High Miss Rate",
-        ),
-        "rate_429_delta_high": ("429 Rate", "High Increase"),
-        "rate_5xx_delta_high": ("5xx Rate", "High Increase"),
-        "good_bot_429_present": ("Good Bot 429 Responses", "Present"),
-        "good_bot_error_rate_high": ("Good Bot Error Rate", "High"),
-        "policy_surface_failure_present": ("Policy Surface Failures", "Present"),
-        "ai_crawler_growth_high": ("AI Crawler Growth", "High"),
-        "good_bot_policy_collateral_present": ("Good Bot Policy Collateral", "Present"),
-        "policy_collateral_error_rate_high": ("Policy Collateral Error Rate", "High"),
-        "displacement_delta_high": ("Displacement", "High Increase"),
-        "siem_blocked_present": ("SIEM Blocked Requests", "Present"),
-        "siem_auth_fail_present": ("SIEM Auth Failures", "Present"),
-        "bad_bot_share_high": ("Bad Bot Share", "High"),
-    }
-    return known.get(text, (display_label(text), ""))
 
 
 def human_number(value: Any, *, percent: bool = False) -> str:

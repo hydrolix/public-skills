@@ -589,3 +589,106 @@ def test_markdown_render_safe_allows_https_links():
 
     out = str(render_safe("[docs](https://example.com)"))
     assert 'href="https://example.com"' in out
+
+
+# ---------------------------------------------------------------------------
+# humanize / deltas — symbol consolidation in M1.1
+# ---------------------------------------------------------------------------
+
+
+def test_humanize_rule_label_parts_known_signal_returns_explicit_pair():
+    from report_engine.humanize import rule_label_parts
+
+    assert rule_label_parts("querystring_diversity_high") == (
+        "Query String Diversity",
+        "High",
+    )
+    assert rule_label_parts(
+        "querystring_diversity_with_high_miss_rate"
+    ) == ("Query String Diversity", "With High Miss Rate")
+
+
+def test_humanize_rule_label_parts_unknown_falls_back_to_display_label():
+    from report_engine.humanize import rule_label_parts
+
+    assert rule_label_parts("unknown_signal_shape") == (
+        "Unknown Signal Shape",
+        "",
+    )
+
+
+def test_humanize_rule_label_parts_preserves_acronyms():
+    from report_engine.humanize import rule_label_parts
+
+    axis, condition = rule_label_parts("siem_blocked_present")
+    assert axis == "SIEM Blocked Requests"
+    assert condition == "Present"
+
+
+def test_humanize_human_metric_name_known_returns_label():
+    from report_engine.humanize import human_metric_name
+
+    assert human_metric_name("requests") == "Total requests"
+    assert human_metric_name("bot_share_pct") == "Bot share"
+
+
+def test_humanize_human_metric_name_unknown_returns_raw_text():
+    """Identity fallback is load-bearing — the legacy markdown escape
+    test in test_skill_scripts expects user-controlled metric names to
+    pass through unchanged so downstream escaping sees them verbatim.
+    """
+    from report_engine.humanize import human_metric_name
+
+    assert human_metric_name("custom_producer_metric") == "custom_producer_metric"
+    assert human_metric_name("bad*name_with|pipe") == "bad*name_with|pipe"
+
+
+def test_humanize_render_report_reexports_are_the_same_objects():
+    """Legacy callers still reference render_report.<name>; consolidation
+    must preserve that path."""
+    import render_report
+    from report_engine import humanize
+
+    assert render_report.METRIC_LABELS is humanize.METRIC_LABELS
+    assert render_report.human_metric_name is humanize.human_metric_name
+    assert render_report.display_label is humanize.display_label
+    assert render_report.rule_label_parts is humanize.rule_label_parts
+    assert render_report.stringify is humanize.stringify
+
+
+def test_deltas_pct_delta_matches_baseline_helper():
+    import baselines
+    from report_engine import deltas
+
+    assert deltas.pct_delta(150.0, 100.0) == baselines.pct_delta(150.0, 100.0)
+    # Zero baseline clamps to 1.0, not a division error.
+    assert deltas.pct_delta(7.0, 0.0) == 700.0
+
+
+def test_deltas_direction_matches_baseline_helper():
+    from report_engine import deltas
+
+    assert deltas.direction(5.0) == "increase"
+    assert deltas.direction(-3.0) == "decrease"
+    assert deltas.direction(0.0) == "no_change"
+
+
+def test_deltas_signed_delta_pp_is_subtraction_not_relative_change():
+    """signed_delta_pp is the percentage-point delta for two values
+    already expressed as percentages. It must NOT compute the relative
+    pct_delta — that would conflate share-of-X with change-of-X."""
+    from report_engine import deltas
+
+    assert deltas.signed_delta_pp(42.5, 40.0) == 2.5
+    assert deltas.signed_delta_pp(40.0, 42.5) == -2.5
+    assert deltas.signed_delta_pp(0.0, 0.0) == 0.0
+    # Negative inputs also work — caller is responsible for unit sanity.
+    assert deltas.signed_delta_pp(-1.0, -3.0) == 2.0
+
+
+def test_deltas_signed_delta_pp_returns_float_for_int_inputs():
+    from report_engine import deltas
+
+    result = deltas.signed_delta_pp(10, 7)
+    assert result == 3.0
+    assert isinstance(result, float)

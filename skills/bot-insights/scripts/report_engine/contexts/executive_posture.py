@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 
 from ..findings import Finding
 from ..formatters import format_share_pct
-from ..humanize import cluster_display
+from ..humanize import METRIC_LABELS, cluster_display, human_metric_name
 
 SCHEMA = "bot_posture_movement.v1"
 REPORT_TYPE = "executive_posture"
@@ -44,25 +44,6 @@ PURPOSE = {
     ),
 }
 
-# Reader-facing labels for the metric column. Mirrors render_report.METRIC_LABELS
-# so the legacy markdown path and the new HTML path read consistently.
-METRIC_LABELS = {
-    "ai_requests": "AI requests",
-    "bot_like_requests": "Bot-like requests",
-    "bot_share_pct": "Bot share",
-    "cache_misses": "Cache misses",
-    "cache_miss_rate_pct": "Cache miss rate",
-    "error_5xx_requests": "5xx errors",
-    "rate_429_pct": "429 rate",
-    "rate_limited_requests": "429 rate-limited requests",
-    "requests": "Total requests",
-    "avg_bot_score": "Average bot score",
-    "siem_auth_fail_requests": "SIEM auth failures",
-    "siem_blocked_requests": "SIEM blocked requests",
-    "unique_client_ips": "Unique client IPs",
-}
-
-
 # Metric kind (how to express its size, what threshold tier governs it).
 # Volume metrics are large-N counts; share metrics are percentages or rates.
 _VOLUME_METRICS = frozenset(
@@ -89,7 +70,7 @@ _STABLE_PCT = 5.0
 
 
 def _metric_label(name: str) -> str:
-    return METRIC_LABELS.get(name, name.replace("_", " ").capitalize())
+    return human_metric_name(name)
 
 
 def assemble(artifacts: list[dict]) -> dict:
