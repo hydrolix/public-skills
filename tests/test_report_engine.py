@@ -296,6 +296,66 @@ def test_crawler_governance_single_entity():
     assert "Ai training" in actual
 
 
+# ---- Edge ops impact ---------------------------------------------------------
+
+
+def test_edge_ops_impact_full_wrapper():
+    """Full wrapper bundling a packet of three ranked ASNs and a path-grain
+    cache_origin_impact_report. Top two entities carry origin_cost_contribution_pct,
+    so the cost-share headline fires; path candidates trigger the top-paths section."""
+    wrapper = FIXTURES / "edge_ops_impact_full.json"
+    snapshot = SNAPSHOTS / "edge_ops_impact_full.html"
+    actual = _normalize(_render(wrapper))
+    _assert_snapshot(actual, snapshot)
+    # Cost-share headline assertions
+    assert "concentrate" in actual
+    assert "% of origin pressure" in actual
+    # Top-paths section
+    assert '<table class="data-table path-candidates-table">' in actual
+    # Edge & origin block label (NOT "Crawler-governance signals")
+    assert ">Edge &amp; origin signals<" in actual
+    assert ">Crawler-governance signals<" not in actual
+    # Evidence cards exist
+    assert '<article class="sec-evidence-card' in actual
+    # Domain matrix renders cache_busting + origin_impact at minimum
+    assert '<table class="data-table domain-matrix">' in actual
+    # Full wrapper is NOT degraded
+    assert '<div class="degraded-banner"' not in actual
+
+
+def test_edge_ops_impact_index_only_degraded():
+    """Wrapper carries the ranking index but no scorecards and no path
+    artifact. Degraded banner fires; queue table renders rows from the
+    index; no edge cards, no top-paths section, no domain matrix."""
+    wrapper = FIXTURES / "edge_ops_impact_index_only.json"
+    snapshot = SNAPSHOTS / "edge_ops_impact_index_only.html"
+    actual = _normalize(_render(wrapper))
+    _assert_snapshot(actual, snapshot)
+    assert '<div class="degraded-banner"' in actual
+    assert '<table class="data-table domain-matrix">' not in actual
+    assert ">Edge &amp; origin signals<" not in actual
+    assert '<article class="sec-evidence-card' not in actual
+    # No path-candidates table when path artifact absent
+    assert '<table class="data-table path-candidates-table">' not in actual
+
+
+def test_edge_ops_impact_single_entity_no_paths():
+    """N=1 wrapper with full per-rule data, entity_metrics, and no path
+    artifact. Cost-share lens does NOT fire (origin_cost_contribution_pct
+    omitted on the triggered rules), so the rule-based fallback headline
+    fires; traffic-share clause appears."""
+    wrapper = FIXTURES / "edge_ops_impact_single_entity_no_paths.json"
+    snapshot = SNAPSHOTS / "edge_ops_impact_single_entity_no_paths.html"
+    actual = _normalize(_render(wrapper))
+    _assert_snapshot(actual, snapshot)
+    # Cost-share clause should NOT appear (origin_cost_contribution_pct absent)
+    assert "% of origin pressure" not in actual
+    # Traffic-share clause should appear (entity_metrics carries current_requests)
+    assert "covers 100% of fleet requests" in actual
+    # Top-paths section absent
+    assert '<table class="data-table path-candidates-table">' not in actual
+
+
 # ---- XSS guard ---------------------------------------------------------------
 
 

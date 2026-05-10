@@ -1,0 +1,498 @@
+{
+  "schema_version": "bot_report_input.v1",
+  "report_type": "edge_ops_impact",
+  "title": "Edge & Origin Cost - www.example.com - 2026-04-14",
+  "scope_label": "www.example.com",
+  "analyst_notes": [
+    {
+      "note_id": "note-1",
+      "author_type": "llm",
+      "text": "Two ASNs concentrate 60% of origin pressure, driven by high cache-miss rates and query-string diversity patterns; start triage with ASN 64500.",
+      "data_sources": [
+        {
+          "artifact_id": "edge-pack-1#scorecard-1",
+          "json_pointer": "/score",
+          "label": "top entity score"
+        },
+        {
+          "artifact_id": "edge-pack-1#index",
+          "json_pointer": "/ranked_entities/0/entity",
+          "label": "top-ranked entity"
+        }
+      ]
+    }
+  ],
+  "artifacts": [
+    {
+      "artifact_id": "edge-pack-1",
+      "schema_version": "bot_scorecard_artifacts.v1",
+      "producer_limit": 5,
+      "result_row_count": 3,
+      "result_truncated": false,
+      "total_ranked_entities": 3,
+      "index": {
+        "schema_version": "bot_scorecard_index.v1",
+        "comparison_type": "week_over_week",
+        "scope": {
+          "request_host": "www.example.com",
+          "cluster": "prod",
+          "database": "bot_insights"
+        },
+        "table_used": "bi_summary_hour",
+        "current_window": {
+          "start": "2026-04-07T00:00:00Z",
+          "end": "2026-04-14T00:00:00Z"
+        },
+        "baseline_windows": [
+          {
+            "start": "2026-03-31T00:00:00Z",
+            "end": "2026-04-07T00:00:00Z"
+          }
+        ],
+        "producer_limit": 5,
+        "result_row_count": 3,
+        "result_truncated": false,
+        "total_ranked_entities": 3,
+        "interpretation_constraints": [
+          "rule_based_scorecard",
+          "mechanical_features_only",
+          "no_causal_claim",
+          "llm_may_summarize_structured_evidence_only"
+        ],
+        "ranked_entities": [
+          {
+            "rank": 1,
+            "entity": "64500",
+            "entity_type": "client_asn",
+            "score": 78,
+            "band": "high_review",
+            "confidence": "medium",
+            "primary_domain": "origin_impact"
+          },
+          {
+            "rank": 2,
+            "entity": "64600",
+            "entity_type": "client_asn",
+            "score": 50,
+            "band": "medium_review",
+            "confidence": "medium",
+            "primary_domain": "cache_busting"
+          },
+          {
+            "rank": 3,
+            "entity": "64700",
+            "entity_type": "client_asn",
+            "score": 14,
+            "band": "observe",
+            "confidence": "medium",
+            "primary_domain": "cache_busting"
+          }
+        ]
+      },
+      "scorecards": [
+        {
+          "schema_version": "bot_entity_scorecard.v1",
+          "entity": "64500",
+          "entity_type": "client_asn",
+          "score": 78,
+          "band": "high_review",
+          "confidence": "medium",
+          "confidence_reasons": [
+            "summary_table_used",
+            "retained_dimensions_fit",
+            "current_count_sufficient",
+            "baseline_count_sufficient"
+          ],
+          "primary_domain": "origin_impact",
+          "scope": {
+            "request_host": "www.example.com",
+            "cluster": "prod",
+            "database": "bot_insights"
+          },
+          "table_used": "bi_summary_hour",
+          "comparison_type": "week_over_week",
+          "current_window": {
+            "start": "2026-04-07T00:00:00Z",
+            "end": "2026-04-14T00:00:00Z"
+          },
+          "baseline_windows": [
+            {
+              "start": "2026-03-31T00:00:00Z",
+              "end": "2026-04-07T00:00:00Z"
+            }
+          ],
+          "interpretation_constraints": [
+            "rule_based_scorecard",
+            "mechanical_features_only",
+            "no_causal_claim",
+            "llm_may_summarize_structured_evidence_only"
+          ],
+          "domain_scores": {
+            "cache_busting": 22,
+            "origin_impact": 56,
+            "movement": 0,
+            "crawler_governance": 0,
+            "policy_collateral": 0,
+            "security_evidence": 0,
+            "signal_alignment": 0
+          },
+          "evidence_summary": [
+            "Origin cost contribution is 42% of fleet origin pressure.",
+            "Origin p95 latency increased by 310%.",
+            "Cache-miss rate is 68%.",
+            "Query-string diversity is 1240 unique QS with high miss rate."
+          ],
+          "features": [
+            {
+              "name": "origin_cost_contribution_high",
+              "domain": "origin_impact",
+              "current": 42,
+              "threshold": 20,
+              "points": 24,
+              "evidence": "Origin cost contribution is 42% of fleet origin pressure."
+            },
+            {
+              "name": "origin_p95_delta_high",
+              "domain": "origin_impact",
+              "baseline": 180,
+              "current": 740,
+              "threshold": 100,
+              "points": 16,
+              "evidence": "Origin p95 latency increased by 310%.",
+              "supporting_metrics": {
+                "absolute_delta_ms": 560,
+                "pct_change": 310
+              }
+            },
+            {
+              "name": "cache_miss_rate_high",
+              "domain": "cache_busting",
+              "current": 68,
+              "threshold": 50,
+              "points": 12,
+              "evidence": "Cache-miss rate is 68%."
+            },
+            {
+              "name": "querystring_diversity_with_high_miss_rate",
+              "domain": "cache_busting",
+              "current": 1240,
+              "threshold": 500,
+              "points": 10,
+              "evidence": "Query-string diversity is 1240 unique QS with high miss rate."
+            }
+          ],
+          "not_evaluated_features": [
+            {
+              "name": "cache_miss_delta_high",
+              "domain": "cache_busting",
+              "reason": "feature_input_missing",
+              "missing_inputs": ["baseline_cache_miss_pct"]
+            }
+          ],
+          "recommended_next_steps": [
+            {
+              "summary": "Investigate origin cost share.",
+              "detail": "ASN 64500 accounts for 42% of origin requests; confirm whether query-string variance is driving uncacheable traffic and whether a cache-key normalization rule would reduce origin load."
+            },
+            {
+              "summary": "Review p95 latency spike.",
+              "detail": "Origin p95 jumped 310% this week; check for upstream resource contention or a deployment that changed response characteristics."
+            }
+          ]
+        },
+        {
+          "schema_version": "bot_entity_scorecard.v1",
+          "entity": "64600",
+          "entity_type": "client_asn",
+          "score": 50,
+          "band": "medium_review",
+          "confidence": "medium",
+          "confidence_reasons": [
+            "summary_table_used",
+            "retained_dimensions_fit",
+            "current_count_sufficient",
+            "baseline_count_sufficient"
+          ],
+          "primary_domain": "cache_busting",
+          "scope": {
+            "request_host": "www.example.com",
+            "cluster": "prod",
+            "database": "bot_insights"
+          },
+          "table_used": "bi_summary_hour",
+          "comparison_type": "week_over_week",
+          "current_window": {
+            "start": "2026-04-07T00:00:00Z",
+            "end": "2026-04-14T00:00:00Z"
+          },
+          "baseline_windows": [
+            {
+              "start": "2026-03-31T00:00:00Z",
+              "end": "2026-04-07T00:00:00Z"
+            }
+          ],
+          "interpretation_constraints": [
+            "rule_based_scorecard",
+            "mechanical_features_only",
+            "no_causal_claim",
+            "llm_may_summarize_structured_evidence_only"
+          ],
+          "domain_scores": {
+            "cache_busting": 32,
+            "origin_impact": 18,
+            "movement": 0,
+            "crawler_governance": 0,
+            "policy_collateral": 0,
+            "security_evidence": 0,
+            "signal_alignment": 0
+          },
+          "evidence_summary": [
+            "Origin cost contribution is 18% of fleet origin pressure.",
+            "Cache-miss rate is 72%.",
+            "Query-string diversity is 890 unique QS."
+          ],
+          "features": [
+            {
+              "name": "origin_cost_contribution_high",
+              "domain": "origin_impact",
+              "current": 18,
+              "threshold": 20,
+              "points": 18,
+              "evidence": "Origin cost contribution is 18% of fleet origin pressure."
+            },
+            {
+              "name": "cache_miss_rate_high",
+              "domain": "cache_busting",
+              "current": 72,
+              "threshold": 50,
+              "points": 12,
+              "evidence": "Cache-miss rate is 72%."
+            },
+            {
+              "name": "querystring_diversity_high",
+              "domain": "cache_busting",
+              "current": 890,
+              "threshold": 500,
+              "points": 8,
+              "evidence": "Query-string diversity is 890 unique QS."
+            }
+          ],
+          "not_evaluated_features": [],
+          "recommended_next_steps": [
+            {
+              "summary": "Audit cache-busting query strings.",
+              "detail": "890 unique query strings suggest automated request variance bypassing cache; investigate whether cache-key normalization or query-string allow-listing would reduce miss rate from 72%."
+            },
+            {
+              "summary": "Confirm origin cost share.",
+              "detail": "18% origin cost contribution combined with ASN 64500 totals 60%; verify whether both ASNs represent the same operator and whether coordinated remediation is appropriate."
+            }
+          ]
+        },
+        {
+          "schema_version": "bot_entity_scorecard.v1",
+          "entity": "64700",
+          "entity_type": "client_asn",
+          "score": 14,
+          "band": "observe",
+          "confidence": "medium",
+          "confidence_reasons": [
+            "summary_table_used",
+            "retained_dimensions_fit",
+            "current_count_sufficient",
+            "baseline_count_sufficient"
+          ],
+          "primary_domain": "cache_busting",
+          "scope": {
+            "request_host": "www.example.com",
+            "cluster": "prod",
+            "database": "bot_insights"
+          },
+          "table_used": "bi_summary_hour",
+          "comparison_type": "week_over_week",
+          "current_window": {
+            "start": "2026-04-07T00:00:00Z",
+            "end": "2026-04-14T00:00:00Z"
+          },
+          "baseline_windows": [
+            {
+              "start": "2026-03-31T00:00:00Z",
+              "end": "2026-04-07T00:00:00Z"
+            }
+          ],
+          "interpretation_constraints": [
+            "rule_based_scorecard",
+            "mechanical_features_only",
+            "no_causal_claim",
+            "llm_may_summarize_structured_evidence_only"
+          ],
+          "domain_scores": {
+            "cache_busting": 14,
+            "origin_impact": 0,
+            "movement": 0,
+            "crawler_governance": 0,
+            "policy_collateral": 0,
+            "security_evidence": 0,
+            "signal_alignment": 0
+          },
+          "evidence_summary": [
+            "Cache-miss rate is 54%."
+          ],
+          "features": [
+            {
+              "name": "cache_miss_rate_high",
+              "domain": "cache_busting",
+              "current": 54,
+              "threshold": 50,
+              "points": 12,
+              "evidence": "Cache-miss rate is 54%."
+            }
+          ],
+          "not_evaluated_features": [],
+          "recommended_next_steps": [],
+          "granularity": "",
+          "table_used": "bi_summary_hour"
+        }
+      ]
+    },
+    {
+      "schema_version": "cache_origin_impact_report.v1",
+      "analysis_type": "cache_busting_origin_impact",
+      "source_skill": "bot-insights",
+      "comparison_type": "week_over_week",
+      "scope": {
+        "request_host": "www.example.com"
+      },
+      "dimensions": ["request_path_norm"],
+      "current_window": {
+        "start": "2026-04-07T00:00:00Z",
+        "end": "2026-04-14T00:00:00Z"
+      },
+      "baseline_windows": [
+        {
+          "start": "2026-03-31T00:00:00Z",
+          "end": "2026-04-07T00:00:00Z"
+        }
+      ],
+      "interpretation_constraints": [
+        "mechanical_candidate_only",
+        "no_causal_claim",
+        "origin_pressure_score_is_proxy",
+        "not_a_billing_or_capacity_unit",
+        "llm_may_summarize_structured_evidence_only"
+      ],
+      "confidence": "medium",
+      "confidence_reasons": [
+        "summary_table_used",
+        "current_count_sufficient",
+        "baseline_count_sufficient"
+      ],
+      "limitations": [],
+      "candidates": [
+        {
+          "rank": 1,
+          "entity": {"request_path_norm": "/api/v1/pricing"},
+          "current": {
+            "requests": 420000,
+            "cache_misses": 302400,
+            "cache_miss_pct": 72,
+            "origin_p95_ms": 840,
+            "unique_query_strings": 1180
+          },
+          "baseline": {
+            "requests": 390000,
+            "cache_misses": 234000,
+            "cache_miss_pct": 60,
+            "origin_p95_ms": 610,
+            "unique_query_strings": 920
+          },
+          "deltas": {
+            "requests_pct": 7,
+            "cache_miss_pct": 12,
+            "origin_p95_ms_pct": 37
+          },
+          "candidate_score": 88,
+          "candidate_band": "high_review",
+          "features": ["cache_busting_candidate", "origin_impact_candidate"],
+          "finding_types": ["cache_busting_candidate", "origin_impact_candidate"],
+          "confidence": "medium",
+          "confidence_reasons": [
+            "summary_table_used",
+            "current_count_sufficient",
+            "baseline_count_sufficient"
+          ],
+          "optional_metadata": {}
+        },
+        {
+          "rank": 2,
+          "entity": {"request_path_norm": "/api/v1/inventory"},
+          "current": {
+            "requests": 310000,
+            "cache_misses": 198400,
+            "cache_miss_pct": 64,
+            "origin_p95_ms": 680,
+            "unique_query_strings": 740
+          },
+          "baseline": {
+            "requests": 295000,
+            "cache_misses": 165200,
+            "cache_miss_pct": 56,
+            "origin_p95_ms": 520,
+            "unique_query_strings": 610
+          },
+          "deltas": {
+            "requests_pct": 5,
+            "cache_miss_pct": 8,
+            "origin_p95_ms_pct": 30
+          },
+          "candidate_score": 62,
+          "candidate_band": "medium_review",
+          "features": ["cache_busting_candidate", "origin_impact_candidate"],
+          "finding_types": ["cache_busting_candidate", "origin_impact_candidate"],
+          "confidence": "medium",
+          "confidence_reasons": [
+            "summary_table_used",
+            "current_count_sufficient",
+            "baseline_count_sufficient"
+          ],
+          "optional_metadata": {}
+        },
+        {
+          "rank": 3,
+          "entity": {"request_path_norm": "/api/v1/search"},
+          "current": {
+            "requests": 185000,
+            "cache_misses": 96200,
+            "cache_miss_pct": 52,
+            "origin_p95_ms": 510,
+            "unique_query_strings": 380
+          },
+          "baseline": {
+            "requests": 178000,
+            "cache_misses": 87220,
+            "cache_miss_pct": 49,
+            "origin_p95_ms": 480,
+            "unique_query_strings": 320
+          },
+          "deltas": {
+            "requests_pct": 4,
+            "cache_miss_pct": 3,
+            "origin_p95_ms_pct": 6
+          },
+          "candidate_score": 34,
+          "candidate_band": "observe",
+          "features": ["cache_busting_candidate"],
+          "finding_types": ["cache_busting_candidate"],
+          "confidence": "medium",
+          "confidence_reasons": [
+            "summary_table_used",
+            "current_count_sufficient",
+            "baseline_count_sufficient"
+          ],
+          "optional_metadata": {}
+        }
+      ],
+      "not_evaluated": []
+    }
+  ]
+}
