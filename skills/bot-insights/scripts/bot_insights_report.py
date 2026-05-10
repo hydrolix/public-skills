@@ -2124,10 +2124,10 @@ def main() -> int:
             run(path_cmd, stdout_path=path_artifact_path, cwd=PUBLIC_SKILLS)
             path_artifact = json.loads(path_artifact_path.read_text(encoding="utf-8"))
             if not isinstance(path_artifact, dict) or not path_artifact.get(
-                "ranked_candidates"
+                "candidates"
             ):
                 print(
-                    "WARNING: path-grain artifact has no ranked candidates; "
+                    "WARNING: path-grain artifact has no candidates; "
                     "path artifact will be omitted.",
                     file=sys.stderr,
                 )

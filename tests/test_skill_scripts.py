@@ -2723,8 +2723,6 @@ class BotInsightsScriptTests(unittest.TestCase):
                     )
                     return ""
                 if "cache_origin_impact.py" in joined and stdout_path is not None:
-                    # ranked_candidates must be truthy for the orchestrator's
-                    # guard at line 2126 of bot_insights_report.py to pass.
                     stdout_path.write_text(
                         json.dumps(
                             {
@@ -2732,14 +2730,6 @@ class BotInsightsScriptTests(unittest.TestCase):
                                 "analysis_type": "cache_busting_origin_impact",
                                 "scope": {"request_host": "www.example.com"},
                                 "dimensions": ["request_path_norm"],
-                                "ranked_candidates": [
-                                    {
-                                        "rank": 1,
-                                        "entity": {
-                                            "request_path_norm": "/api/v1/pricing"
-                                        },
-                                    }
-                                ],
                                 "candidates": [
                                     {
                                         "rank": 1,
