@@ -381,6 +381,14 @@ ORDER BY current_requests DESC
 
 ### Crawler Governance Enrichment
 
+For the predefined `crawler_governance` report this template feeds, prefer
+the script-orchestrated path documented in
+[`references/reporting.md`](reporting.md) — `bot_insights_report.py --report
+crawler_governance` runs the query directly when local credentials resolve
+and emits a handoff packet otherwise. Run the template directly via Hydrolix
+MCP only for exploratory crawler analysis outside a predefined report. See
+[SKILL.md "Data Firewall"](../SKILL.md#data-firewall).
+
 Run this over the same `bi_summary_*` posture table used for the base
 scorecard when the scorecard should support the `crawler_governance` report
 lens. Join the returned fields into the scorecard row by entity before calling

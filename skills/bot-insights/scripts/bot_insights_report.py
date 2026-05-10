@@ -316,6 +316,18 @@ SOC_ENTITY_SQL = {
     "ai_category": "toString(aiCategory)",
 }
 
+CRAWLER_ENTITY_SQL = {
+    "ai_category": "toString(aiCategory)",
+    "bot_class": "toString(userAgentCategory)",
+    "request_host": "toString(reqHost)",
+}
+
+CRAWLER_POPULATION_BY_ENTITY = {
+    "ai_category": "ai_crawler",
+    "bot_class": "crawler",
+    "request_host": "crawler",
+}
+
 
 def scorecard_sql(
     database: str,
@@ -404,6 +416,58 @@ WHERE timestamp >= baseline_start
 GROUP BY {entity_type}
 HAVING current_requests > 0 OR siem_blocked_requests > 0 OR siem_auth_fail_requests > 0
 ORDER BY siem_blocked_requests DESC, siem_auth_fail_requests DESC, current_requests DESC{limit_clause}
+""".strip()
+
+
+def scorecard_crawler_sql(
+    database: str,
+    start: datetime,
+    end: datetime,
+    baseline_start: datetime,
+    entity_type: str,
+    producer_limit: int,
+) -> str:
+    granularity = choose_granularity(start, end)
+    table = f"{database}.bi_summary_{granularity}"
+    if entity_type not in CRAWLER_ENTITY_SQL:
+        raise SystemExit(
+            "--entity-type "
+            + entity_type
+            + " is not supported for crawler_governance; use one of "
+            + ", ".join(sorted(CRAWLER_ENTITY_SQL))
+        )
+    entity_expr = CRAWLER_ENTITY_SQL[entity_type]
+    limit_clause = f"\nLIMIT {producer_limit}" if producer_limit > 0 else ""
+    return f"""
+WITH
+  toDateTime('{sql_ts(start)}', 'UTC') AS current_start,
+  toDateTime('{sql_ts(end)}', 'UTC') AS current_end,
+  toDateTime('{sql_ts(baseline_start)}', 'UTC') AS baseline_start
+SELECT
+  {entity_expr} AS {entity_type},
+  countMergeIf(`count()`, reqTimeSec >= current_start) AS current_requests,
+  countMergeIf(`count()`, reqTimeSec < current_start) AS baseline_requests,
+  if(current_requests > 0, countMergeIf(`count()`, reqTimeSec >= current_start AND statusCode = 429) / current_requests * 100, 0) AS current_rate_429_pct,
+  if(baseline_requests > 0, countMergeIf(`count()`, reqTimeSec < current_start AND statusCode = 429) / baseline_requests * 100, 0) AS baseline_rate_429_pct,
+  if(current_requests > 0, countMergeIf(`count()`, reqTimeSec >= current_start AND statusCode >= 500) / current_requests * 100, 0) AS current_rate_5xx_pct,
+  if(baseline_requests > 0, countMergeIf(`count()`, reqTimeSec < current_start AND statusCode >= 500) / baseline_requests * 100, 0) AS baseline_rate_5xx_pct,
+  countMergeIf(`count()`, reqTimeSec >= current_start AND trafficCohort = 'Bot' AND statusCode = 429) AS good_bot_429_requests,
+  if(
+    countMergeIf(`count()`, reqTimeSec >= current_start AND trafficCohort = 'Bot') > 0,
+    countMergeIf(`count()`, reqTimeSec >= current_start AND trafficCohort = 'Bot' AND statusCode >= 400) /
+      countMergeIf(`count()`, reqTimeSec >= current_start AND trafficCohort = 'Bot') * 100,
+    0
+  ) AS good_bot_error_rate_pct,
+  toUInt64(0) AS policy_surface_failures,
+  countMergeIf(`count()`, reqTimeSec >= current_start AND trafficCohort = 'AI') AS current_ai_crawler_requests,
+  countMergeIf(`count()`, reqTimeSec < current_start AND trafficCohort = 'AI') AS baseline_ai_crawler_requests
+FROM {table}
+WHERE reqTimeSec >= baseline_start
+  AND reqTimeSec < current_end
+  AND {entity_expr} != ''
+GROUP BY {entity_type}
+ORDER BY current_requests DESC
+{limit_clause}
 """.strip()
 
 
@@ -843,6 +907,32 @@ SOC_TEMPLATE_SECTIONS = [
 ]
 
 
+CRAWLER_INTERPRETATION_CONTRACT: dict[str, list[str]] = {
+    "allowed": [
+        "Summarize the emitted crawler_governance scorecard features and rowset population.",
+        "Use score, band, confidence, missing inputs, and recommended next steps.",
+        "Describe rowset-limit caveats and missing crawler inputs explicitly.",
+    ],
+    "forbidden": [
+        "Do not claim malicious crawler intent without additional artifacts.",
+        "Do not invent missing feature inputs.",
+        "Do not query Hydrolix from the interpretation step.",
+        "Do not emit final HTML or Markdown layout.",
+    ],
+}
+
+CRAWLER_TEMPLATE_SECTIONS = [
+    "Crawler Governance Summary",
+    "Top Crawler Entities",
+    "Selected Entity",
+    "Domain Scores",
+    "Evaluated Crawler Evidence",
+    "Missing Crawler Inputs",
+    "Recommended Next Steps",
+    "Method and Caveats",
+]
+
+
 def build_scorecard_evidence_packet(
     *,
     args: argparse.Namespace,
@@ -855,14 +945,17 @@ def build_scorecard_evidence_packet(
     baseline_start: datetime,
 ) -> dict:
     index = artifacts.get("index") if isinstance(artifacts.get("index"), dict) else {}
-    is_soc = args.report == "soc_triage"
-    default_title = (
-        "Bot Insights SOC Triage" if is_soc else "Bot Insights Scorecard Brief"
-    )
-    interpretation_contract = (
-        SOC_INTERPRETATION_CONTRACT
-        if is_soc
-        else {
+    if args.report == "soc_triage":
+        default_title = "Bot Insights SOC Triage"
+        interpretation_contract = SOC_INTERPRETATION_CONTRACT
+        template_sections = SOC_TEMPLATE_SECTIONS
+    elif args.report == "crawler_governance":
+        default_title = "Bot Insights Crawler Governance"
+        interpretation_contract = CRAWLER_INTERPRETATION_CONTRACT
+        template_sections = CRAWLER_TEMPLATE_SECTIONS
+    else:
+        default_title = "Bot Insights Scorecard Brief"
+        interpretation_contract = {
             "allowed": [
                 "Summarize only the selected scorecard entity and emitted feature evidence.",
                 "Use score, band, confidence, domain scores, missing inputs, and recommended next steps.",
@@ -875,11 +968,7 @@ def build_scorecard_evidence_packet(
                 "Do not emit final HTML or Markdown layout.",
             ],
         }
-    )
-    template_sections = (
-        SOC_TEMPLATE_SECTIONS
-        if is_soc
-        else [
+        template_sections = [
             "Scorecard Interpretation",
             "Selected Entity",
             "Domain Scores",
@@ -888,7 +977,6 @@ def build_scorecard_evidence_packet(
             "Recommended Next Steps",
             "Method and Caveats",
         ]
-    )
     return {
         "schema_version": "bot_report_evidence.v1",
         "report_type": args.report,
@@ -1183,6 +1271,10 @@ def add_scorecard_metadata(
         enriched["analysis_domains"] = [
             item.strip() for item in args.domains.split(",") if item.strip()
         ]
+    if args.report == "crawler_governance":
+        population = CRAWLER_POPULATION_BY_ENTITY.get(args.entity_type)
+        if population is not None:
+            enriched["rowset_scope"] = {"population": population}
     return enriched
 
 
@@ -1200,6 +1292,7 @@ def analyst_note_from_args(args: argparse.Namespace) -> dict | None:
             "control_review": "Control Review Interpretation",
             "scorecard_brief": "Scorecard Interpretation",
             "soc_triage": "SOC Triage Interpretation",
+            "crawler_governance": "Crawler Governance Interpretation",
         }.get(args.report, "Analyst Interpretation"),
         "text": text.strip(),
         "show_data_sources": False,
@@ -1224,6 +1317,7 @@ def build_report_wrapper(
             # The auto-generated form lowercases the SOC acronym ("Soc
             # Triage") which reads wrong; spell it explicitly.
             "soc_triage": "SOC Triage",
+            "crawler_governance": "Crawler Governance",
         }.get(args.report, f"Bot Insights {args.report.replace('_', ' ').title()}"),
         "scope_label": f"{args.cluster}/{args.database}",
         "artifacts": artifacts,
@@ -1356,6 +1450,7 @@ def parse_args() -> argparse.Namespace:
             "control_review",
             "scorecard_brief",
             "soc_triage",
+            "crawler_governance",
         ),
         default="executive_posture",
         help="Report type to generate.",
@@ -1451,9 +1546,10 @@ def main() -> int:
         raise SystemExit("--baseline-start must be earlier than --start")
     if args.scorecard_limit < 0:
         raise SystemExit("--scorecard-limit must be zero or a positive integer.")
-    if args.report not in {"scorecard_brief", "soc_triage"} and args.entity_value:
+    scorecard_reports = {"scorecard_brief", "soc_triage", "crawler_governance"}
+    if args.report not in scorecard_reports and args.entity_value:
         raise SystemExit(
-            "--entity-value is only supported with --report scorecard_brief or --report soc_triage."
+            "--entity-value is only supported with --report scorecard_brief, --report soc_triage, or --report crawler_governance."
         )
     if args.report == "soc_triage" and args.entity_type not in SOC_ENTITY_SQL:
         raise SystemExit(
@@ -1462,10 +1558,25 @@ def main() -> int:
             + " is not supported for soc_triage; use one of "
             + ", ".join(sorted(SOC_ENTITY_SQL))
         )
+    if (
+        args.report == "crawler_governance"
+        and args.entity_type not in CRAWLER_ENTITY_SQL
+    ):
+        raise SystemExit(
+            "--entity-type "
+            + args.entity_type
+            + " is not supported for crawler_governance; use one of "
+            + ", ".join(sorted(CRAWLER_ENTITY_SQL))
+        )
     if args.report == "soc_triage" and not args.domains:
         # SOC scorecards must evaluate only the security_evidence domain so
         # crawler/Edge/Ops features do not surface as missing SOC evidence.
         args.domains = "security_evidence"
+    if args.report == "crawler_governance" and not args.domains:
+        # Crawler governance scorecards must evaluate only the
+        # crawler_governance domain so SOC/Edge features do not surface as
+        # missing crawler evidence.
+        args.domains = "crawler_governance"
 
     sample_dir = (
         Path(args.sample_dir).expanduser().resolve()
@@ -1525,6 +1636,18 @@ def main() -> int:
         granularity = choose_granularity(start, end)
         table_used = f"{args.database}.bi_siem_policy_summary_{granularity}"
         compare_schema = None
+    elif args.report == "crawler_governance":
+        sql = scorecard_crawler_sql(
+            args.database,
+            start,
+            end,
+            baseline_start,
+            args.entity_type,
+            args.scorecard_limit,
+        )
+        granularity = choose_granularity(start, end)
+        table_used = f"{args.database}.bi_summary_{granularity}"
+        compare_schema = None
     else:
         raise AssertionError(args.report)
 
@@ -1572,7 +1695,7 @@ def main() -> int:
                     "granularity": granularity,
                 }
             )
-            if args.report in {"scorecard_brief", "soc_triage"}:
+            if args.report in {"scorecard_brief", "soc_triage", "crawler_governance"}:
                 report_context.update(
                     {
                         "entity_type": args.entity_type,
@@ -1657,7 +1780,7 @@ def main() -> int:
             table_used=table_used,
             baseline_start=baseline_start,
         )
-    elif args.report in {"scorecard_brief", "soc_triage"}:
+    elif args.report in {"scorecard_brief", "soc_triage", "crawler_governance"}:
         raw_value = add_scorecard_metadata(
             raw_value=raw_value,
             args=args,
@@ -1671,7 +1794,7 @@ def main() -> int:
         json.dumps(raw_value, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
 
-    if args.report in {"scorecard_brief", "soc_triage"}:
+    if args.report in {"scorecard_brief", "soc_triage", "crawler_governance"}:
         scorecard_cmd = [
             "uv",
             "run",
@@ -1741,7 +1864,7 @@ def main() -> int:
             table_used=table_used,
             baseline_start=baseline_start,
         )
-    elif args.report in {"scorecard_brief", "soc_triage"}:
+    elif args.report in {"scorecard_brief", "soc_triage", "crawler_governance"}:
         selected_card = select_scorecard(
             artifact,
             entity_type=args.entity_type if args.entity_value else None,
@@ -1779,7 +1902,7 @@ def main() -> int:
             render_artifacts = [selected_card]
             if isinstance(artifact.get("index"), dict):
                 render_artifacts.append(artifact["index"])
-        elif args.report == "soc_triage":
+        elif args.report in {"soc_triage", "crawler_governance"}:
             render_artifacts = []
             if isinstance(artifact.get("index"), dict):
                 render_artifacts.append(artifact["index"])

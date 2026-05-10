@@ -267,10 +267,10 @@ Decision rule before running any `run_select_query`:
    `42`, and then only with the packet's exact `cluster` and `validated_sql`.
 
 Reports for which the script-orchestrated capture path is wired:
-`executive_posture`, `control_review`, `soc_triage`, and `scorecard_brief`.
-`crawler_governance` and `edge_ops_impact` are not yet wired — flag the
-exception when you produce one of those reports and capture aggregate rows
-through MCP into `scorecard.py` directly.
+`executive_posture`, `control_review`, `soc_triage`, `scorecard_brief`, and
+`crawler_governance`. `edge_ops_impact` is not yet wired — flag the
+exception when you produce one and capture aggregate rows through MCP into
+`scorecard.py` directly.
 
 ## Triage Flow
 
@@ -362,15 +362,15 @@ through MCP into `scorecard.py` directly.
   HTTP and an MCP handoff packet is governed by the [Data Firewall](#data-firewall).
   It is not a generic Hydrolix query runner.
 - Use [scripts/bot_insights_report.py](scripts/bot_insights_report.py) for
-  scripted `executive_posture`, `control_review`, `scorecard_brief`, and
-  `soc_triage` report, evidence, and template requests. The script calls
-  capture; if capture returns an MCP handoff packet, the report script prints
-  that packet and exits with the documented `needs MCP` code. After the
-  LLM/agent saves the MCP result JSON, rerun with `--raw-input <path>` to add
-  report metadata, produce local artifacts, and emit rendered reports or
-  `bot_report_evidence.v1` packets. The LLM may fill prose in a template from
-  that packet only. For supported report types not yet wired here
-  (`crawler_governance`, `edge_ops_impact`), create the deterministic artifacts
+  scripted `executive_posture`, `control_review`, `scorecard_brief`,
+  `soc_triage`, and `crawler_governance` report, evidence, and template
+  requests. The script calls capture; if capture returns an MCP handoff
+  packet, the report script prints that packet and exits with the documented
+  `needs MCP` code. After the LLM/agent saves the MCP result JSON, rerun with
+  `--raw-input <path>` to add report metadata, produce local artifacts, and
+  emit rendered reports or `bot_report_evidence.v1` packets. The LLM may fill
+  prose in a template from that packet only. For supported report types not
+  yet wired here (`edge_ops_impact`), create the deterministic artifacts
   through their own scripts or query workflow and pass them to
   `scripts/render_report.py`. `~/src/utils/bot-insights-report` remains a thin
   executable convenience wrapper around this skill script.

@@ -85,6 +85,14 @@ LIMIT 20
 
 ### Good Bot Governance [SEO]
 
+For the predefined `crawler_governance` report these templates feed, prefer
+the script-orchestrated path documented in
+[`references/reporting.md`](reporting.md) — `bot_insights_report.py --report
+crawler_governance` runs the query directly when local credentials resolve
+and emits a handoff packet otherwise. Run the templates directly via Hydrolix
+MCP only for exploratory crawler analysis outside a predefined report. See
+[SKILL.md "Data Firewall"](../SKILL.md#data-firewall).
+
 Monitor legitimate crawlers and partner bots to ensure they can operate without
 disruption — especially during security incidents or policy changes.
 

@@ -94,12 +94,12 @@ for the decision rule.
 | `control_review` | `bot_control_review.v1`; optional compatible `bot_posture_movement.v1`, `bot_mover_attribution.v1` | `bot_insights_report.py --report control_review --mode evidence` runs vetted SIEM policy summary SQL via `/query/` and writes the evidence packet locally | Same command exits `42`; rerun with `--raw-input <saved.json>` | Migrated |
 | `scorecard_brief` | One `bot_entity_scorecard.v1`; optional compatible `bot_scorecard_index.v1` | `bot_insights_report.py --report scorecard_brief --mode evidence` runs scorecard-grain summary SQL via `/query/`, then `scorecard.py` produces the artifact and evidence packet locally | Same command exits `42`; rerun with `--raw-input <saved.json>` | Migrated |
 | `soc_triage` | `bot_scorecard_index.v1`; optional compatible `bot_entity_scorecard.v1`, `bot_posture_movement.v1`, `bot_mover_attribution.v1` | `bot_insights_report.py --report soc_triage --mode evidence` runs SIEM policy summary SQL via `/query/`, then `scorecard.py --domains security_evidence` produces the SOC artifact and evidence packet locally | Same command exits `42`; rerun with `--raw-input <saved.json>` | Migrated |
-| `crawler_governance` | One or more `bot_entity_scorecard.v1` artifacts with evaluated `crawler_governance` features; optional compatible `bot_scorecard_index.v1`, `bot_posture_movement.v1`, `bot_mover_attribution.v1` | Not yet wired in `bot_insights_report.py` — capture crawler aggregate rows through Hydrolix MCP and feed `scorecard.py --domains crawler_governance` directly. Flag this exception when reporting | Same — exploratory MCP path until orchestration lands | Medium: needs crawler-specific evidence-packet orchestration |
+| `crawler_governance` | One or more `bot_entity_scorecard.v1` artifacts with evaluated `crawler_governance` features; optional compatible `bot_scorecard_index.v1`, `bot_posture_movement.v1`, `bot_mover_attribution.v1` | `bot_insights_report.py --report crawler_governance --mode evidence` runs crawler-grain `bi_summary_*` SQL via `/query/`, then `scorecard.py --domains crawler_governance` produces the artifact and evidence packet locally | Same command exits `42`; rerun with `--raw-input <saved.json>` | Migrated |
 | `edge_ops_impact` | One or more `bot_entity_scorecard.v1` artifacts with evaluated `cache_busting` or `origin_impact` features; optional compatible `bot_scorecard_index.v1`, `bot_posture_movement.v1`, `bot_mover_attribution.v1` | Not yet wired in `bot_insights_report.py` — capture path-grain aggregate rows through Hydrolix MCP and feed `cache_origin_impact.py` and/or `scorecard.py` directly. Flag this exception when reporting | Same — exploratory MCP path until orchestration lands | Medium: needs scorecard/evidence-packet alignment for Edge/Ops artifacts |
 
-Next migration work: `crawler_governance`, then `edge_ops_impact`. They share
-the scorecard-evidence-packet shape `scorecard_brief` and `soc_triage` use, so
-the increment is small.
+Next migration work: `edge_ops_impact`. It shares the scorecard-evidence-packet
+shape `scorecard_brief`, `soc_triage`, and `crawler_governance` use, so the
+increment is small.
 
 ## Query Execution Boundary
 
