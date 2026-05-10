@@ -328,6 +328,12 @@ CRAWLER_POPULATION_BY_ENTITY = {
     "request_host": "crawler",
 }
 
+EDGE_OPS_ENTITY_SQL = {
+    "client_asn": "toString(asn)",
+    "request_host": "toString(reqHost)",
+    "bot_class": "toString(userAgentCategory)",
+}
+
 
 def scorecard_sql(
     database: str,
@@ -466,6 +472,99 @@ WHERE reqTimeSec >= baseline_start
   AND reqTimeSec < current_end
   AND {entity_expr} != ''
 GROUP BY {entity_type}
+ORDER BY current_requests DESC
+{limit_clause}
+""".strip()
+
+
+def scorecard_edge_ops_sql(
+    database: str,
+    start: datetime,
+    end: datetime,
+    baseline_start: datetime,
+    entity_type: str,
+    producer_limit: int,
+) -> str:
+    granularity = choose_granularity(start, end)
+    table = f"{database}.bi_summary_{granularity}"
+    if entity_type not in EDGE_OPS_ENTITY_SQL:
+        raise SystemExit(
+            "--entity-type "
+            + entity_type
+            + " is not supported for edge_ops_impact; use one of "
+            + ", ".join(sorted(EDGE_OPS_ENTITY_SQL))
+        )
+    entity_expr = EDGE_OPS_ENTITY_SQL[entity_type]
+    limit_clause = f"\nLIMIT {producer_limit}" if producer_limit > 0 else ""
+    return f"""
+WITH
+  toDateTime('{sql_ts(start)}', 'UTC') AS current_start,
+  toDateTime('{sql_ts(end)}', 'UTC') AS current_end,
+  toDateTime('{sql_ts(baseline_start)}', 'UTC') AS baseline_start,
+  cluster_total AS (
+    SELECT
+      sum(countMergeIf(`count()`, reqTimeSec >= current_start) * 1.0) AS cluster_requests
+    FROM {table}
+    WHERE reqTimeSec >= baseline_start
+      AND reqTimeSec < current_end
+  )
+SELECT
+  {entity_expr} AS {entity_type},
+  countMergeIf(`count()`, reqTimeSec >= current_start) AS current_requests,
+  countMergeIf(`count()`, reqTimeSec < current_start) AS baseline_requests,
+  if(current_requests > 0, countMergeIf(`count()`, reqTimeSec >= current_start AND cacheStatus = false) / current_requests * 100, 0) AS current_cache_miss_pct,
+  if(baseline_requests > 0, countMergeIf(`count()`, reqTimeSec < current_start AND cacheStatus = false) / baseline_requests * 100, 0) AS baseline_cache_miss_pct,
+  null AS current_unique_qs,
+  null AS baseline_unique_qs,
+  null AS current_origin_p95_ms,
+  null AS baseline_origin_p95_ms,
+  if(
+    (SELECT cluster_requests FROM cluster_total) > 0,
+    current_requests / (SELECT cluster_requests FROM cluster_total) * 100,
+    null
+  ) AS origin_cost_contribution_pct
+FROM {table}
+WHERE reqTimeSec >= baseline_start
+  AND reqTimeSec < current_end
+  AND {entity_expr} != ''
+GROUP BY {entity_type}
+ORDER BY current_requests DESC
+{limit_clause}
+""".strip()
+
+
+def cache_origin_path_sql(
+    database: str,
+    start: datetime,
+    end: datetime,
+    baseline_start: datetime,
+    host_filter: str | None,
+    producer_limit: int,
+) -> str:
+    granularity = choose_granularity(start, end)
+    table = f"{database}.bot_agg_path_{granularity}"
+    host_clause = f"\n  AND request_host = '{host_filter}'" if host_filter else ""
+    limit_clause = f"\nLIMIT {producer_limit}" if producer_limit > 0 else ""
+    return f"""
+WITH
+  toDateTime('{sql_ts(start)}', 'UTC') AS current_start,
+  toDateTime('{sql_ts(end)}', 'UTC') AS current_end,
+  toDateTime('{sql_ts(baseline_start)}', 'UTC') AS baseline_start
+SELECT
+  request_host,
+  request_path_norm,
+  sumIf(cnt_all, timestamp >= current_start AND timestamp < current_end) AS current_requests,
+  sumIf(cnt_all, timestamp >= baseline_start AND timestamp < current_start) AS baseline_requests,
+  sumIf(cnt_cache_miss, timestamp >= current_start AND timestamp < current_end) AS current_cache_misses,
+  sumIf(cnt_cache_miss, timestamp >= baseline_start AND timestamp < current_start) AS baseline_cache_misses,
+  sumIf(uniq_qs, timestamp >= current_start AND timestamp < current_end) AS current_unique_query_strings,
+  sumIf(uniq_qs, timestamp >= baseline_start AND timestamp < current_start) AS baseline_unique_query_strings,
+  maxIf(p95_origin_ttfb, timestamp >= current_start AND timestamp < current_end) AS current_origin_p95_ms,
+  maxIf(p95_origin_ttfb, timestamp >= baseline_start AND timestamp < current_start) AS baseline_origin_p95_ms
+FROM {table}
+WHERE timestamp >= baseline_start
+  AND timestamp < current_end{host_clause}
+GROUP BY request_host, request_path_norm
 ORDER BY current_requests DESC
 {limit_clause}
 """.strip()
@@ -933,6 +1032,34 @@ CRAWLER_TEMPLATE_SECTIONS = [
 ]
 
 
+EDGE_OPS_INTERPRETATION_CONTRACT: dict[str, list[str]] = {
+    "allowed": [
+        "Summarize the emitted edge_ops_impact scorecard features and entity population.",
+        "Use score, band, confidence, missing inputs, and recommended next steps.",
+        "Describe origin cost contribution and cache miss movement using only the emitted evidence.",
+        "Describe rowset-limit caveats and missing edge/ops inputs explicitly.",
+    ],
+    "forbidden": [
+        "Do not claim origin billing cost without real byte-level evidence.",
+        "Do not invent missing feature inputs.",
+        "Do not query Hydrolix from the interpretation step.",
+        "Do not emit final HTML or Markdown layout.",
+    ],
+}
+
+EDGE_OPS_TEMPLATE_SECTIONS = [
+    "Edge & Origin Cost Summary",
+    "Top Entities by Origin Pressure",
+    "Selected Entity",
+    "Domain Scores",
+    "Evaluated Edge/Ops Evidence",
+    "Top Cache-Impacting Paths",
+    "Missing Edge/Ops Inputs",
+    "Recommended Next Steps",
+    "Method and Caveats",
+]
+
+
 def build_scorecard_evidence_packet(
     *,
     args: argparse.Namespace,
@@ -953,6 +1080,10 @@ def build_scorecard_evidence_packet(
         default_title = "Bot Insights Crawler Governance"
         interpretation_contract = CRAWLER_INTERPRETATION_CONTRACT
         template_sections = CRAWLER_TEMPLATE_SECTIONS
+    elif args.report == "edge_ops_impact":
+        default_title = "Bot Insights Edge & Origin Cost"
+        interpretation_contract = EDGE_OPS_INTERPRETATION_CONTRACT
+        template_sections = EDGE_OPS_TEMPLATE_SECTIONS
     else:
         default_title = "Bot Insights Scorecard Brief"
         interpretation_contract = {
@@ -1293,6 +1424,7 @@ def analyst_note_from_args(args: argparse.Namespace) -> dict | None:
             "scorecard_brief": "Scorecard Interpretation",
             "soc_triage": "SOC Triage Interpretation",
             "crawler_governance": "Crawler Governance Interpretation",
+            "edge_ops_impact": "Edge & Origin Cost Interpretation",
         }.get(args.report, "Analyst Interpretation"),
         "text": text.strip(),
         "show_data_sources": False,
@@ -1318,6 +1450,7 @@ def build_report_wrapper(
             # Triage") which reads wrong; spell it explicitly.
             "soc_triage": "SOC Triage",
             "crawler_governance": "Crawler Governance",
+            "edge_ops_impact": "Edge & Origin Cost",
         }.get(args.report, f"Bot Insights {args.report.replace('_', ' ').title()}"),
         "scope_label": f"{args.cluster}/{args.database}",
         "artifacts": artifacts,
@@ -1451,6 +1584,7 @@ def parse_args() -> argparse.Namespace:
             "scorecard_brief",
             "soc_triage",
             "crawler_governance",
+            "edge_ops_impact",
         ),
         default="executive_posture",
         help="Report type to generate.",
@@ -1481,6 +1615,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--raw-input",
         help="Resume from a saved Hydrolix MCP or ClickHouse JSON result instead of running capture.",
+    )
+    parser.add_argument(
+        "--raw-input-path",
+        type=str,
+        default=None,
+        help="Resume edge_ops_impact from a saved path-grain JSON result alongside --raw-input.",
     )
     parser.add_argument(
         "--format",
@@ -1546,10 +1686,16 @@ def main() -> int:
         raise SystemExit("--baseline-start must be earlier than --start")
     if args.scorecard_limit < 0:
         raise SystemExit("--scorecard-limit must be zero or a positive integer.")
-    scorecard_reports = {"scorecard_brief", "soc_triage", "crawler_governance"}
+    scorecard_reports = {
+        "scorecard_brief",
+        "soc_triage",
+        "crawler_governance",
+        "edge_ops_impact",
+    }
     if args.report not in scorecard_reports and args.entity_value:
         raise SystemExit(
-            "--entity-value is only supported with --report scorecard_brief, --report soc_triage, or --report crawler_governance."
+            "--entity-value is only supported with --report scorecard_brief, --report soc_triage, "
+            "--report crawler_governance, or --report edge_ops_impact."
         )
     if args.report == "soc_triage" and args.entity_type not in SOC_ENTITY_SQL:
         raise SystemExit(
@@ -1568,6 +1714,13 @@ def main() -> int:
             + " is not supported for crawler_governance; use one of "
             + ", ".join(sorted(CRAWLER_ENTITY_SQL))
         )
+    if args.report == "edge_ops_impact" and args.entity_type not in EDGE_OPS_ENTITY_SQL:
+        raise SystemExit(
+            "--entity-type "
+            + args.entity_type
+            + " is not supported for edge_ops_impact; use one of "
+            + ", ".join(sorted(EDGE_OPS_ENTITY_SQL))
+        )
     if args.report == "soc_triage" and not args.domains:
         # SOC scorecards must evaluate only the security_evidence domain so
         # crawler/Edge/Ops features do not surface as missing SOC evidence.
@@ -1577,6 +1730,10 @@ def main() -> int:
         # crawler_governance domain so SOC/Edge features do not surface as
         # missing crawler evidence.
         args.domains = "crawler_governance"
+    if args.report == "edge_ops_impact" and not args.domains:
+        # Edge/Ops scorecards evaluate cache_busting and origin_impact domains
+        # so SOC/crawler features do not surface as missing edge evidence.
+        args.domains = "cache_busting,origin_impact"
 
     sample_dir = (
         Path(args.sample_dir).expanduser().resolve()
@@ -1588,6 +1745,8 @@ def main() -> int:
     artifact_path = sample_dir / f"{args.report}-artifact.json"
     timeseries_raw_path = sample_dir / f"{args.report}-timeseries-raw.json"
     timeseries_artifact_path = sample_dir / f"{args.report}-timeseries.json"
+    path_raw_path = sample_dir / f"{args.report}-path-raw.json"
+    path_artifact_path = sample_dir / f"{args.report}-path-artifact.json"
     wrapper_path = sample_dir / f"{args.report}-wrapper.json"
     output_path = Path(args.output).expanduser().resolve()
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1648,15 +1807,39 @@ def main() -> int:
         granularity = choose_granularity(start, end)
         table_used = f"{args.database}.bi_summary_{granularity}"
         compare_schema = None
+    elif args.report == "edge_ops_impact":
+        sql = scorecard_edge_ops_sql(
+            args.database,
+            start,
+            end,
+            baseline_start,
+            args.entity_type,
+            args.scorecard_limit,
+        )
+        granularity = choose_granularity(start, end)
+        table_used = f"{args.database}.bi_summary_{granularity}"
+        compare_schema = None
     else:
         raise AssertionError(args.report)
 
     capture_summary: dict[str, object] = {"rows": None}
     raw_timeseries_value: dict | None = None
+    raw_path_value: dict | None = None
     if args.raw_input:
         raw_value = load_raw_query_result(Path(args.raw_input).expanduser().resolve())
         if args.report == "control_review" and timeseries_raw_path.exists():
             raw_timeseries_value = load_raw_query_result(timeseries_raw_path)
+        if args.report == "edge_ops_impact":
+            if args.raw_input_path:
+                raw_path_value = load_raw_query_result(
+                    Path(args.raw_input_path).expanduser().resolve()
+                )
+            else:
+                print(
+                    "WARNING: --raw-input-path not supplied for edge_ops_impact; "
+                    "path-grain artifact will be omitted.",
+                    file=sys.stderr,
+                )
     else:
         capture_summary_text = run(
             [
@@ -1695,7 +1878,12 @@ def main() -> int:
                     "granularity": granularity,
                 }
             )
-            if args.report in {"scorecard_brief", "soc_triage", "crawler_governance"}:
+            if args.report in {
+                "scorecard_brief",
+                "soc_triage",
+                "crawler_governance",
+                "edge_ops_impact",
+            }:
                 report_context.update(
                     {
                         "entity_type": args.entity_type,
@@ -1704,6 +1892,8 @@ def main() -> int:
                         "analysis_domains": args.domains,
                     }
                 )
+            if args.report == "edge_ops_impact":
+                report_context["artifact"] = "scorecard"
             capture_summary["report_context"] = report_context
             print(json.dumps(capture_summary, sort_keys=True))
             return NEEDS_MCP_EXIT
@@ -1763,6 +1953,66 @@ def main() -> int:
                 print(json.dumps(timeseries_summary, sort_keys=True))
                 return NEEDS_MCP_EXIT
             raw_timeseries_value = load_raw_query_result(timeseries_raw_path)
+        if args.report == "edge_ops_impact":
+            path_grain_sql = cache_origin_path_sql(
+                args.database,
+                start,
+                end,
+                baseline_start,
+                getattr(args, "host", None),
+                args.scorecard_limit,
+            )
+            path_table_used = f"{args.database}.bot_agg_path_{granularity}"
+            path_capture_text = run(
+                [
+                    sys.executable,
+                    str(CAPTURE),
+                    "--cluster",
+                    args.cluster,
+                    "--database",
+                    args.database,
+                    "--sql",
+                    path_grain_sql,
+                    "--output",
+                    str(path_raw_path),
+                ],
+                allowed_returncodes=(NEEDS_MCP_EXIT,),
+            )
+            try:
+                path_capture_summary = json.loads(path_capture_text)
+            except json.JSONDecodeError:
+                print(
+                    "WARNING: path-grain capture did not return machine-readable JSON; "
+                    "path artifact will be omitted.",
+                    file=sys.stderr,
+                )
+                path_capture_summary = {}
+            if (
+                isinstance(path_capture_summary, dict)
+                and path_capture_summary.get("schema_version") == HANDOFF_SCHEMA
+            ):
+                path_report_context = path_capture_summary.get("report_context")
+                if not isinstance(path_report_context, dict):
+                    path_report_context = {}
+                path_report_context.update(
+                    {
+                        "report": args.report,
+                        "mode": args.mode,
+                        "artifact": "path",
+                        "start": args.start,
+                        "end": args.end,
+                        "baseline_start": baseline_start.isoformat().replace(
+                            "+00:00", "Z"
+                        ),
+                        "table_used": path_table_used,
+                        "granularity": granularity,
+                    }
+                )
+                path_capture_summary["report_context"] = path_report_context
+                print(json.dumps(path_capture_summary, sort_keys=True))
+                return NEEDS_MCP_EXIT
+            if path_raw_path.exists():
+                raw_path_value = load_raw_query_result(path_raw_path)
 
     if args.report == "executive_posture":
         raw_value = add_report_metadata(
@@ -1780,7 +2030,12 @@ def main() -> int:
             table_used=table_used,
             baseline_start=baseline_start,
         )
-    elif args.report in {"scorecard_brief", "soc_triage", "crawler_governance"}:
+    elif args.report in {
+        "scorecard_brief",
+        "soc_triage",
+        "crawler_governance",
+        "edge_ops_impact",
+    }:
         raw_value = add_scorecard_metadata(
             raw_value=raw_value,
             args=args,
@@ -1794,7 +2049,12 @@ def main() -> int:
         json.dumps(raw_value, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
 
-    if args.report in {"scorecard_brief", "soc_triage", "crawler_governance"}:
+    if args.report in {
+        "scorecard_brief",
+        "soc_triage",
+        "crawler_governance",
+        "edge_ops_impact",
+    }:
         scorecard_cmd = [
             "uv",
             "run",
@@ -1830,6 +2090,39 @@ def main() -> int:
     if not isinstance(artifact, dict):
         raise SystemExit(f"Expected {artifact_path} to contain an artifact object.")
     companion_artifacts: list[dict] = []
+    path_artifact: dict | None = None
+    if args.report == "edge_ops_impact" and raw_path_value is not None:
+        path_raw_path.write_text(
+            json.dumps(raw_path_value, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        try:
+            path_cmd = [
+                "uv",
+                "run",
+                "python",
+                "skills/bot-insights/scripts/cache_origin_impact.py",
+                "--file",
+                str(path_raw_path),
+            ]
+            run(path_cmd, stdout_path=path_artifact_path, cwd=PUBLIC_SKILLS)
+            path_artifact = json.loads(path_artifact_path.read_text(encoding="utf-8"))
+            if not isinstance(path_artifact, dict) or not path_artifact.get(
+                "ranked_candidates"
+            ):
+                print(
+                    "WARNING: path-grain artifact has no ranked candidates; "
+                    "path artifact will be omitted.",
+                    file=sys.stderr,
+                )
+                path_artifact = None
+        except Exception as exc:  # noqa: BLE001
+            print(
+                f"WARNING: path-grain processing failed ({exc}); "
+                "path artifact will be omitted.",
+                file=sys.stderr,
+            )
+            path_artifact = None
     if args.report == "control_review" and raw_timeseries_value is not None:
         timeseries_artifact = build_timeseries_artifact(
             args=args,
@@ -1864,7 +2157,12 @@ def main() -> int:
             table_used=table_used,
             baseline_start=baseline_start,
         )
-    elif args.report in {"scorecard_brief", "soc_triage", "crawler_governance"}:
+    elif args.report in {
+        "scorecard_brief",
+        "soc_triage",
+        "crawler_governance",
+        "edge_ops_impact",
+    }:
         selected_card = select_scorecard(
             artifact,
             entity_type=args.entity_type if args.entity_value else None,
@@ -1911,6 +2209,17 @@ def main() -> int:
                 render_artifacts.extend(
                     card for card in scorecards if isinstance(card, dict)
                 )
+        elif args.report == "edge_ops_impact":
+            render_artifacts = []
+            if isinstance(artifact.get("index"), dict):
+                render_artifacts.append(artifact["index"])
+            scorecards = artifact.get("scorecards")
+            if isinstance(scorecards, list):
+                render_artifacts.extend(
+                    card for card in scorecards if isinstance(card, dict)
+                )
+            if path_artifact is not None:
+                render_artifacts.append(path_artifact)
         else:
             render_artifacts = [artifact, *companion_artifacts]
         wrapper = build_report_wrapper(
