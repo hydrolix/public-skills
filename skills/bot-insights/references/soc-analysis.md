@@ -29,15 +29,16 @@ SOC analysis runs against `bi_summary_*` and (on SIEM-enabled clusters)
 `bi_siem_policy_summary_*`. The request-level `bot_detection` and
 `bot_detection_siem` tables and focused aggregates (`bot_agg_path_*`,
 `bot_agg_ua_*`) are **not currently deployed** on production clusters; see
-[data-model.md](data-model.md). Request-level dimensions — exact `user_agent`,
-exact `client_ip`, `bot_confidence`, `bot_intent`, attack payload, exact
-status code, exact method, exact `request_path` — should be surfaced as
-limitations in the artifact rather than queried against non-deployed tables.
+[data-model.md](data-model.md). Apply the deployment-availability rule
+(SKILL.md) for request-level dimensions such as exact `user_agent`, exact
+`client_ip`, `bot_confidence`, `bot_intent`, attack payload, exact status
+code, exact method, or exact `request_path`.
 
 Use hour summaries for same-hour-yesterday or same-weekday-hour-last-week
-comparisons, and minute summaries for detailed policy-change timelines. In
-SQL templates, replace `<posture_summary_hour>` with `bi_summary_hour` (or the
-metadata-confirmed equivalent for the target cluster).
+comparisons, and minute summaries for detailed policy-change timelines. SQL
+examples below use `bi_summary_hour` directly for the Akamai/TrafficPeak
+project. On other clusters, confirm the equivalent posture-summary table
+name in metadata before adapting.
 
 When producing SOC scorecards, seed the entity population from
 `bi_siem_policy_summary_*` on TrafficPeak/Akamai, or from another
@@ -58,23 +59,28 @@ on SIEM policy summaries.
 SELECT
   period,
   sum(cnt_all) AS requests,
-  round(sumIf(cnt_all, is_bot_traffic = true) / greatest(sum(cnt_all), 1) * 100, 2) AS bot_share_pct,
-  round(sumIf(cnt_all, bot_class = 'bad') / greatest(sum(cnt_all), 1) * 100, 2) AS bad_bot_share_pct,
+  round(sumIf(cnt_all, isBotTraffic = true) / greatest(sum(cnt_all), 1) * 100, 2) AS bot_share_pct,
   round(sum(cnt_429) / greatest(sum(cnt_all), 1) * 100, 2) AS rate_429_pct,
   round(sum(cnt_5xx) / greatest(sum(cnt_all), 1) * 100, 2) AS rate_5xx_pct,
   round(sum(cnt_cache_miss) / greatest(sum(cnt_all), 1) * 100, 2) AS cache_miss_pct
 FROM (
   SELECT 'current' AS period, *
-  FROM <project>.<posture_summary_hour>
-  WHERE timestamp >= now() - INTERVAL 6 HOUR
+  FROM <project>.bi_summary_hour
+  WHERE reqTimeSec >= now() - INTERVAL 6 HOUR
   UNION ALL
   SELECT 'baseline' AS period, *
-  FROM <project>.<posture_summary_hour>
-  WHERE timestamp >= now() - INTERVAL 12 HOUR
-    AND timestamp < now() - INTERVAL 6 HOUR
+  FROM <project>.bi_summary_hour
+  WHERE reqTimeSec >= now() - INTERVAL 12 HOUR
+    AND reqTimeSec < now() - INTERVAL 6 HOUR
 )
 GROUP BY period
 ```
+
+Bad-bot share is omitted from this delta because deployed posture summaries
+do not retain a `bot_class` column. SIEM-enabled clusters can layer
+`bi_siem_policy_summary_*` (with `botType` and `avg_bot_score`) on top of
+this delta for SIEM-grade classification; otherwise apply the
+deployment-availability rule (SKILL.md).
 
 ### Mover Attribution [SOC]
 
@@ -85,14 +91,14 @@ resource category, AI category, action, and policy.
 
 ```sql
 SELECT
-    client_asn AS value,
-    sumIf(cnt_all, timestamp >= now() - INTERVAL 6 HOUR) AS current,
-    sumIf(cnt_all, timestamp >= now() - INTERVAL 12 HOUR AND timestamp < now() - INTERVAL 6 HOUR) AS baseline,
+    asn AS value,
+    sumIf(cnt_all, reqTimeSec >= now() - INTERVAL 6 HOUR) AS current,
+    sumIf(cnt_all, reqTimeSec >= now() - INTERVAL 12 HOUR AND reqTimeSec < now() - INTERVAL 6 HOUR) AS baseline,
     current - baseline AS absolute_delta,
     round(absolute_delta / greatest(baseline, 1) * 100, 2) AS pct_change
-FROM <project>.<posture_summary_hour>
-WHERE timestamp >= now() - INTERVAL 12 HOUR
-GROUP BY client_asn
+FROM <project>.bi_summary_hour
+WHERE reqTimeSec >= now() - INTERVAL 12 HOUR
+GROUP BY asn
 ORDER BY abs(absolute_delta) DESC
 LIMIT 20
 
@@ -179,21 +185,29 @@ payload detail are request-level dimensions; surface those as limitations.
 
 ### Bot Classification Deep Dive [SOC]
 
+Deployed posture summaries do not retain a queryable `bot_class` column.
+Producer scripts that emit `bot_class`-keyed scorecards alias
+`toString(userAgentCategory) AS bot_class` at SQL-emission time (see
+`SCORECARD_ENTITY_SQL` in `scripts/bot_insights_report.py`). Group posture
+SQL by `userAgentCategory` directly:
+
 ```sql
--- Bot class movement from the deployed posture summary.
+-- User-agent category movement from the deployed posture summary.
 SELECT
-    bot_class,
+    userAgentCategory,
     sum(cnt_all) AS requests,
     round(sum(cnt_all) / sum(sum(cnt_all)) OVER () * 100, 2) AS pct
 FROM <project>.bi_summary_hour
 WHERE reqTimeSec >= now() - INTERVAL 24 HOUR
-GROUP BY bot_class
+GROUP BY userAgentCategory
 ORDER BY requests DESC
 ```
 
-`bot_score` distribution, `bot_confidence`, `bot_intent`, and canonical
-`bot_category`/`bot_type` are request-level fields not retained in deployed
-summaries. State that limitation when an investigation needs them.
+For SIEM-grade classification on SIEM-enabled clusters, use `botType` on
+`bi_siem_policy_summary_*` instead. `bot_score` distribution,
+`bot_confidence`, `bot_intent`, and canonical `bot_category`/`bot_type` are
+request-level fields not retained in deployed summaries; apply the
+deployment-availability rule (SKILL.md).
 
 ### Spoof Detection — Three-Signal Verification [SOC]
 
@@ -228,20 +242,31 @@ is not supported at the deployed grain.
 
 ### Bad Bot Behavior Patterns [SOC, Edge/Ops]
 
+`bot_class` is not a queryable column on deployed posture summaries and
+`avg_bot_score` lives only on SIEM summaries. Run this analysis against
+`bi_siem_policy_summary_*` on SIEM-enabled clusters such as
+`demo.trafficpeak.live`, keying on `botType` for SIEM-grade classification:
+
 ```sql
--- Bad-bot host concentration from the deployed posture summary.
+-- SIEM-grade bad-bot host concentration. SIEM-enabled clusters only.
 SELECT
-    reqHost,
-    sumIf(cnt_all, bot_class = 'bad') AS bad_requests,
+    host AS reqHost,
+    sumIf(cnt_all, botType = 'bad') AS bad_requests,
     sum(cnt_all) AS requests,
-    round(sumIf(cnt_all, bot_class = 'bad') / greatest(sum(cnt_all), 1) * 100, 2) AS bad_bot_share_pct,
-    avgIf(avg_bot_score, bot_class = 'bad') AS avg_bot_score_bad
-FROM <project>.bi_summary_hour
-WHERE reqTimeSec >= now() - INTERVAL 1 HOUR
-GROUP BY reqHost
+    round(sumIf(cnt_all, botType = 'bad') / greatest(sum(cnt_all), 1) * 100, 2) AS bad_bot_share_pct,
+    avgIf(avg_bot_score, botType = 'bad') AS avg_bot_score_bad
+FROM <project>.bi_siem_policy_summary_hour
+WHERE timestamp >= now() - INTERVAL 1 HOUR
+GROUP BY host
 ORDER BY bad_requests DESC
 LIMIT 20
 ```
 
+Use metadata-confirmed SIEM `botType` values for the target cluster; the
+literal `'bad'` shown above is illustrative. When the target cluster has no
+SIEM surface, apply the deployment-availability rule (SKILL.md): SIEM-grade
+bad-bot scoring is not supported at the deployed posture-summary grain.
+
 Exact-path targeting (`request_path`) and unique client-IP counts are
-request-level dimensions; surface those as limitations when needed.
+request-level dimensions; apply the deployment-availability rule
+(SKILL.md).

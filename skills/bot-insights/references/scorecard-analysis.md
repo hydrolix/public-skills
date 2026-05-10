@@ -209,6 +209,19 @@ Replace `<posture_summary_day>` / `<posture_summary_hour>` with
 scorecards. Replace `<siem_summary_hour>` with
 `akamai.bi_siem_policy_summary_hour` for TrafficPeak/Akamai.
 
+**`bot_class` is producer-script terminology, not a deployed column.**
+Deployed posture summaries (`bi_summary_*`) retain `userAgentCategory`, not
+`bot_class`. The producer in `scripts/bot_insights_report.py` aliases
+`toString(userAgentCategory) AS bot_class` (see `SCORECARD_ENTITY_SQL` and
+related maps) so downstream scorecard rows expose a canonical `bot_class`
+field. When adapting the templates below for direct MCP execution against
+deployed clusters, replace `bot_class = '<value>'` predicates with the
+metadata-confirmed `userAgentCategory` value (for example
+`userAgentCategory = 'Search Engine Crawler'`); SIEM-grade classification
+filters belong on `botType` on `bi_siem_policy_summary_*`. The literal
+`'good'`, `'bad'`, and `'crawler'` values that appear in the templates
+reflect the canonical scorecard schema, not deployed column values.
+
 ### ASN Scorecards
 
 ```sql
@@ -292,7 +305,12 @@ currently deployed**. The `edge_ops_impact` report exposes path-grain
 candidates only behind `--include-paths`; without that flag, scorecards run at
 entity grain. When path-grain tables become available, follow the v1 contract
 in [cache-origin-impact.md](cache-origin-impact.md) and feed the resulting
-aggregate rows to `scorecard.py` with entity_type `request_path_norm`.
+aggregate rows to `scorecard.py` with entity_type `request_path_norm`. The
+expected path-grain row fields are `current_requests`, `baseline_requests`,
+`current_cache_miss_pct`, `baseline_cache_miss_pct`, `current_origin_p95_ms`,
+`baseline_origin_p95_ms`, `current_rate_429_pct`, `baseline_rate_429_pct`,
+`current_rate_5xx_pct`, `baseline_rate_5xx_pct`, plus optional
+`qs_diversity_ratio` and `origin_cost_contribution_pct`.
 
 ### Host Scorecards
 

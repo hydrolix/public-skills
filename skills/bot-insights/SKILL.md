@@ -83,10 +83,13 @@ Older skill iterations referenced request-level tables (`bot_detection`,
 `bot_detection_siem`) and focused aggregate families (`bot_agg_path_*`,
 `bot_agg_resource_*`, `bot_agg_ua_*`). Those tables are not currently deployed
 on `demo.trafficpeak.live`, `acme`, or other observed clusters. Treat
-them as design-intent only — do not generate SQL against them. When a question
-truly needs a dimension not retained in `bi_summary_*` or
-`bi_siem_policy_summary_*`, state the limitation rather than falling back to a
-non-deployed table.
+them as design-intent reference only and do not generate SQL against them.
+
+**Deployment-availability rule.** When a question needs a dimension that is
+not retained in `bi_summary_*` or `bi_siem_policy_summary_*`, state the
+limitation in the artifact rather than substituting a non-deployed table.
+Reference docs cite this rule as "the deployment-availability rule (SKILL.md)"
+rather than repeating the full sentence.
 
 `bi_siem_policy_summary_*` is a cluster-specific surface. Confirm SIEM data
 exists for the target cluster before composing SIEM-only queries; SOC reports
@@ -297,8 +300,8 @@ Reports for which the script-orchestrated capture path is wired:
    [scripts/scorecard.py](scripts/scorecard.py) to emit
    `bot_entity_scorecard.v1` packets plus a `bot_scorecard_index.v1`.
 8. If a required dimension is not retained in `bi_summary_*` or
-   `bi_siem_policy_summary_*`, state the limitation in the artifact rather than
-   substituting a non-deployed table. See "Deployment Availability" above.
+   `bi_siem_policy_summary_*`, apply the deployment-availability rule (see
+   "Deployment Availability" above).
 
 ## Query Guardrails
 

@@ -3,15 +3,14 @@
 Edge/Ops analysis runs against the deployed posture summaries `bi_summary_*`.
 Path-grain and resource-grain aggregates referenced by older iterations
 (`bot_agg_path_*`, `bot_agg_resource_*`, `bot_agg_ua_*`) and the request-level
-`bot_detection` tables are **not currently deployed** — see
-[data-model.md](data-model.md). Request-level fields that aren't retained in
-`bi_summary_*` (exact query string, exact user agent, response-byte
-attribution) should be surfaced as a limitation in the artifact, not as a
-fallback query against a non-deployed table.
+`bot_detection` tables are **not currently deployed**; see
+[data-model.md](data-model.md). Apply the deployment-availability rule
+(SKILL.md) when a question depends on a field not retained in `bi_summary_*`,
+such as exact query string, exact user agent, or response-byte attribution.
 
-In SQL templates, replace `<posture_summary_hour>` with `bi_summary_hour` for
-the Akamai/TrafficPeak project, or with the metadata-confirmed equivalent for
-the cluster you're querying.
+SQL examples use `bi_summary_hour` directly for the Akamai/TrafficPeak
+project. On other clusters, confirm the equivalent posture-summary table name
+in metadata before adapting.
 
 For structured cache-busting, query-string churn, cache-miss movement, or
 origin-impact detector output, use
@@ -64,9 +63,9 @@ Bots that append unique query strings to every request defeat cache key
 matching, causing artificial cache misses and origin overload.
 
 Query-string cardinality (`uniq_qs`) and request-level query strings are not
-retained in deployed summaries. Use `bi_summary_*` to spot the symptom — cache
-miss share moving on a host, request-path-pattern, or bot-class slice — and
-then run the structured detector via
+retained in deployed summaries. Use `bi_summary_*` to spot the symptom (cache
+miss share moving on a host, request-path-pattern, or user-agent-category
+slice), then run the structured detector via
 [cache-origin-impact.md](cache-origin-impact.md) once path-grain aggregates are
 available (gated on `--include-paths`; see
 [edge_ops_impact orchestration](#producer-orchestration)).
@@ -88,18 +87,18 @@ LIMIT 20
 ```
 
 Exact query-string diversity by ASN is a request-level dimension. The
-request-level tables are not currently deployed; state that limitation rather
-than substituting a non-deployed table.
+request-level tables are not currently deployed; apply the
+deployment-availability rule (SKILL.md).
 
 ### Origin Impact and Bandwidth Cost [Edge/Ops]
 
 Origin latency, cache impact, and bandwidth attribution at the deployed grain
 all run against `bi_summary_*`. Path-grain endpoint ranking (`request_path_norm
-× bot_class` with p95 origin TTFB) and request-level byte attribution
+× userAgentCategory` with p95 origin TTFB) and request-level byte attribution
 (`response_total_bytes` per bot class) depend on `bot_agg_path_*` and
 `bot_detection`, which are not currently deployed. Treat the entity-grain
-output below as the supported surface; surface those richer dimensions as
-limitations rather than substituting a non-deployed table.
+output below as the supported surface; apply the deployment-availability rule
+(SKILL.md) for richer dimensions.
 
 ```sql
 -- Origin latency and cache impact by host and bot flag from posture summaries.
@@ -122,7 +121,7 @@ SELECT
     sum(cnt_cached) AS cache_hits,
     round(sum(cnt_cached) / greatest(sum(cnt_all), 1) * 100, 2) AS hit_rate_pct,
     sum(cnt_cache_miss) AS cache_misses
-FROM <project>.<posture_summary_hour>
+FROM <project>.bi_summary_hour
 WHERE reqTimeSec >= now() - INTERVAL 24 HOUR
 GROUP BY isBotTraffic
 ORDER BY requests DESC

@@ -5,9 +5,9 @@ SIEM-enabled clusters) `bi_siem_policy_summary_*`. Older skill iterations
 documented request-level (`bot_detection`, `bot_detection_siem`) and focused
 aggregate families (`bot_agg_path_*`, `bot_agg_resource_*`, `bot_agg_ua_*`);
 those rows remain in the inventory below for design-intent reference and are
-flagged "NOT CURRENTLY DEPLOYED". Do not generate SQL against them. When a
-question truly needs a request-level dimension, state the limitation rather
-than falling back to a non-deployed table.
+flagged "NOT CURRENTLY DEPLOYED". Do not generate SQL against them. Apply the
+deployment-availability rule (SKILL.md) when a question depends on a
+request-level dimension.
 
 Before querying a deployed Hydrolix summary table, inspect table metadata with
 the Hydrolix MCP server or the host agent's Hydrolix query tool. If a metric is
@@ -147,11 +147,18 @@ Common summary metric columns:
 Derived posture metrics should be computed from aggregate rows, for example:
 
 - `bot_share_pct = sumIf(cnt_all, is_bot_traffic = true) / sum(cnt_all) * 100`
-- `bad_bot_share_pct = sumIf(cnt_all, bot_class = 'bad') / sum(cnt_all) * 100`
 - `ai_crawler_share_pct = sumIf(cnt_all, ai_category != '') / sum(cnt_all) * 100`
 - `cache_miss_pct = sum(cnt_cache_miss) / sum(cnt_all) * 100`
 - `rate_429_pct = sum(cnt_429) / sum(cnt_all) * 100`
 - `rate_5xx_pct = sum(cnt_5xx) / sum(cnt_all) * 100`
+
+`bad_bot_share_pct` is intentionally omitted from this list. Deployed
+posture summaries do not retain a `bot_class` column; producer scripts that
+emit `bot_class`-keyed scorecards alias `toString(userAgentCategory) AS
+bot_class` at SQL-emission time (see
+[scorecard-analysis.md](scorecard-analysis.md) and
+`scripts/bot_insights_report.py`). Filter on `userAgentCategory` directly
+when composing posture-summary SQL, not on `bot_class`.
 
 If metadata reports aggregate-state columns, replace `sum(...)` and
 `sumIf(...)` over SummaryColumns with the aggregate column's exact merge
@@ -164,10 +171,10 @@ same aggregate column for bot-request subsets when supported.
 Request-level (`bot_detection`, `bot_detection_siem`) and focused aggregate
 (`bot_agg_*`) tables are not currently deployed on production clusters. When a
 question depends on a field not retained in `bi_summary_*` or
-`bi_siem_policy_summary_*` — for example `verified_bot_owner`,
+`bi_siem_policy_summary_*` (for example `verified_bot_owner`,
 `bot_confidence`, `bot_intent`, canonical `bot_category` or `bot_type`,
-`edge_pop`, `attack_data`, or exact `user_agent` — state the limitation in the
-artifact rather than substituting a non-deployed table. Summary-retained fields
-include `trafficCohort`, `userAgentCategory`, `aiCategory`, `aiSource`,
+`edge_pop`, `attack_data`, or exact `user_agent`), apply the
+deployment-availability rule (SKILL.md). Summary-retained fields include
+`trafficCohort`, `userAgentCategory`, `aiCategory`, `aiSource`,
 `requestPathPattern`, numeric `statusCode`, `cacheStatus`, `policyId`,
 `actionClass`, and `botType`.

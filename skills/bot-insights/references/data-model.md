@@ -15,7 +15,7 @@ intelligence from Akamai SIEM and other CDN sources. Compared to the standard
 bot-detection bundle, this variant includes bot scoring, classification
 confidence, intent analysis, verified bot ownership, and attack data fields.
 
-**Deployed summary tables — the supported query surface**:
+**Deployed summary tables (the supported query surface)**:
 - `bi_summary_minute`, `bi_summary_hour`, `bi_summary_day` — posture summaries
   retaining `reqHost`, `asn`, `userAgentCategory`, `isBotTraffic`,
   `aiCategory`, `aiSource`, `trafficCohort`, `resourceCategory`, `reqMethod`,
@@ -26,13 +26,13 @@ confidence, intent analysis, verified bot ownership, and attack data fields.
   minute/hour/day granularity. Available only on SIEM-enabled clusters such as
   `demo.trafficpeak.live` (not, for example, on `acme`).
 
-**Not currently deployed** (kept here for design-intent reference only —
-do not generate SQL against these):
-- `bot_detection`, `bot_detection_siem` — request-level records. The Bot
+**Not currently deployed** (kept here for design-intent reference only; do
+not generate SQL against these):
+- `bot_detection`, `bot_detection_siem`: request-level records. The Bot
   Insights summary tables aggregate from this request-level shape, but the
   request-level tables themselves are not deployed on observed clusters.
 - `bot_agg_path_*`, `bot_agg_resource_*`, `bot_agg_ua_*`, `bot_agg_asn_hour`,
-  `bot_agg_traffic_hour`, `bot_agg_hour` — focused aggregate families
+  `bot_agg_traffic_hour`, `bot_agg_hour`: focused aggregate families
   referenced by older skill iterations.
 
 **Data sources**: Akamai DS2, Akamai SIEM, Akamai SIEM GZ, CloudFront Firehose,
@@ -101,15 +101,14 @@ same-week-last-year, and executive posture. Hourly summaries are the default for
 weekday/hour seasonality. Minute summaries are for short policy-change review or
 incident detail.
 
-Fields not retained in `bi_summary_*` or `bi_siem_policy_summary_*` —
+Fields not retained in `bi_summary_*` or `bi_siem_policy_summary_*` (such as
 `verified_bot_owner`, `bot_confidence`, `bot_intent`, canonical `bot_category`
 or `bot_type`, `edge_pop`, exact payload `attack_data`, and exact
-`user_agent` — would historically have come from request-level tables, but
-those tables are not currently deployed. Surface the limitation in the
-artifact rather than substituting a non-deployed table. TrafficPeak summary
-fields available today include `userAgentCategory`, `trafficCohort`,
-`aiCategory`, `aiSource`, `requestPathPattern`, numeric `statusCode`, and
-`cacheStatus`.
+`user_agent`) would historically have come from request-level tables, but
+those tables are not currently deployed. Apply the deployment-availability
+rule (SKILL.md). TrafficPeak summary fields available today include
+`userAgentCategory`, `trafficCohort`, `aiCategory`, `aiSource`,
+`requestPathPattern`, numeric `statusCode`, and `cacheStatus`.
 
 ## Personas
 

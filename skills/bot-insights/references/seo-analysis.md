@@ -1,16 +1,16 @@
 # bot-insights — SEO Analysis Patterns
 
-SEO analysis runs against `bi_summary_*` for AI crawler share, bot class,
-error rates, and cache miss rates. Request-level dimensions
+SEO analysis runs against `bi_summary_*` for AI crawler share, user-agent
+category, error rates, and cache miss rates. Request-level dimensions
 (`verified_bot_owner`, `bot_verification_tier`, exact `user_agent`,
 governance-surface inspection) historically came from `bot_detection`; that
-table is **not currently deployed** on production clusters. When a question
-truly depends on a request-level dimension, state the limitation in the
-artifact rather than substituting a non-deployed table.
+table is **not currently deployed** on production clusters. Apply the
+deployment-availability rule (SKILL.md) when a question depends on a
+request-level dimension.
 
-In SQL templates, replace `<posture_summary_day>` with `bi_summary_day` for
-the Akamai/TrafficPeak project, or the metadata-confirmed equivalent for the
-target cluster.
+SQL examples use `bi_summary_day` directly for the Akamai/TrafficPeak
+project. On other clusters, confirm the equivalent posture-summary table
+name in metadata before adapting.
 
 ## Contents
 
@@ -28,8 +28,10 @@ deployed grain. State the limitation in the artifact when a SEO investigation
 depends on this dimension.
 
 Deployed surfaces can still show coarse crawler health: filter `bi_summary_*`
-on `bot_class = 'good'` or on `userAgentCategory` to find aggregate bad-bot
-share movement, but the exact ownership of those bots is not surfaced.
+on `userAgentCategory` cohorts (for example `Search Engine Crawler`) and on
+`resourceCategory` crawler-file values (`robots.txt`, `sitemap.xml`) to find
+aggregate crawler-health movement. Exact ownership of those bots is not
+surfaced.
 
 ### Attack Data Analysis [SOC]
 
@@ -53,7 +55,9 @@ Monitor legitimate crawlers and partner bots to ensure they can operate without
 disruption — especially during security incidents or policy changes.
 
 ```sql
--- Summary-backed good bot health by day on the deployed posture surface.
+-- Summary-backed crawler health by day on the deployed posture surface.
+-- Filter on userAgentCategory (deployed posture summaries do not retain a
+-- bot_class column).
 SELECT
     reqTimeSec,
     reqHost,
@@ -61,28 +65,33 @@ SELECT
     round(sum(cnt_4xx + cnt_5xx) / greatest(sum(cnt_all), 1) * 100, 2) AS error_rate_pct,
     round(sum(cnt_429) / greatest(sum(cnt_all), 1) * 100, 2) AS rate_limited_pct,
     max(p95_origin_ttfb) AS origin_p95_ms
-FROM <project>.<posture_summary_day>
+FROM <project>.bi_summary_day
 WHERE reqTimeSec >= now() - INTERVAL 30 DAY
-  AND bot_class = 'good'
+  AND userAgentCategory = 'Search Engine Crawler'
 GROUP BY reqTimeSec, reqHost
 ORDER BY reqTimeSec, reqHost
 
--- Good bot volume trending by host (drops signal blocking or misconfiguration).
+-- Crawler volume trending by host (drops signal blocking or misconfiguration).
 SELECT
     reqTimeSec AS hour,
     reqHost,
     sum(cnt_all) AS requests
 FROM <project>.bi_summary_hour
 WHERE reqTimeSec >= now() - INTERVAL 7 DAY
-  AND bot_class = 'good'
+  AND userAgentCategory = 'Search Engine Crawler'
 GROUP BY hour, reqHost
 ORDER BY hour
 ```
 
+Confirm the exact `userAgentCategory` value in metadata for the target
+cluster; the literal `'Search Engine Crawler'` shown above matches the
+TrafficPeak Akamai project.
+
 Owner-specific crawler health, per-path crawler access patterns, and exact
 status-code-by-owner investigations all required request-level fields
 (`verified_bot_owner`, `request_path`, exact `response_status_code`) that are
-not retained in deployed summaries. Surface that limitation in the artifact.
+not retained in deployed summaries. Apply the deployment-availability rule
+(SKILL.md).
 
 ### AI Crawler Monitoring [SEO]
 
@@ -98,7 +107,7 @@ SELECT
     sum(cnt_2xx) AS ok_2xx,
     sum(cnt_429) AS rate_limited_429,
     round(sum(cnt_cache_miss) / greatest(sum(cnt_all), 1) * 100, 2) AS cache_miss_pct
-FROM <project>.<posture_summary_day>
+FROM <project>.bi_summary_day
 WHERE reqTimeSec >= now() - INTERVAL 24 HOUR
   AND aiCategory != ''
 GROUP BY aiCategory
