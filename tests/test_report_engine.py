@@ -932,6 +932,211 @@ def test_companion_compatible_known_helper_recognizes_empty_collections():
     assert not known({})
 
 
+# ---------------------------------------------------------------------------
+# Control review — engine port (M1.2 part B)
+# ---------------------------------------------------------------------------
+
+
+def test_control_review_assemble_from_example_fixture():
+    """Ported example wrapper assembles to the expected dict shape.
+
+    The shipped example carries one control artifact, no companions, so
+    posture/mover/timeseries should all be ``None``.
+    """
+    import json
+
+    from report_engine.contexts import control_review
+
+    wrapper = json.loads(
+        (FIXTURES / "control_review_full.json").read_text()
+    )
+    result = control_review.assemble(wrapper["artifacts"])
+    assert result["control"]["schema_version"] == "bot_control_review.v1"
+    assert result["control"]["artifact_id"] == "control-review-1"
+    assert result["posture"] is None
+    assert result["mover"] is None
+    assert result["timeseries"] is None
+
+
+def test_control_review_prepare_emits_target_effects_rows():
+    """``prepare()`` projects ``target_effects`` into the row shape the
+    template consumes, with metric labels resolved through
+    ``human_metric_name`` and status tones populated."""
+    import json
+
+    from report_engine.contexts import control_review
+
+    wrapper = json.loads(
+        (FIXTURES / "control_review_full.json").read_text()
+    )
+    artifact = control_review.assemble(wrapper["artifacts"])
+    ctx = control_review.prepare(artifact)
+
+    assert ctx["title"] == "Control Review"
+    assert ctx["target"]["descriptor"] == "policy-bot-block-1"
+    assert ctx["expected_basis"] == "explicit_target"
+    assert ctx["expected_basis_label"] == "Explicit target"
+
+    effects = ctx["effects"]
+    assert len(effects) == 1
+    effect = effects[0]
+    assert effect["metric"] == "siem_blocked_requests"
+    assert effect["metric_label"] == "SIEM blocked requests"
+    assert effect["before"] == 90.0
+    assert effect["after"] == 280.0
+    assert effect["expected"] == 100.0
+    assert effect["status"] == "increased"
+    assert effect["status_label"] == "Increased"
+    assert effect["status_tone"] == "monitor"
+    assert effect["confidence"] == "high"
+
+
+def test_control_review_prepare_emits_collateral_and_displacement_checks():
+    """Collateral and displacement check arrays project to row dicts
+    with the same status/tone shape the effects rows use."""
+    import json
+
+    from report_engine.contexts import control_review
+
+    wrapper = json.loads(
+        (FIXTURES / "control_review_full.json").read_text()
+    )
+    artifact = control_review.assemble(wrapper["artifacts"])
+    ctx = control_review.prepare(artifact)
+
+    coll = ctx["collateral_checks"]
+    assert len(coll) == 1
+    assert coll[0]["metric"] == "rate_429_pct"
+    assert coll[0]["before"] == 0.4
+    assert coll[0]["after"] == 2.1
+    assert coll[0]["status"] == "increased"
+
+    disp = ctx["displacement_checks"]
+    assert len(disp) == 1
+    assert disp[0]["metric"] == "requests"
+    assert disp[0]["before"] == 1200000.0
+    assert disp[0]["after"] == 1100000.0
+
+
+def test_control_review_prepare_emits_dominant_finding_with_caveat():
+    """The synthesized finding describes the dominant effect, calls out
+    expected basis, and carries the no-causal-claim caveat."""
+    import json
+
+    from report_engine.contexts import control_review
+
+    wrapper = json.loads(
+        (FIXTURES / "control_review_full.json").read_text()
+    )
+    artifact = control_review.assemble(wrapper["artifacts"])
+    ctx = control_review.prepare(artifact)
+
+    assert len(ctx["findings"]) == 1
+    finding = ctx["findings"][0]
+    assert "SIEM blocked requests" in finding.headline
+    assert "increased" in finding.headline
+    assert "policy-bot-block-1" in finding.headline
+    assert "explicit target" in (finding.body or "").lower()
+    assert finding.recommendation is not None
+    assert "external change evidence" in finding.recommendation.lower()
+    assert finding.caveat is not None
+    assert "causal" in finding.caveat.lower()
+
+
+def test_control_review_prepare_empty_effects_emits_placeholder_finding():
+    """An artifact with no ``target_effects`` still produces a finding
+    so the executive summary slot has something to render."""
+    from report_engine.contexts import control_review
+
+    artifact = control_review.assemble(
+        [
+            {
+                "schema_version": "bot_control_review.v1",
+                "artifact_id": "control-empty-1",
+                "before_window": {"start": "2026-04-08", "end": "2026-04-15"},
+                "after_window": {"start": "2026-04-15", "end": "2026-04-22"},
+                "scope": {"cluster": "demo"},
+                "table_used": "demo.bi",
+                "comparison_type": "post_change_vs_expected",
+                "target": {"policy_id": "policy-x"},
+                "target_effects": [],
+            }
+        ]
+    )
+    ctx = control_review.prepare(artifact)
+    assert ctx["effects"] == []
+    assert len(ctx["findings"]) == 1
+    assert "No effects" in ctx["findings"][0].title
+
+
+def test_control_review_renders_via_engine_with_oracle_class_names():
+    """Smoke test the rendered HTML contains the engine-style class
+    names the parity gates will assert on in M2.
+
+    Renders through ``uv run`` (the same path the other snapshot tests
+    use) so jinja2 doesn't have to be importable from the local Python.
+    """
+    wrapper = FIXTURES / "control_review_full.json"
+    snapshot = SNAPSHOTS / "control_review_full.html"
+    actual = _normalize(_render(wrapper))
+    _assert_snapshot(actual, snapshot)
+
+    # Engine-style scaffolding that the parity gates and class-presence
+    # audit (M4.5) will assert on. These are inline assertions on top of
+    # the snapshot comparison so the test's intent is legible.
+    for needle in (
+        "narrative-slot",
+        "exec-summary",
+        "report-header",
+        "purpose-strip",
+        "control-target",
+        "control-effects",
+        "control-collateral",
+        "control-displacement",
+        "effects-table",
+        "status-pill",
+    ):
+        assert needle in actual, (
+            f"expected class fragment {needle!r} in control_review render"
+        )
+
+    assert "SIEM blocked requests" in actual
+    assert "Adjacent populations" in actual
+    assert "substitute paths" in actual
+    assert "Increased" in actual
+
+
+def test_control_review_target_descriptor_falls_back_to_key_value_join():
+    """When the target dict carries an unfamiliar identifier shape, the
+    descriptor falls back to a deterministic ``key=value`` join so the
+    headline never collapses to empty.
+
+    Uses ``prepare()`` directly because this assertion is about context
+    shape, not rendered HTML — keeps it runnable from a plain Python
+    without the uv dependency.
+    """
+    from report_engine.contexts import control_review
+
+    artifact = control_review.assemble(
+        [
+            {
+                "schema_version": "bot_control_review.v1",
+                "artifact_id": "control-target-fallback-1",
+                "before_window": {"start": "2026-04-08", "end": "2026-04-15"},
+                "after_window": {"start": "2026-04-15", "end": "2026-04-22"},
+                "scope": {"cluster": "demo"},
+                "table_used": "demo.bi",
+                "comparison_type": "post_change_vs_expected",
+                "target": {"custom_key": "custom-value", "other": "v"},
+                "target_effects": [],
+            }
+        ]
+    )
+    ctx = control_review.prepare(artifact)
+    # Sorted ``key=value`` join keeps the output deterministic.
+    assert ctx["target"]["descriptor"] == "custom_key=custom-value, other=v"
+
+
 def test_companion_compatible_returns_reason_for_each_failure_mode():
     from report_engine.contexts._shared import companion_compatible
 
