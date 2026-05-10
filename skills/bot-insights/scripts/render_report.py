@@ -4265,11 +4265,12 @@ def render(
     scan_metadata_warnings(artifacts, ctx)
     validate_analyst_notes(notes, artifacts)
     if args.format == "html":
-        # Dual-route: HTML for ``executive_posture`` and ``soc_triage``
-        # goes through the new report_engine path. Markdown callers
-        # (``md_executive``, ``md_soc``) stay on the legacy path. Other
-        # report types are unchanged.
-        if report_type in {"executive_posture", "soc_triage"}:
+        # Dual-route: HTML for ``executive_posture``, ``soc_triage``,
+        # and ``crawler_governance`` goes through the new report_engine
+        # path. Markdown callers (``md_executive``, ``md_soc``,
+        # ``md_domain_report`` for crawler) stay on the legacy path.
+        # Other report types are unchanged.
+        if report_type in {"executive_posture", "soc_triage", "crawler_governance"}:
             engine_html = _render_via_engine(
                 report_type=report_type,
                 value=value,

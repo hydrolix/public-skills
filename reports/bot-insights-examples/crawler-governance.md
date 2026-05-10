@@ -17,21 +17,21 @@ Rows follow scorecard index order.
 
 ### ai\_training
 
-| Domain | Feature | Points | Evidence |
-| --- | --- | --- | --- |
-| crawler\_governance | ai\_crawler\_growth\_high | 10 | AI crawler metric increased by 344\.444444%\. |
-| crawler\_governance | good\_bot\_429\_present | 14 | Good bot traffic has 120 429 responses\. |
-| crawler\_governance | good\_bot\_error\_rate\_high | 12 | Good bot error rate is 6\.5%\. |
-| crawler\_governance | policy\_surface\_failure\_present | 16 | Governance surfaces have 80 failed requests\. |
+| Domain | Feature | Condition | Points | Evidence |
+| --- | --- | --- | --- | --- |
+| Crawler Governance | AI Crawler Growth | High | 10 | AI crawler metric increased by 344\.444444%\. |
+| Crawler Governance | Good Bot 429 Responses | Present | 14 | Good bot traffic has 120 429 responses\. |
+| Crawler Governance | Good Bot Error Rate | High | 12 | Good bot error rate is 6\.5%\. |
+| Crawler Governance | Policy Surface Failures | Present | 16 | Governance surfaces have 80 failed requests\. |
 
 ### search\_crawler
 
-| Domain | Feature | Points | Evidence |
-| --- | --- | --- | --- |
-| crawler\_governance | good\_bot\_429\_present | 14 | Good bot traffic has 7400 429 responses\. |
-| crawler\_governance | good\_bot\_error\_rate\_high | 12 | Good bot error rate is 8\.2%\. |
-| crawler\_governance | policy\_surface\_failure\_present | 16 | Governance surfaces have 120 failed requests\. |
-| crawler\_governance | rate\_429\_delta\_high | 8 | 429 rate increased by 6\.3 percentage points\. |
+| Domain | Feature | Condition | Points | Evidence |
+| --- | --- | --- | --- | --- |
+| Crawler Governance | Good Bot 429 Responses | Present | 14 | Good bot traffic has 7400 429 responses\. |
+| Crawler Governance | Good Bot Error Rate | High | 12 | Good bot error rate is 8\.2%\. |
+| Crawler Governance | Policy Surface Failures | Present | 16 | Governance surfaces have 120 failed requests\. |
+| Crawler Governance | 429 Rate | High Increase | 8 | 429 rate increased by 6\.3 percentage points\. |
 
 ## Evidence Limits
 
@@ -54,7 +54,7 @@ Rows follow scorecard index order.
 - Confidence: unavailable
 - Confidence reasons: unavailable
 - Interpretation constraints: rule\_based\_scorecard, mechanical\_features\_only, no\_causal\_claim, llm\_may\_summarize\_structured\_evidence\_only
-- Windows: current\_window: \{"end": "2026\-04\-14T00:00:00Z","start": "2026\-04\-07T00:00:00Z"\}; baseline\_windows: \[\{"end": "2026\-04\-07T00:00:00Z","start": "2026\-03\-31T00:00:00Z"\}\]
+- Windows: current 2026\-04\-07 00:00 UTC to 2026\-04\-14 00:00 UTC; baseline 2026\-03\-31 00:00 UTC to 2026\-04\-07 00:00 UTC
 - Producer limits: result\_row\_count=2, producer\_limit=5, result\_truncated=false, total\_ranked\_entities=2
 
 ### Artifact crawler\-pack\-1\#scorecard\-1
@@ -66,7 +66,7 @@ Rows follow scorecard index order.
 - Confidence: medium
 - Confidence reasons: summary\_table\_used, retained\_dimensions\_fit, current\_count\_sufficient, baseline\_count\_sufficient, siem\_unavailable, feature\_input\_missing
 - Interpretation constraints: rule\_based\_scorecard, mechanical\_features\_only, no\_causal\_claim, llm\_may\_summarize\_structured\_evidence\_only
-- Windows: current\_window: \{"end": "2026\-04\-14T00:00:00Z","start": "2026\-04\-07T00:00:00Z"\}; baseline\_windows: \[\{"end": "2026\-04\-07T00:00:00Z","start": "2026\-03\-31T00:00:00Z"\}\]
+- Windows: current 2026\-04\-07 00:00 UTC to 2026\-04\-14 00:00 UTC; baseline 2026\-03\-31 00:00 UTC to 2026\-04\-07 00:00 UTC
 - Not-evaluated features:
   - cache\_busting / cache\_miss\_delta\_high (missing inputs: baseline\_cache\_miss\_pct, current\_cache\_miss\_pct; reason: feature\_input\_missing)
   - cache\_busting / cache\_miss\_rate\_high (missing inputs: cache\_miss\_pct; reason: feature\_input\_missing)
@@ -91,7 +91,7 @@ Rows follow scorecard index order.
 - Confidence: medium
 - Confidence reasons: summary\_table\_used, retained\_dimensions\_fit, current\_count\_sufficient, baseline\_count\_sufficient, siem\_unavailable, feature\_input\_missing
 - Interpretation constraints: rule\_based\_scorecard, mechanical\_features\_only, no\_causal\_claim, llm\_may\_summarize\_structured\_evidence\_only
-- Windows: current\_window: \{"end": "2026\-04\-14T00:00:00Z","start": "2026\-04\-07T00:00:00Z"\}; baseline\_windows: \[\{"end": "2026\-04\-07T00:00:00Z","start": "2026\-03\-31T00:00:00Z"\}\]
+- Windows: current 2026\-04\-07 00:00 UTC to 2026\-04\-14 00:00 UTC; baseline 2026\-03\-31 00:00 UTC to 2026\-04\-07 00:00 UTC
 - Not-evaluated features:
   - cache\_busting / cache\_miss\_delta\_high (missing inputs: baseline\_cache\_miss\_pct, current\_cache\_miss\_pct; reason: feature\_input\_missing)
   - cache\_busting / cache\_miss\_rate\_high (missing inputs: cache\_miss\_pct; reason: feature\_input\_missing)

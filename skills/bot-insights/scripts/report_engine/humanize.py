@@ -82,6 +82,7 @@ ENTITY_TYPE_LABELS = {
     "user_agent": "user agent",
     "country": "country",
     "bot_class": "bot class",
+    "ai_category": "AI category",
 }
 
 # Override map for known cluster/database names where the simple Title Case

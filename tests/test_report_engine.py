@@ -236,6 +236,66 @@ def test_soc_triage_single_entity():
     assert "ASN 64500" in actual
 
 
+# ---- Crawler governance ------------------------------------------------------
+
+
+def test_crawler_governance_full_wrapper():
+    """Full wrapper bundling a packet of three ranked AI categories. The
+    top entity has a crawler_governance primary domain with all six
+    crawler-governance rules triggered plus a movement supporting rule;
+    the second entity has three crawler-governance triggers; the third
+    only one. Verdict pills mute zero counts."""
+    wrapper = FIXTURES / "crawler_governance_full.json"
+    snapshot = SNAPSHOTS / "crawler_governance_full.html"
+    actual = _normalize(_render(wrapper))
+    _assert_snapshot(actual, snapshot)
+    assert "Crawler Governance — www.example.com, AI category health queue" in actual
+    assert "Ai training" in actual
+    assert "80 governance-surface failures" in actual
+    # Crawler evidence cards render for the Assign entities, with both
+    # the crawler-governance and supporting blocks populated.
+    assert '<article class="sec-evidence-card' in actual
+    assert ">Crawler-governance signals<" in actual
+    assert ">Supporting signals<" in actual
+    # Domain score matrix renders both active domains (crawler + movement).
+    assert '<table class="data-table domain-matrix">' in actual
+    # Full wrapper is NOT degraded.
+    assert '<div class="degraded-banner"' not in actual
+
+
+def test_crawler_governance_index_only_degraded():
+    """Wrapper carries the ranking index but no scorecards. Degraded
+    banner fires; queue table renders rows from the index; no crawler
+    cards or domain matrix."""
+    wrapper = FIXTURES / "crawler_governance_index_only.json"
+    snapshot = SNAPSHOTS / "crawler_governance_index_only.html"
+    actual = _normalize(_render(wrapper))
+    _assert_snapshot(actual, snapshot)
+    assert '<div class="degraded-banner"' in actual
+    assert "Ai training" in actual
+    assert "Search crawler" in actual
+    # Domain matrix and crawler cards are absent in degraded mode.
+    assert '<table class="data-table domain-matrix">' not in actual
+    assert ">Crawler-governance signals<" not in actual
+    assert '<article class="sec-evidence-card' not in actual
+
+
+def test_crawler_governance_single_entity():
+    """N=1 wrapper with full per-rule data plus entity_metrics. Triage
+    strip reads as singular; traffic-share clause appears in the lead
+    because every scorecard carries current_requests."""
+    wrapper = FIXTURES / "crawler_governance_single_entity.json"
+    snapshot = SNAPSHOTS / "crawler_governance_single_entity.html"
+    actual = _normalize(_render(wrapper))
+    _assert_snapshot(actual, snapshot)
+    assert "1 of 1 AI category" in actual
+    assert "covers 100% of fleet requests" in actual
+    # Singular noun in the verdict-strip rationale.
+    assert "1 AI category needs analyst attention" in actual
+    # Single-entity should still render the queue + cards.
+    assert "Ai training" in actual
+
+
 # ---- XSS guard ---------------------------------------------------------------
 
 

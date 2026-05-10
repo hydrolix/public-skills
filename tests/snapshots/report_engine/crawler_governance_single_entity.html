@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Crawler Governance</title>
+  <title>Crawler Governance — Demo</title>
   <style>:root {
   --bg: #fafaf9;
   --surface: #ffffff;
@@ -1141,7 +1141,7 @@ footer {
     <header class="report-header">
       <div class="header-titles">
         <div class="kicker">Bot Insights — crawler governance</div>
-        <h1>Crawler Governance — www.example.com, AI category health queue</h1>
+        <h1>Crawler Governance — Demo, AI category health queue</h1>
 <p class="dek">Top crawler entities ranked by triggered governance signals for the current window.</p>      </div>
       <div class="window">
         <div class="window-label">Comparison window</div>
@@ -1154,12 +1154,11 @@ footer {
   <div class="section-eyebrow">Executive summary</div>
   <h2>What this report says</h2>
     <div class="prose">
-      <p><strong>2 of 2 AI categorys need analyst attention — start with Ai training (80 governance-surface failures).</strong></p>
+      <p><strong>1 of 1 AI category needs analyst attention — start with Ai training (covers 100% of fleet requests this window; 80 governance-surface failures).</strong></p>
         <p class="exec-recommendation">
           <span class="exec-recommendation-label">Recommended action</span>
-          Check good crawler rate limits, 5xx exposure, robots.
+          Audit policy surfaces.
         </p>
-        <p class="exec-caveat">Coverage is thin — 72% of rule evaluations had missing inputs. Real risk may be higher than the score implies.</p>
     </div>
 </section>
 
@@ -1169,7 +1168,7 @@ footer {
   <header class="verdict-strip" aria-label="Fleet triage">
   <div class="verdict-pills">
       <span class="pill pill-escalate triage-count">
-        <strong>2</strong>
+        <strong>1</strong>
         <span class="triage-pill-label">Assign</span>
       </span>
       <span class="pill pill-monitor triage-count pill-muted">
@@ -1185,13 +1184,13 @@ footer {
         <span class="triage-pill-label">Close — expected</span>
       </span>
   </div>
-    <p class="verdict-rationale">2 AI categorys need analyst attention (out of 2).</p>
+    <p class="verdict-rationale">1 AI category needs analyst attention (out of 1).</p>
 </header>
 
 
     <section class="sec-evidence-section">
       <div class="section-eyebrow">Crawler governance evidence</div>
-      <h2>2 entities need analyst attention</h2>
+      <h2>1 entity need analyst attention</h2>
       <div class="sec-evidence-grid">
           <article class="sec-evidence-card sec-evidence-escalate">
             <header class="sec-evidence-head">
@@ -1202,7 +1201,6 @@ footer {
                 <span class="pill pill-escalate pill-sm">Assign</span>
                 <span class="sec-evidence-score">Score 64</span>
                   <span class="domain-pill">Crawler governance</span>
-                  <span class="pill pill-neutral pill-sm">Low confidence: 12 of 17 rules missing inputs</span>
               </div>
             </header>
 
@@ -1235,68 +1233,7 @@ footer {
                         <span class="sec-evidence-rule-name">Ai crawler growth high</span>
                           <span class="sec-evidence-rule-points">+10 pts</span>
                       </div>
-                        <p class="sec-evidence-rule-evidence">AI crawler metric increased by 344.44%.</p>
-                    </li>
-                </ul>
-              </div>
-
-              <div class="sec-evidence-block">
-                <div class="sec-evidence-block-label">Supporting signals</div>
-                <ul class="sec-evidence-rules">
-                    <li class="sec-evidence-rule">
-                      <div class="sec-evidence-rule-head">
-                        <span class="sec-evidence-rule-name">Volume delta high</span>
-                        <span class="sec-evidence-rule-domain">Movement</span>
-                          <span class="sec-evidence-rule-points">+12 pts</span>
-                      </div>
-                        <p class="sec-evidence-rule-evidence">Request volume increased by 31000 (344.44%).</p>
-                    </li>
-                </ul>
-              </div>
-          </article>
-          <article class="sec-evidence-card sec-evidence-monitor">
-            <header class="sec-evidence-head">
-              <div class="sec-evidence-title">
-                <span class="sec-evidence-entity">Search crawler</span>
-<span class="sec-evidence-rank">#2</span>              </div>
-              <div class="sec-evidence-meta">
-                <span class="pill pill-monitor pill-sm">Assign</span>
-                <span class="sec-evidence-score">Score 50</span>
-                  <span class="domain-pill">Crawler governance</span>
-                  <span class="pill pill-neutral pill-sm">Low confidence: 11 of 15 rules missing inputs</span>
-              </div>
-            </header>
-
-              <div class="sec-evidence-block">
-                <div class="sec-evidence-block-label">Crawler-governance signals</div>
-                <ul class="sec-evidence-rules">
-                    <li class="sec-evidence-rule">
-                      <div class="sec-evidence-rule-head">
-                        <span class="sec-evidence-rule-name">Policy surface failure present</span>
-                          <span class="sec-evidence-rule-points">+16 pts</span>
-                      </div>
-                        <p class="sec-evidence-rule-evidence">Governance surfaces have 120 failed requests.</p>
-                    </li>
-                    <li class="sec-evidence-rule">
-                      <div class="sec-evidence-rule-head">
-                        <span class="sec-evidence-rule-name">Good bot 429 present</span>
-                          <span class="sec-evidence-rule-points">+14 pts</span>
-                      </div>
-                        <p class="sec-evidence-rule-evidence">Good bot traffic has 7400 429 responses.</p>
-                    </li>
-                    <li class="sec-evidence-rule">
-                      <div class="sec-evidence-rule-head">
-                        <span class="sec-evidence-rule-name">Good bot error rate high</span>
-                          <span class="sec-evidence-rule-points">+12 pts</span>
-                      </div>
-                        <p class="sec-evidence-rule-evidence">Good bot error rate is 8.20%.</p>
-                    </li>
-                    <li class="sec-evidence-rule">
-                      <div class="sec-evidence-rule-head">
-                        <span class="sec-evidence-rule-name">Rate 429 delta high</span>
-                          <span class="sec-evidence-rule-points">+8 pts</span>
-                      </div>
-                        <p class="sec-evidence-rule-evidence">429 rate increased by 6.3 percentage points.</p>
+                        <p class="sec-evidence-rule-evidence">AI crawler metric increased by 344.00%.</p>
                     </li>
                 </ul>
               </div>
@@ -1307,7 +1244,7 @@ footer {
 
   <section>
   <div class="section-eyebrow">Triage queue</div>
-  <h2>2 AI categorys, ordered by what to do</h2>
+  <h2>1 AI category, ordered by what to do</h2>
   <table class="data-table queue-table">
     <thead>
       <tr>
@@ -1331,27 +1268,12 @@ footer {
             <svg viewBox="0 0 88 8" class="score-bar" role="img" aria-label="Score 64"><rect x="0" y="0" width="88" height="8" rx="2" fill="#f4f4f5" /><rect x="0" y="0" width="56.3" height="8" rx="2" fill="#F28E2B" /></svg>
           </td>
           <td>
-<span class="delta-flat">±0</span>
+<span class="delta-up">+40</span>
           </td>
           <td>
             <span class="domain-pill primary-active">Crawler governance</span>
           </td>
           <td class="evidence-cell">Governance surfaces have 80 failed requests.</td>
-        </tr>
-        <tr>
-          <td><span class="pill pill-monitor pill-sm">Assign</span></td>
-          <td class="entity">Search crawler</td>
-          <td class="score-cell">
-            <span class="score-num">50</span>
-            <svg viewBox="0 0 88 8" class="score-bar" role="img" aria-label="Score 50"><rect x="0" y="0" width="88" height="8" rx="2" fill="#f4f4f5" /><rect x="0" y="0" width="44.0" height="8" rx="2" fill="#F28E2B" /></svg>
-          </td>
-          <td>
-<span class="delta-flat">±0</span>
-          </td>
-          <td>
-            <span class="domain-pill primary-active">Crawler governance</span>
-          </td>
-          <td class="evidence-cell">Governance surfaces have 120 failed requests.</td>
         </tr>
     </tbody>
   </table>
@@ -1383,14 +1305,6 @@ footer {
           <span class="pill pill-sm pill-escalate">Assign</span>
         </td>
       </tr>
-      <tr>
-        <td class="entity">Search crawler</td>
-        <td class="num">50</td>
-        <td>Medium review</td>
-        <td>
-          <span class="pill pill-sm pill-monitor">Assign</span>
-        </td>
-      </tr>
     </tbody>
   </table>
 </section>
@@ -1405,7 +1319,6 @@ footer {
         <th>Ai category</th>
         <th class="num">Score</th>
           <th class="domain-matrix-col">Crawler governance</th>
-          <th class="domain-matrix-col">Movement</th>
       </tr>
     </thead>
     <tbody>
@@ -1415,17 +1328,6 @@ footer {
               <td class="domain-matrix-cell">
                 <span class="pill pill-escalate pill-sm domain-matrix-pill">52</span>
               </td>
-              <td class="domain-matrix-cell">
-                <span class="pill pill-monitor pill-sm domain-matrix-pill">12</span>
-              </td>
-        </tr>
-        <tr>
-          <td class="entity">Search crawler</td>
-          <td class="num"><span class="score-num">50</span></td>
-              <td class="domain-matrix-cell">
-                <span class="pill pill-escalate pill-sm domain-matrix-pill">50</span>
-              </td>
-              <td class="domain-matrix-cell domain-matrix-empty">—</td>
         </tr>
     </tbody>
   </table>
@@ -1437,12 +1339,12 @@ footer {
     <h2>Investigations to queue from this report</h2>
       <ol class="actions">
           <li class="action">
-            <div class="action-step">Check good crawler rate limits, 5xx exposure, robots.txt, llms.txt, and sitemap availability.</div>
+            <div class="action-step">Pull policy-surface error logs for AI training crawlers and confirm rate-limit rules are intentional.</div>
             <div class="action-meta">
-                2 AI categorys · Ai training, Search crawler            </div>
+                1 AI category · Ai training            </div>
           </li>
           <li class="action">
-            <div class="action-step">Review mover attribution for the same scope and confirm comparable current/baseline windows.</div>
+            <div class="action-step">Inspect AI-crawler growth against expected campaigns and tune robots.txt or crawl-delay if growth is unintended.</div>
             <div class="action-meta">
                 1 AI category · Ai training            </div>
           </li>
@@ -1456,8 +1358,8 @@ footer {
     <summary>
       Rule coverage by domain
       <span class="disclosure-summary-stat">
-        — 5 domains evaluated,
-        71.88% of rule evaluations had missing inputs
+        — 1 domain evaluated,
+        0.00% of rule evaluations had missing inputs
       </span>
     </summary>
     <div class="disclosure-body">
@@ -1474,46 +1376,18 @@ footer {
         <tbody>
             <tr>
               <td class="domain-name">Crawler governance</td>
-              <td class="num">8</td>
-              <td class="num">0</td>
-              <td class="num">1</td>
-              <td><svg viewBox="0 0 360 14" class="coverage-bar" role="img" aria-label="Rule coverage"><rect x="0.0" y="0" width="320.0" height="14" fill="#4E79A7" /><rect x="320.0" y="0" width="40.0" height="14" fill="#F8C58A" /></svg></td>
-            </tr>
-            <tr>
-              <td class="domain-name">Cache busting</td>
-              <td class="num">0</td>
-              <td class="num">0</td>
-              <td class="num">8</td>
-              <td><svg viewBox="0 0 360 14" class="coverage-bar" role="img" aria-label="Rule coverage"><rect x="0.0" y="0" width="360.0" height="14" fill="#F8C58A" /></svg></td>
-            </tr>
-            <tr>
-              <td class="domain-name">Movement</td>
-              <td class="num">1</td>
-              <td class="num">0</td>
               <td class="num">4</td>
-              <td><svg viewBox="0 0 360 14" class="coverage-bar" role="img" aria-label="Rule coverage"><rect x="0.0" y="0" width="72.0" height="14" fill="#4E79A7" /><rect x="72.0" y="0" width="288.0" height="14" fill="#F8C58A" /></svg></td>
-            </tr>
-            <tr>
-              <td class="domain-name">Origin impact</td>
               <td class="num">0</td>
               <td class="num">0</td>
-              <td class="num">4</td>
-              <td><svg viewBox="0 0 360 14" class="coverage-bar" role="img" aria-label="Rule coverage"><rect x="0.0" y="0" width="360.0" height="14" fill="#F8C58A" /></svg></td>
-            </tr>
-            <tr>
-              <td class="domain-name">Security evidence</td>
-              <td class="num">0</td>
-              <td class="num">0</td>
-              <td class="num">6</td>
-              <td><svg viewBox="0 0 360 14" class="coverage-bar" role="img" aria-label="Rule coverage"><rect x="0.0" y="0" width="360.0" height="14" fill="#F8C58A" /></svg></td>
+              <td><svg viewBox="0 0 360 14" class="coverage-bar" role="img" aria-label="Rule coverage"><rect x="0.0" y="0" width="360.0" height="14" fill="#4E79A7" /></svg></td>
             </tr>
         </tbody>
       </table>
       <p class="muted" style="margin-top:12px;font-size:12px;">
         Confidence:
-Medium · 2.
+High · 1.
         Reasons:
-Baseline window has enough rows, Current window has enough rows, Some feature inputs missing, Dimensions fit retained schema, SIEM data unavailable, Summary table used.
+Baseline window has enough rows, Current window has enough rows, All feature inputs present, Summary table used.
       </p>
     </div>
   </details>
@@ -1524,8 +1398,8 @@ Baseline window has enough rows, Current window has enough rows, Some feature in
   <div class="section-eyebrow">Method &amp; caveats</div>
     <h2>What this report is and isn't</h2>
     <p class="prose">
-      Rule-based scorecard for  ·
-      , built from mechanical features
+      Rule-based scorecard for Demo ·
+      Bot Insights, built from mechanical features
       only, compared against
       week over week.
       It reports what was measured, not why. Missing feature inputs are
@@ -1536,13 +1410,13 @@ Baseline window has enough rows, Current window has enough rows, Some feature in
       <dl class="method">
         <dt>Schema</dt><dd><code>bot_scorecard_artifacts.v1</code></dd>
           <dt>Comparison</dt><dd>Week over week</dd>
-          <dt>Producer limit</dt><dd>5 (returned 2, truncated: false)</dd>
-        <dt>Tenant / database</dt><dd> · </dd>
+          <dt>Producer limit</dt><dd>5 (returned 1, truncated: false)</dd>
+        <dt>Tenant / database</dt><dd>Demo · Bot Insights</dd>
         <dt>Table</dt><dd><code>bi_summary_hour</code></dd>
           <dt>Constraints</dt>
-          <dd>Rule-based scorecard; Mechanical features only; No causal claim; LLM may summarize structured evidence only</dd>
+          <dd>Rule-based scorecard; Mechanical features only; No causal claim</dd>
           <dt>Confidence reasons</dt>
-          <dd>Baseline window has enough rows; Current window has enough rows; Some feature inputs missing; Dimensions fit retained schema; SIEM data unavailable; Summary table used</dd>
+          <dd>Baseline window has enough rows; Current window has enough rows; All feature inputs present; Summary table used</dd>
       </dl>
     </details>
 </section>
@@ -1577,7 +1451,7 @@ Baseline window has enough rows, Current window has enough rows, Some feature in
   </details>
 
   <footer>
-    Generated 2026-05-10 00:11 UTC · artifact bot_scorecard_artifacts.v1  </footer>
+    Generated <FROZEN> · artifact bot_scorecard_artifacts.v1  </footer>
 </main>
 </body>
 </html>

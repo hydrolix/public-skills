@@ -1,0 +1,167 @@
+{
+  "schema_version": "bot_report_input.v1",
+  "report_type": "crawler_governance",
+  "title": "Crawler Governance - single entity - 2026-04-14",
+  "scope_label": "www.example.com",
+  "analyst_notes": [],
+  "artifacts": [
+    {
+      "artifact_id": "crawler-pack-1",
+      "schema_version": "bot_scorecard_artifacts.v1",
+      "producer_limit": 5,
+      "result_row_count": 1,
+      "result_truncated": false,
+      "total_ranked_entities": 1,
+      "index": {
+        "schema_version": "bot_scorecard_index.v1",
+        "comparison_type": "week_over_week",
+        "scope": {
+          "request_host": "www.example.com",
+          "cluster": "demo",
+          "database": "bot_insights"
+        },
+        "table_used": "bi_summary_hour",
+        "current_window": {
+          "start": "2026-04-07T00:00:00Z",
+          "end": "2026-04-14T00:00:00Z"
+        },
+        "baseline_windows": [
+          {
+            "start": "2026-03-31T00:00:00Z",
+            "end": "2026-04-07T00:00:00Z"
+          }
+        ],
+        "producer_limit": 5,
+        "result_row_count": 1,
+        "result_truncated": false,
+        "total_ranked_entities": 1,
+        "interpretation_constraints": [
+          "rule_based_scorecard",
+          "mechanical_features_only",
+          "no_causal_claim"
+        ],
+        "ranked_entities": [
+          {
+            "rank": 1,
+            "entity": "ai_training",
+            "entity_type": "ai_category",
+            "score": 64,
+            "band": "high_review",
+            "confidence": "high",
+            "primary_domain": "crawler_governance"
+          }
+        ]
+      },
+      "scorecards": [
+        {
+          "schema_version": "bot_entity_scorecard.v1",
+          "entity": "ai_training",
+          "entity_type": "ai_category",
+          "score": 64,
+          "baseline_score": 24,
+          "score_delta_points": 40,
+          "band": "high_review",
+          "confidence": "high",
+          "confidence_reasons": [
+            "summary_table_used",
+            "current_count_sufficient",
+            "baseline_count_sufficient",
+            "feature_input_complete"
+          ],
+          "primary_domain": "crawler_governance",
+          "scope": {
+            "request_host": "www.example.com",
+            "cluster": "demo",
+            "database": "bot_insights"
+          },
+          "table_used": "bi_summary_hour",
+          "comparison_type": "week_over_week",
+          "current_window": {
+            "start": "2026-04-07T00:00:00Z",
+            "end": "2026-04-14T00:00:00Z"
+          },
+          "baseline_windows": [
+            {
+              "start": "2026-03-31T00:00:00Z",
+              "end": "2026-04-07T00:00:00Z"
+            }
+          ],
+          "interpretation_constraints": [
+            "rule_based_scorecard",
+            "mechanical_features_only",
+            "no_causal_claim"
+          ],
+          "entity_metrics": {
+            "current_requests": 80000,
+            "baseline_requests": 20000
+          },
+          "domain_scores": {
+            "security_evidence": 0,
+            "movement": 0,
+            "cache_busting": 0,
+            "crawler_governance": 52,
+            "origin_impact": 0,
+            "policy_collateral": 0,
+            "signal_alignment": 0
+          },
+          "evidence_summary": [
+            "Governance surfaces have 80 failed requests.",
+            "Good bot traffic has 120 429 responses.",
+            "Good bot error rate is 6.5%.",
+            "AI crawler metric increased by 344%."
+          ],
+          "features": [
+            {
+              "name": "policy_surface_failure_present",
+              "domain": "crawler_governance",
+              "current": 80,
+              "threshold": 0,
+              "points": 16,
+              "evidence": "Governance surfaces have 80 failed requests."
+            },
+            {
+              "name": "good_bot_429_present",
+              "domain": "crawler_governance",
+              "current": 120,
+              "threshold": 0,
+              "points": 14,
+              "evidence": "Good bot traffic has 120 429 responses."
+            },
+            {
+              "name": "good_bot_error_rate_high",
+              "domain": "crawler_governance",
+              "current": 6.5,
+              "threshold": 5,
+              "points": 12,
+              "evidence": "Good bot error rate is 6.5%."
+            },
+            {
+              "name": "ai_crawler_growth_high",
+              "domain": "crawler_governance",
+              "baseline": 9000,
+              "current": 40000,
+              "threshold": 100,
+              "points": 10,
+              "evidence": "AI crawler metric increased by 344%.",
+              "supporting_metrics": {
+                "absolute_delta": 31000,
+                "pct_change": 344
+              }
+            }
+          ],
+          "not_evaluated_features": [],
+          "recommended_next_steps": [
+            {
+              "summary": "Audit policy surfaces.",
+              "detail": "Pull policy-surface error logs for AI training crawlers and confirm rate-limit rules are intentional."
+            },
+            {
+              "summary": "Review robots.txt.",
+              "detail": "Inspect AI-crawler growth against expected campaigns and tune robots.txt or crawl-delay if growth is unintended."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
