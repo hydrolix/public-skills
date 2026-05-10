@@ -30,6 +30,8 @@ SCORECARD_PACKET_SCHEMA = "bot_scorecard_artifacts.v1"
 TIMESERIES_SCHEMA = "bot_timeseries.v1"
 CONTROL_EXPECTED_BASES = {"before_window", "explicit_target", "external_model"}
 
+CACHE_ORIGIN_IMPACT_SCHEMA = "cache_origin_impact_report.v1"
+
 SUPPORTED_SCHEMAS = {
     POSTURE_SCHEMA,
     MOVER_SCHEMA,
@@ -38,6 +40,7 @@ SUPPORTED_SCHEMAS = {
     INDEX_SCHEMA,
     SCORECARD_PACKET_SCHEMA,
     TIMESERIES_SCHEMA,
+    CACHE_ORIGIN_IMPACT_SCHEMA,
 }
 KNOWN_UNSUPPORTED_SCHEMAS: set[str] = set()
 REPORT_TYPES = {
