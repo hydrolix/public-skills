@@ -105,6 +105,9 @@
   {{ queue_table(queue_rows, unit_label=entity_type_label, unit_label_plural=(entity_type_label ~ "s")) }}
 
   {% if path_candidates %}
+    {# path-candidates-section and path-candidates-evidence-row are semantic
+       hooks for future styling — the table renders via data-table/num/entity
+       classes already defined in _styles.css. #}
     <section class="path-candidates-section">
       <div class="section-eyebrow">Top paths</div>
       <h2>{{ path_candidates | length }} path candidate{{ "s" if path_candidates | length != 1 else "" }} ranked by combined cache-miss and origin pressure</h2>
