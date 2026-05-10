@@ -2563,6 +2563,128 @@ class BotInsightsScriptTests(unittest.TestCase):
             self.assertIn("bi_summary_", captured_sqls[0])
             self.assertFalse(output.exists())
 
+    def test_bot_insights_report_edge_ops_impact_path_handoff_packet(self) -> None:
+        """When entity-grain capture succeeds but path-grain capture has no
+        local creds, the orchestration emits a second handoff packet annotated
+        ``artifact: "path"`` and exits NEEDS_MCP_EXIT."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output = Path(tmpdir) / "edge-ops-impact.html"
+            sample_dir = Path(tmpdir) / "sample"
+            path_handoff = {
+                "schema_version": "bot_hydrolix_mcp_query_request.v1",
+                "cluster": "demo",
+                "database": "akamai",
+                "validated_sql": (
+                    "SELECT 1 FROM akamai.bot_agg_path_hour WHERE reqTimeSec >= now()"
+                    " FORMAT JSON"
+                ),
+                "target_raw_output_path": str(
+                    sample_dir / "edge_ops_impact-path-raw.json"
+                ),
+                "mcp": {
+                    "server": "hydrolix_mux",
+                    "tool": "run_select_query",
+                    "arguments": {
+                        "cluster": "demo",
+                        "query": (
+                            "SELECT 1 FROM akamai.bot_agg_path_hour"
+                            " WHERE reqTimeSec >= now() FORMAT JSON"
+                        ),
+                    },
+                },
+            }
+            captured_sqls: list[str] = []
+
+            def fake_run(cmd, *, stdout_path=None, cwd=None, allowed_returncodes=()):
+                joined = " ".join(map(str, cmd))
+                if "bot_insights_capture.py" in joined:
+                    self.assertIn(
+                        self.bot_insights_report.NEEDS_MCP_EXIT, allowed_returncodes
+                    )
+                    sql_index = list(cmd).index("--sql") + 1
+                    sql = cmd[sql_index]
+                    captured_sqls.append(sql)
+                    if "bi_summary_" in sql:
+                        # Entity-grain capture succeeds; write the raw file and
+                        # return a plain rows summary (not a handoff).
+                        output_index = list(cmd).index("--output") + 1
+                        Path(cmd[output_index]).parent.mkdir(
+                            parents=True, exist_ok=True
+                        )
+                        Path(cmd[output_index]).write_text(
+                            json.dumps(
+                                {
+                                    "data": [
+                                        {
+                                            "request_host": "www.example.com",
+                                            "current_requests": 100000,
+                                            "baseline_requests": 80000,
+                                            "current_cache_miss_pct": 65.0,
+                                            "baseline_cache_miss_pct": 40.0,
+                                            "current_unique_qs": None,
+                                            "baseline_unique_qs": None,
+                                            "current_origin_p95_ms": None,
+                                            "baseline_origin_p95_ms": None,
+                                            "origin_cost_contribution_pct": 18.5,
+                                        }
+                                    ],
+                                    "rows": 1,
+                                }
+                            ),
+                            encoding="utf-8",
+                        )
+                        return json.dumps({"rows": 1})
+                    # Path-grain capture has no local creds → returns handoff.
+                    return json.dumps(path_handoff)
+                raise AssertionError(cmd)
+
+            argv = [
+                "bot-insights-report",
+                "--cluster",
+                "demo",
+                "--database",
+                "akamai",
+                "--report",
+                "edge_ops_impact",
+                "--mode",
+                "report",
+                "--entity-type",
+                "request_host",
+                "--start",
+                "2026-05-02T00:00:00Z",
+                "--end",
+                "2026-05-03T00:00:00Z",
+                "--output",
+                str(output),
+                "--sample-dir",
+                str(sample_dir),
+            ]
+            stdout = io.StringIO()
+            with (
+                mock.patch.object(sys, "argv", argv),
+                mock.patch.object(
+                    self.bot_insights_report, "run", side_effect=fake_run
+                ),
+                mock.patch("sys.stdout", stdout),
+            ):
+                self.assertEqual(
+                    self.bot_insights_report.main(),
+                    self.bot_insights_report.NEEDS_MCP_EXIT,
+                )
+
+            printed = json.loads(stdout.getvalue())
+            self.assertEqual(
+                printed["schema_version"], "bot_hydrolix_mcp_query_request.v1"
+            )
+            self.assertEqual(printed["report_context"]["report"], "edge_ops_impact")
+            self.assertEqual(printed["report_context"]["artifact"], "path")
+            self.assertIn("bot_agg_path_", printed["report_context"]["table_used"])
+            # Two capture calls: entity-grain then path-grain.
+            self.assertEqual(len(captured_sqls), 2)
+            self.assertIn("bi_summary_", captured_sqls[0])
+            self.assertIn("bot_agg_path_", captured_sqls[1])
+            self.assertFalse(output.exists())
+
     def test_bot_insights_report_edge_ops_impact_raw_input_emits_evidence(
         self,
     ) -> None:
@@ -2762,9 +2884,24 @@ class BotInsightsScriptTests(unittest.TestCase):
                     return ""
                 if "render_report.py" in joined:
                     wrapper_path = Path(cmd[list(cmd).index("--file") + 1])
-                    wrapper_seen.update(json.loads(wrapper_path.read_text()))
-                    Path(cmd[list(cmd).index("--output") + 1]).write_text(
-                        "<html>edge-ops</html>", encoding="utf-8"
+                    wrapper_data = json.loads(wrapper_path.read_text())
+                    wrapper_seen.update(wrapper_data)
+                    out_path = Path(cmd[list(cmd).index("--output") + 1])
+                    engine_render_py = (
+                        ROOT / "skills/bot-insights/scripts/report_engine/render.py"
+                    )
+                    subprocess.run(
+                        [
+                            "uv",
+                            "run",
+                            str(engine_render_py),
+                            "--artifact",
+                            str(wrapper_path),
+                            "--out",
+                            str(out_path),
+                        ],
+                        check=True,
+                        capture_output=True,
                     )
                     return ""
                 raise AssertionError(cmd)
@@ -2808,6 +2945,12 @@ class BotInsightsScriptTests(unittest.TestCase):
             self.assertIn("bot_scorecard_index.v1", artifact_schemas)
             self.assertIn("cache_origin_impact_report.v1", artifact_schemas)
             self.assertTrue(output.exists())
+            output_html = output.read_text()
+            self.assertIn(
+                '<table class="data-table path-candidates-table">', output_html
+            )
+            self.assertIn("Triage queue", output_html)
+            self.assertIn("Edge &amp; origin signals", output_html)
 
     def test_bot_insights_report_edge_ops_impact_path_grain_fallback(
         self,
@@ -2926,9 +3069,24 @@ class BotInsightsScriptTests(unittest.TestCase):
                     return ""
                 if "render_report.py" in joined:
                     wrapper_path = Path(cmd[list(cmd).index("--file") + 1])
-                    wrapper_seen.update(json.loads(wrapper_path.read_text()))
-                    Path(cmd[list(cmd).index("--output") + 1]).write_text(
-                        "<html>edge-ops-no-paths</html>", encoding="utf-8"
+                    wrapper_data = json.loads(wrapper_path.read_text())
+                    wrapper_seen.update(wrapper_data)
+                    out_path = Path(cmd[list(cmd).index("--output") + 1])
+                    engine_render_py = (
+                        ROOT / "skills/bot-insights/scripts/report_engine/render.py"
+                    )
+                    subprocess.run(
+                        [
+                            "uv",
+                            "run",
+                            str(engine_render_py),
+                            "--artifact",
+                            str(wrapper_path),
+                            "--out",
+                            str(out_path),
+                        ],
+                        check=True,
+                        capture_output=True,
                     )
                     return ""
                 raise AssertionError(cmd)
@@ -2975,6 +3133,11 @@ class BotInsightsScriptTests(unittest.TestCase):
             self.assertIn("bot_scorecard_index.v1", artifact_schemas)
             self.assertNotIn("cache_origin_impact_report.v1", artifact_schemas)
             self.assertTrue(output.exists())
+            output_html = output.read_text()
+            self.assertNotIn(
+                '<table class="data-table path-candidates-table">', output_html
+            )
+            self.assertIn("Triage queue", output_html)
 
     def render_args(self, **overrides):
         defaults = {
