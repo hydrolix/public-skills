@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from . import (
     control_review,
+    crawler_governance,
     executive_posture,
     scorecard_brief,
     scorecard_entity_review,
@@ -28,16 +29,21 @@ _MODULES = (
     executive_posture,
     control_review,
     soc_triage,
+    crawler_governance,
 )
 
-# Registry keyed on raw artifact schema_version. ``soc_triage`` shares
-# ``bot_scorecard_artifacts.v1`` with ``scorecard_brief`` — the schema
-# alone can't disambiguate the two reports. We keep ``scorecard_brief``
-# as the schema-mode default; SOC routing flows through
-# ``REPORT_TYPE_REGISTRY`` via the wrapper's ``report_type`` field, the
-# same path ``executive_posture`` uses.
+# Registry keyed on raw artifact schema_version. ``soc_triage`` and
+# ``crawler_governance`` share ``bot_scorecard_artifacts.v1`` with
+# ``scorecard_brief`` — the schema alone can't disambiguate the three.
+# We keep ``scorecard_brief`` as the schema-mode default; SOC and
+# crawler routing flow through ``REPORT_TYPE_REGISTRY`` via the
+# wrapper's ``report_type`` field, the same path ``executive_posture``
+# uses.
+_SCHEMA_REGISTRY_EXCLUSIONS = {"soc_triage", "crawler_governance"}
 SCHEMA_REGISTRY = {
-    mod.SCHEMA: mod for mod in _MODULES if mod.REPORT_TYPE != "soc_triage"
+    mod.SCHEMA: mod
+    for mod in _MODULES
+    if mod.REPORT_TYPE not in _SCHEMA_REGISTRY_EXCLUSIONS
 }
 
 # Registry keyed on wrapper report_type
