@@ -692,3 +692,279 @@ def test_deltas_signed_delta_pp_returns_float_for_int_inputs():
     result = deltas.signed_delta_pp(10, 7)
     assert result == 3.0
     assert isinstance(result, float)
+
+
+# ---------------------------------------------------------------------------
+# Companion selection (M1.2 extraction into report_engine.contexts._shared)
+# ---------------------------------------------------------------------------
+
+
+def _control_fixture(**overrides):
+    """Minimal ``bot_control_review.v1`` artifact for companion-selection tests."""
+    base = {
+        "schema_version": "bot_control_review.v1",
+        "artifact_id": "control-1",
+        "before_window": {"start": "2026-04-08T00:00:00Z", "end": "2026-04-15T00:00:00Z"},
+        "after_window": {"start": "2026-04-15T00:00:00Z", "end": "2026-04-22T00:00:00Z"},
+        "scope": {"cluster": "demo", "database": "akamai"},
+        "table_used": "akamai.bi_summary_hour",
+        "comparison_type": "post_change_vs_expected",
+        "target": {"feature": "policy-tighten-1"},
+        "target_effects": [],
+    }
+    base.update(overrides)
+    return base
+
+
+def _posture_fixture(**overrides):
+    base = {
+        "schema_version": "bot_posture_movement.v1",
+        "artifact_id": "posture-1",
+        "scope": {"cluster": "demo", "database": "akamai"},
+        "table_used": "akamai.bi_summary_hour",
+        "comparison_type": "previous_window",
+        "current_window": {
+            "start": "2026-04-15T00:00:00Z",
+            "end": "2026-04-22T00:00:00Z",
+        },
+        "baseline_windows": [
+            {"start": "2026-04-08T00:00:00Z", "end": "2026-04-15T00:00:00Z"}
+        ],
+        "metrics": [],
+    }
+    base.update(overrides)
+    return base
+
+
+def _mover_fixture(**overrides):
+    base = {
+        "schema_version": "bot_mover_attribution.v1",
+        "artifact_id": "mover-1",
+        "scope": {"cluster": "demo", "database": "akamai"},
+        "table_used": "akamai.bi_summary_hour",
+        "comparison_type": "previous_window",
+        "current_window": {
+            "start": "2026-04-15T00:00:00Z",
+            "end": "2026-04-22T00:00:00Z",
+        },
+        "baseline_windows": [
+            {"start": "2026-04-08T00:00:00Z", "end": "2026-04-15T00:00:00Z"}
+        ],
+        "movers": [],
+    }
+    base.update(overrides)
+    return base
+
+
+def _timeseries_fixture(**overrides):
+    base = {
+        "schema_version": "bot_timeseries.v1",
+        "artifact_id": "timeseries-1",
+        "scope": {"cluster": "demo", "database": "akamai"},
+        "table_used": "akamai.bi_summary_hour",
+        "comparison_type": "previous_window",
+        "current_window": {
+            "start": "2026-04-15T00:00:00Z",
+            "end": "2026-04-22T00:00:00Z",
+        },
+        "baseline_windows": [
+            {"start": "2026-04-08T00:00:00Z", "end": "2026-04-15T00:00:00Z"}
+        ],
+        "metrics": [],
+    }
+    base.update(overrides)
+    return base
+
+
+def test_select_control_companions_happy_path_with_control_only():
+    from report_engine.contexts._shared import select_control_companions
+
+    warnings = []
+    result = select_control_companions(
+        [_control_fixture()],
+        warn=warnings.append,
+    )
+    assert result["control"]["artifact_id"] == "control-1"
+    assert result["posture"] is None
+    assert result["mover"] is None
+    assert result["timeseries"] is None
+    assert warnings == []
+
+
+def test_select_control_companions_drops_posture_when_window_metadata_differs():
+    """The legacy renderer's compatibility check requires every field in
+    COMPANION_COMPAT_FIELDS to match. The control artifact carries
+    ``before_window``/``after_window``, not ``current_window``/
+    ``baseline_windows``, so a posture companion is always rejected on
+    missing-metadata grounds. Pin this behavior so the engine port matches.
+    """
+    from report_engine.contexts._shared import select_control_companions
+
+    warnings = []
+    result = select_control_companions(
+        [_control_fixture(), _posture_fixture()],
+        warn=warnings.append,
+    )
+    assert result["posture"] is None
+    assert any(
+        "posture posture-1" in w and "missing current_window" in w for w in warnings
+    ), f"Expected missing-metadata warning, got: {warnings}"
+
+
+def test_select_control_companions_accepts_companion_when_metadata_aligns():
+    """If a companion happens to carry the same compatibility fields as
+    the control (synthetic but possible), it should pass through."""
+    from report_engine.contexts._shared import select_control_companions
+
+    control = _control_fixture(
+        current_window={
+            "start": "2026-04-15T00:00:00Z",
+            "end": "2026-04-22T00:00:00Z",
+        },
+        baseline_windows=[
+            {"start": "2026-04-08T00:00:00Z", "end": "2026-04-15T00:00:00Z"}
+        ],
+        comparison_type="previous_window",
+    )
+    warnings = []
+    result = select_control_companions(
+        [control, _posture_fixture()],
+        warn=warnings.append,
+    )
+    assert result["posture"]["artifact_id"] == "posture-1"
+    assert warnings == []
+
+
+def test_select_control_companions_raises_when_no_control_present():
+    from report_engine.contexts._shared import select_control_companions
+
+    with pytest.raises(ValueError, match="missing bot_control_review.v1"):
+        select_control_companions([_posture_fixture()])
+
+
+def test_select_control_companions_raises_on_multiple_controls():
+    from report_engine.contexts._shared import select_control_companions
+
+    with pytest.raises(ValueError, match="multiple bot_control_review.v1"):
+        select_control_companions(
+            [_control_fixture(), _control_fixture(artifact_id="control-2")]
+        )
+
+
+def test_select_control_companions_raises_on_multiple_postures():
+    from report_engine.contexts._shared import select_control_companions
+
+    with pytest.raises(ValueError, match="multiple bot_posture_movement.v1"):
+        select_control_companions(
+            [
+                _control_fixture(),
+                _posture_fixture(),
+                _posture_fixture(artifact_id="posture-2"),
+            ]
+        )
+
+
+def test_select_control_companions_drops_mover_with_conflicting_table_used():
+    """Conflicting metadata (not just missing) also disqualifies a companion."""
+    from report_engine.contexts._shared import select_control_companions
+
+    control = _control_fixture(
+        current_window={
+            "start": "2026-04-15T00:00:00Z",
+            "end": "2026-04-22T00:00:00Z",
+        },
+        baseline_windows=[
+            {"start": "2026-04-08T00:00:00Z", "end": "2026-04-15T00:00:00Z"}
+        ],
+        comparison_type="previous_window",
+    )
+    bad_mover = _mover_fixture(table_used="akamai.bi_summary_day")
+    warnings = []
+    result = select_control_companions([control, bad_mover], warn=warnings.append)
+    assert result["mover"] is None
+    assert any("conflict on table_used" in w for w in warnings)
+
+
+def test_select_control_companions_returns_timeseries_when_compatible():
+    from report_engine.contexts._shared import select_control_companions
+
+    control = _control_fixture(
+        current_window={
+            "start": "2026-04-15T00:00:00Z",
+            "end": "2026-04-22T00:00:00Z",
+        },
+        baseline_windows=[
+            {"start": "2026-04-08T00:00:00Z", "end": "2026-04-15T00:00:00Z"}
+        ],
+        comparison_type="previous_window",
+    )
+    warnings = []
+    result = select_control_companions(
+        [control, _timeseries_fixture()], warn=warnings.append
+    )
+    assert result["timeseries"]["artifact_id"] == "timeseries-1"
+    assert warnings == []
+
+
+def test_select_control_companions_warn_callable_is_optional():
+    """``warn=None`` should suppress reporting; dropped companions still
+    become ``None``. The legacy renderer always wires ``ctx.warn`` but
+    tests and ad hoc callers should not have to."""
+    from report_engine.contexts._shared import select_control_companions
+
+    result = select_control_companions([_control_fixture(), _posture_fixture()])
+    assert result["posture"] is None
+
+
+def test_companion_compatible_known_helper_recognizes_empty_collections():
+    """`known` is used to gate compatibility checks; empty containers are
+    not "known" values and must disqualify the field on either side."""
+    from report_engine.contexts._shared import known
+
+    assert known("akamai.bi_summary_hour")
+    assert known({"cluster": "demo"})
+    assert known(["window-1"])
+    assert known(0)
+    assert known(False)
+    assert not known(None)
+    assert not known("")
+    assert not known([])
+    assert not known({})
+
+
+def test_companion_compatible_returns_reason_for_each_failure_mode():
+    from report_engine.contexts._shared import companion_compatible
+
+    # Primary that aligns on every COMPANION_COMPAT_FIELDS entry with a
+    # baseline posture, so that we can construct failure scenarios by
+    # toggling exactly one field at a time.
+    base_window = {"start": "2026-04-15T00:00:00Z", "end": "2026-04-22T00:00:00Z"}
+    base_prior = {"start": "2026-04-08T00:00:00Z", "end": "2026-04-15T00:00:00Z"}
+    primary = _control_fixture(
+        current_window=base_window,
+        baseline_windows=[base_prior],
+        comparison_type="previous_window",
+    )
+
+    ok, reason = companion_compatible(None, _posture_fixture())
+    assert not ok
+    assert "no primary artifact" in reason
+
+    missing = _posture_fixture(
+        current_window=base_window,
+        baseline_windows=[base_prior],
+        comparison_type="previous_window",
+        scope={},
+    )
+    ok, reason = companion_compatible(primary, missing)
+    assert not ok
+    assert "missing scope" in reason
+
+    conflicting = _posture_fixture(
+        current_window=base_window,
+        baseline_windows=[base_prior],
+        comparison_type="rolling_baseline",
+    )
+    ok, reason = companion_compatible(primary, conflicting)
+    assert not ok
+    assert "conflict on comparison_type" in reason

@@ -30,6 +30,12 @@ from report_engine.humanize import (  # noqa: E402
     rule_label_parts,
     stringify,
 )
+from report_engine.contexts._shared import (  # noqa: E402
+    COMPANION_COMPAT_FIELDS,
+    companion_compatible,
+    known,
+    select_control_companions,
+)
 
 
 WRAPPER_SCHEMA = "bot_report_input.v1"
@@ -851,31 +857,6 @@ def require_one(
     return matches[0]
 
 
-COMPANION_COMPAT_FIELDS = (
-    "scope",
-    "current_window",
-    "baseline_windows",
-    "comparison_type",
-    "table_used",
-)
-
-
-def companion_compatible(
-    primary: dict[str, Any] | None,
-    companion: dict[str, Any],
-) -> tuple[bool, str | None]:
-    if primary is None:
-        return False, "no primary artifact carries compatibility metadata"
-    for field in COMPANION_COMPAT_FIELDS:
-        left = primary.get(field)
-        right = companion.get(field)
-        if not known(left) or not known(right):
-            return False, f"missing {field} metadata on one side"
-        if left != right:
-            return False, f"conflict on {field}"
-    return True, None
-
-
 def filter_compatible_companion(
     primary: dict[str, Any] | None,
     companion: dict[str, Any] | None,
@@ -1015,10 +996,6 @@ def validate_report_artifacts(
             "mover": filter_compatible_companion(reference, mover, "mover", ctx),
         }
     raise ReportError(f"Unsupported report type {report_type}.")
-
-
-def known(value: Any) -> bool:
-    return value not in (None, "", [], {})
 
 
 def same_packet(

@@ -14,11 +14,18 @@ calls each module's own ``_entity_display``, which varies between SOC
 host/IP passthrough. Extracting it would require passing
 ``_entity_display`` as a parameter, changing the internal call sites
 without benefit.
+
+Companion-artifact selection (``companion_compatible``,
+``select_control_companions``) was extracted from ``render_report.py``
+in M1.2 so the engine ``assemble()`` paths can validate companion
+artifacts without importing from the legacy renderer module. The legacy
+renderer re-exports these helpers so its callers continue to work.
 """
 
 from __future__ import annotations
 
 from collections import Counter
+from typing import Any, Callable
 
 from .. import scorecards as scorecards_mod
 from .. import verdicts as verdicts_mod
@@ -322,3 +329,126 @@ def _traffic_share_clause(sc: dict, scorecards: list[dict], n_total: int) -> str
     except (TypeError, ValueError):
         return ""
     return f"covers {format_share_pct(share)} of fleet requests this window"
+
+
+# ---------------------------------------------------------------------------
+# Companion-artifact selection (M1.2 extraction from render_report.py)
+# ---------------------------------------------------------------------------
+
+
+CONTROL_SCHEMA = "bot_control_review.v1"
+POSTURE_SCHEMA = "bot_posture_movement.v1"
+MOVER_SCHEMA = "bot_mover_attribution.v1"
+TIMESERIES_SCHEMA = "bot_timeseries.v1"
+
+COMPANION_COMPAT_FIELDS = (
+    "scope",
+    "current_window",
+    "baseline_windows",
+    "comparison_type",
+    "table_used",
+)
+
+
+def known(value: Any) -> bool:
+    """``True`` if ``value`` is a non-empty, non-null artifact field.
+
+    Used to gate companion-compatibility checks: a missing field on
+    either side disqualifies the companion (cannot prove equivalence).
+    """
+    return value not in (None, "", [], {})
+
+
+def companion_compatible(
+    primary: dict[str, Any] | None,
+    companion: dict[str, Any],
+) -> tuple[bool, str | None]:
+    """Return ``(ok, reason)`` for pairing ``companion`` with ``primary``.
+
+    Both artifacts must agree on every field in ``COMPANION_COMPAT_FIELDS``.
+    A field missing on either side is treated as a compatibility failure
+    rather than a silent pass — the report can't prove the companion
+    describes the same scope/window.
+    """
+    if primary is None:
+        return False, "no primary artifact carries compatibility metadata"
+    for field in COMPANION_COMPAT_FIELDS:
+        left = primary.get(field)
+        right = companion.get(field)
+        if not known(left) or not known(right):
+            return False, f"missing {field} metadata on one side"
+        if left != right:
+            return False, f"conflict on {field}"
+    return True, None
+
+
+def select_control_companions(
+    artifacts: list[dict[str, Any]],
+    *,
+    warn: Callable[[str], None] | None = None,
+) -> dict[str, Any]:
+    """Pick the control review primary plus its optional companion artifacts.
+
+    Returns a dict with these keys:
+
+    * ``"control"``: the single required ``bot_control_review.v1`` artifact.
+    * ``"posture"``: optional ``bot_posture_movement.v1`` if companion-
+      compatible with the control; ``None`` otherwise (with a warning).
+    * ``"mover"``: optional ``bot_mover_attribution.v1`` with the same
+      compatibility rule.
+    * ``"timeseries"``: optional ``bot_timeseries.v1`` with the same rule.
+
+    Multiple control / posture / mover / timeseries artifacts in the
+    input list are an error: the caller must dedupe upstream. ``warn``
+    is invoked once per dropped companion with the
+    ``"Omitting optional ... from combined sections: ..."`` message the
+    legacy renderer emits, so parity is preserved.
+    """
+    controls = [a for a in artifacts if a.get("schema_version") == CONTROL_SCHEMA]
+    if not controls:
+        raise ValueError(
+            "control_review wrapper missing bot_control_review.v1 artifact"
+        )
+    if len(controls) > 1:
+        raise ValueError(
+            "control_review wrapper cannot select between multiple "
+            "bot_control_review.v1 artifacts"
+        )
+    control = controls[0]
+
+    def _single(schema: str, label: str) -> dict[str, Any] | None:
+        matches = [a for a in artifacts if a.get("schema_version") == schema]
+        if len(matches) > 1:
+            raise ValueError(
+                f"control_review cannot select between multiple {schema} artifacts"
+            )
+        return matches[0] if matches else None
+
+    def _filter(
+        companion: dict[str, Any] | None,
+        label: str,
+    ) -> dict[str, Any] | None:
+        if companion is None:
+            return None
+        ok, reason = companion_compatible(control, companion)
+        if ok:
+            return companion
+        if warn is not None:
+            warn(
+                "Omitting optional "
+                f"{label} {companion.get('artifact_id')} "
+                f"from combined sections: {reason}."
+            )
+        return None
+
+    posture = _filter(_single(POSTURE_SCHEMA, "posture"), "posture")
+    mover = _filter(_single(MOVER_SCHEMA, "mover"), "mover")
+    timeseries_raw = _single(TIMESERIES_SCHEMA, "timeseries")
+    timeseries = _filter(timeseries_raw, "timeseries") if timeseries_raw else None
+
+    return {
+        "control": control,
+        "posture": posture,
+        "mover": mover,
+        "timeseries": timeseries,
+    }
