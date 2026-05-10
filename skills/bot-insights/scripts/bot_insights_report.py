@@ -507,6 +507,7 @@ WITH
     FROM {table}
     WHERE reqTimeSec >= baseline_start
       AND reqTimeSec < current_end
+      AND {entity_expr} != ''
   )
 SELECT
   {entity_expr} AS {entity_type},
@@ -1617,7 +1618,7 @@ def parse_args() -> argparse.Namespace:
         help="Resume from a saved Hydrolix MCP or ClickHouse JSON result instead of running capture.",
     )
     parser.add_argument(
-        "--raw-input-path",
+        "--raw-path-input",
         type=str,
         default=None,
         help="Resume edge_ops_impact from a saved path-grain JSON result alongside --raw-input.",
@@ -1657,6 +1658,12 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=20,
         help="Maximum aggregate rows/scorecards to keep for scorecard_brief.",
+    )
+    parser.add_argument(
+        "--host",
+        type=str,
+        default=None,
+        help="Optional hostname filter for edge_ops_impact path-grain query (scopes path candidates to a single request_host).",
     )
     parser.add_argument(
         "--domains",
@@ -1720,6 +1727,15 @@ def main() -> int:
             + args.entity_type
             + " is not supported for edge_ops_impact; use one of "
             + ", ".join(sorted(EDGE_OPS_ENTITY_SQL))
+        )
+    if args.raw_path_input and not args.raw_input:
+        raise SystemExit(
+            "--raw-path-input requires --raw-input to also be supplied "
+            "(both raw inputs must be provided to resume an edge_ops_impact run)."
+        )
+    if args.raw_path_input and args.report != "edge_ops_impact":
+        raise SystemExit(
+            "--raw-path-input is only valid with --report edge_ops_impact."
         )
     if args.report == "soc_triage" and not args.domains:
         # SOC scorecards must evaluate only the security_evidence domain so
@@ -1830,13 +1846,13 @@ def main() -> int:
         if args.report == "control_review" and timeseries_raw_path.exists():
             raw_timeseries_value = load_raw_query_result(timeseries_raw_path)
         if args.report == "edge_ops_impact":
-            if args.raw_input_path:
+            if args.raw_path_input:
                 raw_path_value = load_raw_query_result(
-                    Path(args.raw_input_path).expanduser().resolve()
+                    Path(args.raw_path_input).expanduser().resolve()
                 )
             else:
                 print(
-                    "WARNING: --raw-input-path not supplied for edge_ops_impact; "
+                    "WARNING: --raw-path-input not supplied for edge_ops_impact; "
                     "path-grain artifact will be omitted.",
                     file=sys.stderr,
                 )
@@ -1959,7 +1975,7 @@ def main() -> int:
                 start,
                 end,
                 baseline_start,
-                getattr(args, "host", None),
+                args.host,
                 args.scorecard_limit,
             )
             path_table_used = f"{args.database}.bot_agg_path_{granularity}"
