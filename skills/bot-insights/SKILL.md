@@ -185,11 +185,9 @@ narrow reference below and load only that file.
 Use this flow when the user wants a finished `executive_posture` or
 `control_review` report with executive or analyst interpretation. Keep the
 report data path deterministic; the LLM may only write the interpretation text
-that is passed into the report template. For SOC triage, crawler governance,
-scorecard brief, or edge/Ops reports, generate the supported artifacts first and
-render them with `scripts/render_report.py`; do not route those report types
-through `scripts/bot_insights_report.py` until that script exposes the report
-type.
+that is passed into the report template. The same flow applies to SOC triage,
+crawler governance, scorecard brief, and edge & origin cost reports — all are
+wired through `scripts/bot_insights_report.py`.
 
 1. Confirm or infer the report scope: cluster, database, report type, current
    window, baseline behavior, output format, and output path. Ask the user only
@@ -361,8 +359,8 @@ Reports for which the script-orchestrated capture path is wired:
   It is not a generic Hydrolix query runner.
 - Use [scripts/bot_insights_report.py](scripts/bot_insights_report.py) for
   scripted `executive_posture`, `control_review`, `scorecard_brief`,
-  `soc_triage`, and `crawler_governance` report, evidence, and template
-  requests. The script calls capture; if capture returns an MCP handoff
+  `soc_triage`, `crawler_governance`, and `edge_ops_impact` report, evidence,
+  and template requests. The script calls capture; if capture returns an MCP handoff
   packet, the report script prints that packet and exits with the documented
   `needs MCP` code. After the LLM/agent saves the MCP result JSON, rerun with
   `--raw-input <path>` to add report metadata, produce local artifacts, and
