@@ -1,12 +1,16 @@
 # bot-insights — SEO Analysis Patterns
 
-SEO analysis should start with crawler health and posture movement over time.
-Use summaries for AI crawler share, bot class, error rates, cache miss rates,
-resource categories, and paths. Use request-level data for
-`verified_bot_owner`, `bot_verification_tier`, exact `user_agent`, and
-governance-surface inspection when those dimensions are required.
-In SQL templates, replace `<posture_summary_day>` with `bi_summary_day` or an
-`bi_summary_day`.
+SEO analysis runs against `bi_summary_*` for AI crawler share, bot class,
+error rates, and cache miss rates. Request-level dimensions
+(`verified_bot_owner`, `bot_verification_tier`, exact `user_agent`,
+governance-surface inspection) historically came from `bot_detection`; that
+table is **not currently deployed** on production clusters. When a question
+truly depends on a request-level dimension, state the limitation in the
+artifact rather than substituting a non-deployed table.
+
+In SQL templates, replace `<posture_summary_day>` with `bi_summary_day` for
+the Akamai/TrafficPeak project, or the metadata-confirmed equivalent for the
+target cluster.
 
 ## Contents
 
@@ -17,71 +21,23 @@ In SQL templates, replace `<posture_summary_day>` with `bi_summary_day` or an
 
 ### Verified vs. Unverified Bots [SOC, SEO]
 
-Verified owner and verification tier are not retained in the current summary
-tables. Use this request-level query with explicit time filters.
+`verified_bot_owner` and `bot_verification_tier` are request-level dimensions
+not retained in deployed summaries. The request-level `bot_detection` table is
+not currently deployed; verified-owner audits are not supported at the
+deployed grain. State the limitation in the artifact when a SEO investigation
+depends on this dimension.
 
-```sql
--- Verified bot owners
-SELECT
-    verified_bot_owner,
-    bot_verification_tier,
-    count() as requests,
-    countIf(response_status_code >= '400') as errors
-FROM <project>.bot_detection
-WHERE timestamp >= now() - INTERVAL 24 HOUR
-  AND is_bot_traffic = true
-  AND verified_bot_owner != ''
-GROUP BY verified_bot_owner, bot_verification_tier
-ORDER BY requests DESC
-
--- Unverified bots claiming to be known crawlers
-SELECT
-    user_agent,
-    bot_category,
-    bot_verification_tier,
-    count() as requests,
-    uniq(client_ip) as unique_ips
-FROM <project>.bot_detection
-WHERE timestamp >= now() - INTERVAL 24 HOUR
-  AND is_bot_traffic = true
-  AND bot_verification_tier = ''
-  AND user_agent ILIKE '%bot%'
-GROUP BY user_agent, bot_category, bot_verification_tier
-ORDER BY requests DESC
-LIMIT 20
-```
+Deployed surfaces can still show coarse crawler health: filter `bi_summary_*`
+on `bot_class = 'good'` or on `userAgentCategory` to find aggregate bad-bot
+share movement, but the exact ownership of those bots is not surfaced.
 
 ### Attack Data Analysis [SOC]
 
-Attack payload details are not retained in the summary catalog. Use request-level query
-for payload inspection; use SIEM summaries for policy/action posture.
-
-```sql
--- Requests with attack data by CDN
-SELECT
-    hdx_cdn,
-    count() as total,
-    countIf(attack_data != '') as with_attack_data,
-    round(with_attack_data / total * 100, 2) as attack_pct
-FROM <project>.bot_detection
-WHERE timestamp >= now() - INTERVAL 1 HOUR
-GROUP BY hdx_cdn
-ORDER BY with_attack_data DESC
-
--- Bot traffic with attack signatures by ASN
-SELECT
-    client_asn,
-    client_country_iso_code,
-    count() as requests,
-    uniq(client_ip) as unique_ips,
-    countIf(attack_data != '') as attack_requests
-FROM <project>.bot_detection
-WHERE timestamp >= now() - INTERVAL 1 HOUR
-  AND is_bot_traffic = true
-GROUP BY client_asn, client_country_iso_code
-ORDER BY attack_requests DESC
-LIMIT 20
-```
+Attack payload (`attack_data`) is a request-level field that depended on
+`bot_detection`, which is not currently deployed. Use the SIEM policy
+summaries (`bi_siem_policy_summary_*`) for policy/action posture and SIEM
+blocked/auth-fail evidence; payload-level forensics is not supported at the
+deployed grain.
 
 ### Good Bot Governance [SEO]
 
@@ -97,75 +53,36 @@ Monitor legitimate crawlers and partner bots to ensure they can operate without
 disruption — especially during security incidents or policy changes.
 
 ```sql
--- Summary-backed good bot health by day. Use request-level query for verified owner.
+-- Summary-backed good bot health by day on the deployed posture surface.
 SELECT
-    timestamp,
-    request_host,
+    reqTimeSec,
+    reqHost,
     sum(cnt_all) AS requests,
     round(sum(cnt_4xx + cnt_5xx) / greatest(sum(cnt_all), 1) * 100, 2) AS error_rate_pct,
     round(sum(cnt_429) / greatest(sum(cnt_all), 1) * 100, 2) AS rate_limited_pct,
     max(p95_origin_ttfb) AS origin_p95_ms
 FROM <project>.<posture_summary_day>
-WHERE timestamp >= now() - INTERVAL 30 DAY
+WHERE reqTimeSec >= now() - INTERVAL 30 DAY
   AND bot_class = 'good'
-GROUP BY timestamp, request_host
-ORDER BY timestamp, request_host
+GROUP BY reqTimeSec, reqHost
+ORDER BY reqTimeSec, reqHost
 
--- Owner-specific health requires request-level query.
+-- Good bot volume trending by host (drops signal blocking or misconfiguration).
 SELECT
-    verified_bot_owner,
-    bot_category,
-    count() AS requests,
-    countIf(response_status_code >= '400') AS errors,
-    round(errors / greatest(requests, 1) * 100, 2) AS error_rate_pct
-FROM <project>.bot_detection
-WHERE timestamp >= now() - INTERVAL 24 HOUR
+    reqTimeSec AS hour,
+    reqHost,
+    sum(cnt_all) AS requests
+FROM <project>.bi_summary_hour
+WHERE reqTimeSec >= now() - INTERVAL 7 DAY
   AND bot_class = 'good'
-  AND verified_bot_owner != ''
-GROUP BY verified_bot_owner, bot_category
-ORDER BY requests DESC
-
--- Summary-backed good bot access patterns by normalized path.
-SELECT
-    request_host,
-    request_path_norm,
-    sum(cnt_all) as crawl_hits,
-    sum(cnt_2xx) as ok_2xx,
-    sum(cnt_429) as rate_limited_429,
-    sum(cnt_5xx) as server_errors_5xx
-FROM <project>.bot_agg_path_day
-WHERE timestamp >= now() - INTERVAL 24 HOUR
-  AND bot_class = 'good'
-GROUP BY request_host, request_path_norm
-ORDER BY crawl_hits DESC
-LIMIT 30
-
--- Good bot volume trending (detect drops that signal blocking or misconfiguration)
-SELECT
-    timestamp as hour,
-    request_host,
-    sum(cnt_all) as requests
-FROM <project>.bot_agg_ua_hour
-WHERE timestamp >= now() - INTERVAL 7 DAY
-  AND bot_class = 'good'
-GROUP BY hour, request_host
+GROUP BY hour, reqHost
 ORDER BY hour
-
--- Good bots being rate-limited or blocked (governance incident detection)
-SELECT
-    verified_bot_owner,
-    response_status_code,
-    count() as blocked_requests,
-    uniq(client_ip) as unique_ips,
-    min(timestamp) as first_seen,
-    max(timestamp) as last_seen
-FROM <project>.bot_detection
-WHERE timestamp >= now() - INTERVAL 24 HOUR
-  AND bot_class = 'good'
-  AND response_status_code IN ('403', '429', '503')
-GROUP BY verified_bot_owner, response_status_code
-ORDER BY blocked_requests DESC
 ```
+
+Owner-specific crawler health, per-path crawler access patterns, and exact
+status-code-by-owner investigations all required request-level fields
+(`verified_bot_owner`, `request_path`, exact `response_status_code`) that are
+not retained in deployed summaries. Surface that limitation in the artifact.
 
 ### AI Crawler Monitoring [SEO]
 
@@ -174,41 +91,33 @@ split into three categories: scrapers (training data), assistants (answering
 queries), and search (AI-powered search engines).
 
 ```sql
--- AI crawler movement by category from summaries.
+-- AI crawler movement by category from deployed posture summaries.
 SELECT
-    ai_category,
-    sum(cnt_all) as requests,
-    sum(cnt_2xx) as ok_2xx,
-    sum(cnt_429) as rate_limited_429,
+    aiCategory,
+    sum(cnt_all) AS requests,
+    sum(cnt_2xx) AS ok_2xx,
+    sum(cnt_429) AS rate_limited_429,
     round(sum(cnt_cache_miss) / greatest(sum(cnt_all), 1) * 100, 2) AS cache_miss_pct
 FROM <project>.<posture_summary_day>
-WHERE timestamp >= now() - INTERVAL 24 HOUR
-  AND ai_category != ''
-GROUP BY ai_category
+WHERE reqTimeSec >= now() - INTERVAL 24 HOUR
+  AND aiCategory != ''
+GROUP BY aiCategory
 ORDER BY requests DESC
 
--- AI crawler volume trending over time
+-- AI crawler volume trending over time from the hour-grain posture summary.
 SELECT
-    timestamp as hour,
-    ai_category,
-    sum(cnt_all) as requests
-FROM <project>.bot_agg_traffic_hour
-WHERE timestamp >= now() - INTERVAL 7 DAY
-  AND ai_category != ''
-GROUP BY hour, ai_category
+    reqTimeSec AS hour,
+    aiCategory,
+    sum(cnt_all) AS requests
+FROM <project>.bi_summary_hour
+WHERE reqTimeSec >= now() - INTERVAL 7 DAY
+  AND aiCategory != ''
+GROUP BY hour, aiCategory
 ORDER BY hour
-
--- AI crawlers accessing governance surfaces (robots.txt, llms.txt)
-SELECT
-    ai_category,
-    verified_bot_owner,
-    request_path,
-    count() as requests,
-    countIf(response_status_code = '200') as ok_200
-FROM <project>.bot_detection
-WHERE timestamp >= now() - INTERVAL 24 HOUR
-  AND ai_category != ''
-  AND (request_path LIKE '%robots.txt%' OR request_path LIKE '%llms.txt%')
-GROUP BY ai_category, verified_bot_owner, request_path
-ORDER BY requests DESC
 ```
+
+Governance-surface inspection (which AI crawlers actually hit `robots.txt`,
+`llms.txt`, or `ai.txt`) is a request-path-grain question. The deployed
+posture summary retains `requestPathPattern`, which buckets traffic into
+broad categories rather than exact paths; exact-path governance audits depend
+on request-level `bot_detection` and are not supported at the deployed grain.

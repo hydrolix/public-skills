@@ -5,7 +5,7 @@
 - [Analysis Patterns](#analysis-patterns)
 - [What Moved - Summary Delta](#what-moved--summary-delta-soc-director)
 - [Mover Attribution](#mover-attribution-soc)
-- [Request-Level Query - Newly Seen Entities](#request-level-query--newly-seen-entities-soc)
+- [Newly Seen Entities](#newly-seen-entities-soc)
 - [SOC Evidence - Behavioral Fingerprint](#soc-evidence--behavioral-fingerprint-soc)
 - [Bot Classification Deep Dive](#bot-classification-deep-dive-soc)
 - [Spoof Detection - Three-Signal Verification](#spoof-detection--three-signal-verification-soc)
@@ -25,13 +25,19 @@ exploratory SOC investigation outside a predefined report — see
 [SKILL.md "Data Firewall"](../SKILL.md#data-firewall) for the rule on when MCP
 is forbidden.
 
-SOC analysis remains available for short-window investigation, but the first
-Bot Insights pass should still ask what posture moved and which retained
-summary dimensions explain it. Use hour summaries for same-hour-yesterday or
-same-weekday-hour-last-week comparisons, and minute summaries for detailed
-policy-change timelines.
-In SQL templates, replace `<posture_summary_hour>` with `bi_summary_hour` or an
-`bi_summary_hour`.
+SOC analysis runs against `bi_summary_*` and (on SIEM-enabled clusters)
+`bi_siem_policy_summary_*`. The request-level `bot_detection` and
+`bot_detection_siem` tables and focused aggregates (`bot_agg_path_*`,
+`bot_agg_ua_*`) are **not currently deployed** on production clusters; see
+[data-model.md](data-model.md). Request-level dimensions — exact `user_agent`,
+exact `client_ip`, `bot_confidence`, `bot_intent`, attack payload, exact
+status code, exact method, exact `request_path` — should be surfaced as
+limitations in the artifact rather than queried against non-deployed tables.
+
+Use hour summaries for same-hour-yesterday or same-weekday-hour-last-week
+comparisons, and minute summaries for detailed policy-change timelines. In
+SQL templates, replace `<posture_summary_hour>` with `bi_summary_hour` (or the
+metadata-confirmed equivalent for the target cluster).
 
 When producing SOC scorecards, seed the entity population from
 `bi_siem_policy_summary_*` on TrafficPeak/Akamai, or from another
@@ -90,287 +96,152 @@ GROUP BY client_asn
 ORDER BY abs(absolute_delta) DESC
 LIMIT 20
 
--- Top paths by absolute volume delta
+-- Top request-path patterns by absolute volume delta from the deployed posture summary.
 SELECT
-    request_path_norm AS value,
-    sumIf(cnt_all, timestamp >= now() - INTERVAL 6 HOUR) AS current,
-    sumIf(cnt_all, timestamp >= now() - INTERVAL 12 HOUR AND timestamp < now() - INTERVAL 6 HOUR) AS baseline,
+    requestPathPattern AS value,
+    sumIf(cnt_all, reqTimeSec >= now() - INTERVAL 6 HOUR) AS current,
+    sumIf(cnt_all, reqTimeSec >= now() - INTERVAL 12 HOUR AND reqTimeSec < now() - INTERVAL 6 HOUR) AS baseline,
     current - baseline AS absolute_delta
-FROM <project>.bot_agg_path_hour
-WHERE timestamp >= now() - INTERVAL 12 HOUR
-GROUP BY request_path_norm
+FROM <project>.bi_summary_hour
+WHERE reqTimeSec >= now() - INTERVAL 12 HOUR
+GROUP BY requestPathPattern
 ORDER BY abs(absolute_delta) DESC
 LIMIT 20
 ```
 
+Exact-path mover attribution (`request_path` rather than the
+`requestPathPattern` bucket) is a request-level dimension; surface that
+limitation in the artifact when needed.
+
 Use `scripts/compare_posture.py` to add contribution percentages and
 `bot_mover_attribution.v1` interpretation constraints.
 
-### Request-Level Query — Newly Seen Entities [SOC]
+### Newly Seen Entities [SOC]
 
-Newly seen exact IPs, user agents, and unretained dimensions require
-request-level queries with narrow windows.
+Newly seen ASNs are visible at the deployed grain because `asn` is a retained
+posture-summary dimension. For exact `client_ip`, exact `user_agent`, and
+other request-level identity dimensions, the request-level `bot_detection`
+table is not currently deployed; surface that as a limitation.
 
 ```sql
-
--- Newly seen ASNs (absent from 7-day lookback, present now)
+-- Newly seen ASNs from the deployed posture summary
+-- (absent from 7-day lookback, present in the last 6 hours).
 SELECT
-    client_asn,
-    count() as requests,
-    uniq(client_ip) as unique_ips,
-    min(timestamp) as first_seen
-FROM <project>.bot_detection
-WHERE timestamp >= now() - INTERVAL 6 HOUR
-  AND client_asn NOT IN (
-    SELECT DISTINCT client_asn
-    FROM <project>.bot_detection
-    WHERE timestamp >= now() - INTERVAL 7 DAY
-      AND timestamp < now() - INTERVAL 6 HOUR
+    asn,
+    sum(cnt_all) AS requests,
+    min(reqTimeSec) AS first_seen
+FROM <project>.bi_summary_hour
+WHERE reqTimeSec >= now() - INTERVAL 6 HOUR
+  AND asn NOT IN (
+    SELECT DISTINCT asn
+    FROM <project>.bi_summary_hour
+    WHERE reqTimeSec >= now() - INTERVAL 7 DAY
+      AND reqTimeSec < now() - INTERVAL 6 HOUR
   )
-GROUP BY client_asn
+GROUP BY asn
 ORDER BY requests DESC
 LIMIT 20
 ```
 
 ### SOC Evidence — Behavioral Fingerprint [SOC]
 
-Once a mover is identified (e.g., a specific ASN), build a behavioral profile
-to understand behavior. Prefer summaries for retained fields, then fall back to
-request-level records for method mix, exact user agent, headers, or attack
-payload detail.
+Once a mover is identified (e.g., a specific ASN), profile its behavior on
+retained summary dimensions: status-code mix (`statusCode`), cache outcome
+(`cacheStatus`), method (`reqMethod`), and bucketed path (`requestPathPattern`).
 
 ```sql
--- Status code mix for a specific ASN
+-- Status-code mix for a specific ASN from the deployed posture summary.
 SELECT
-    response_status_code,
-    count() as requests,
-    round(requests / sum(requests) OVER () * 100, 2) as pct
-FROM <project>.bot_detection
-WHERE timestamp >= now() - INTERVAL 6 HOUR
-  AND client_asn = '<suspect_asn>'
-GROUP BY response_status_code
+    statusCode,
+    sum(cnt_all) AS requests,
+    round(sum(cnt_all) / sum(sum(cnt_all)) OVER () * 100, 2) AS pct
+FROM <project>.bi_summary_hour
+WHERE reqTimeSec >= now() - INTERVAL 6 HOUR
+  AND asn = '<suspect_asn>'
+GROUP BY statusCode
 ORDER BY requests DESC
 
--- Method mix (scrapers are typically GET-only, no POST)
+-- Method mix for the same ASN.
 SELECT
-    request_method,
-    count() as requests,
-    round(requests / sum(requests) OVER () * 100, 2) as pct
-FROM <project>.bot_detection
-WHERE timestamp >= now() - INTERVAL 6 HOUR
-  AND client_asn = '<suspect_asn>'
-GROUP BY request_method
+    reqMethod,
+    sum(cnt_all) AS requests,
+    round(sum(cnt_all) / sum(sum(cnt_all)) OVER () * 100, 2) AS pct
+FROM <project>.bi_summary_hour
+WHERE reqTimeSec >= now() - INTERVAL 6 HOUR
+  AND asn = '<suspect_asn>'
+GROUP BY reqMethod
 ORDER BY requests DESC
-
--- Endpoint concentration (scrapers target few paths)
-SELECT
-    request_path,
-    count() as requests,
-    round(requests / sum(requests) OVER () * 100, 2) as pct
-FROM <project>.bot_detection
-WHERE timestamp >= now() - INTERVAL 6 HOUR
-  AND client_asn = '<suspect_asn>'
-GROUP BY request_path
-ORDER BY requests DESC
-LIMIT 10
 ```
+
+Exact-path endpoint concentration (`request_path` rather than the
+`requestPathPattern` bucket), exact `user_agent`, header mix, and attack
+payload detail are request-level dimensions; surface those as limitations.
 
 ### Bot Classification Deep Dive [SOC]
 
 ```sql
--- Summary-backed class movement. Use request-level query for bot_intent.
+-- Bot class movement from the deployed posture summary.
 SELECT
     bot_class,
-    sum(cnt_all) as requests,
-    round(requests / sum(requests) OVER () * 100, 2) as pct
-FROM <project>.bot_agg_ua_hour
-WHERE timestamp >= now() - INTERVAL 24 HOUR
+    sum(cnt_all) AS requests,
+    round(sum(cnt_all) / sum(sum(cnt_all)) OVER () * 100, 2) AS pct
+FROM <project>.bi_summary_hour
+WHERE reqTimeSec >= now() - INTERVAL 24 HOUR
 GROUP BY bot_class
 ORDER BY requests DESC
-
--- Bot score distribution
-SELECT
-    multiIf(
-        bot_score = 0, '0 (human)',
-        bot_score <= 50, '1-50 (low)',
-        bot_score <= 150, '51-150 (medium)',
-        bot_score <= 200, '151-200 (high)',
-        '201-255 (very high)'
-    ) as score_bucket,
-    count() as requests,
-    round(requests / sum(requests) OVER () * 100, 2) as pct
-FROM <project>.bot_detection
-WHERE timestamp >= now() - INTERVAL 1 HOUR
-GROUP BY score_bucket
-ORDER BY score_bucket
 ```
+
+`bot_score` distribution, `bot_confidence`, `bot_intent`, and canonical
+`bot_category`/`bot_type` are request-level fields not retained in deployed
+summaries. State that limitation when an investigation needs them.
 
 ### Spoof Detection — Three-Signal Verification [SOC]
 
-Uses `bot_confidence` to identify bots claiming to be legitimate crawlers but
-originating from suspicious networks. The three signals are: UA pattern match,
-vendor-published IP ranges, and ASN type.
-`bot_confidence`, exact `user_agent`, and verification details are request-level
-fields, so these are request-level queries.
-
-```sql
--- Suspicious bots: UA claims bot, but source IP is residential
-SELECT
-    bot_category,
-    bot_confidence,
-    asn_type,
-    count() as requests,
-    uniq(client_ip) as unique_ips,
-    uniq(client_asn) as unique_asns
-FROM <project>.bot_detection
-WHERE timestamp >= now() - INTERVAL 24 HOUR
-  AND is_bot_traffic = true
-  AND bot_confidence = 'suspicious'
-GROUP BY bot_category, bot_confidence, asn_type
-ORDER BY requests DESC
-
--- Confidence level breakdown across all bot traffic
-SELECT
-    bot_confidence,
-    count() as requests,
-    round(requests / sum(requests) OVER () * 100, 2) as pct
-FROM <project>.bot_detection
-WHERE timestamp >= now() - INTERVAL 24 HOUR
-  AND is_bot_traffic = true
-GROUP BY bot_confidence
-ORDER BY requests DESC
-
--- Spoof candidates: claiming to be Googlebot/Bingbot but not from verified IPs
-SELECT
-    user_agent,
-    client_asn,
-    asn_type,
-    bot_confidence,
-    count() as requests,
-    uniq(client_ip) as unique_ips
-FROM <project>.bot_detection
-WHERE timestamp >= now() - INTERVAL 24 HOUR
-  AND is_bot_traffic = true
-  AND bot_confidence IN ('suspicious', 'plausible')
-  AND (user_agent ILIKE '%googlebot%' OR user_agent ILIKE '%bingbot%')
-GROUP BY user_agent, client_asn, asn_type, bot_confidence
-ORDER BY requests DESC
-LIMIT 20
-```
+`bot_confidence`, exact `user_agent`, exact `client_ip`, and verification tier
+are all request-level dimensions; the request-level `bot_detection` table is
+not currently deployed, so three-signal spoof detection is not supported at
+the deployed grain. Use SIEM evidence (`bi_siem_policy_summary_*`,
+`actionClass`, `botType`, `policyId`) when the cluster has SIEM data, and
+surface the missing request-level surface as a limitation otherwise.
 
 ### Akamai vs. Hydrolix Signal Alignment [SOC, Director+]
 
-Compare vendor-provided classifications (Akamai Bot Manager) with Hydrolix's
-independent three-signal classification. Divergences are investigative signals.
-
-```sql
--- Agreement matrix: Akamai bot_category vs. Hydrolix bot_class
-SELECT
-    bot_category as akamai_category,
-    bot_class as hydrolix_class,
-    bot_confidence as hydrolix_confidence,
-    count() as requests,
-    round(requests / sum(requests) OVER () * 100, 2) as pct
-FROM <project>.bot_detection
-WHERE timestamp >= now() - INTERVAL 24 HOUR
-  AND is_bot_traffic = true
-  AND hdx_cdn = 'akamai'
-GROUP BY akamai_category, hydrolix_class, hydrolix_confidence
-ORDER BY requests DESC
-
--- Divergence: Akamai says good bot, Hydrolix says suspicious
-SELECT
-    bot_category as akamai_category,
-    bot_class as hydrolix_class,
-    bot_confidence,
-    verified_bot_owner,
-    count() as requests,
-    uniq(client_ip) as unique_ips
-FROM <project>.bot_detection
-WHERE timestamp >= now() - INTERVAL 24 HOUR
-  AND hdx_cdn = 'akamai'
-  AND bot_confidence = 'suspicious'
-GROUP BY akamai_category, hydrolix_class, bot_confidence, verified_bot_owner
-ORDER BY requests DESC
-LIMIT 20
-```
+Vendor-vs-Hydrolix classification comparisons depend on per-request
+`bot_category`, `bot_class`, `bot_confidence`, `verified_bot_owner`, and
+`hdx_cdn`. Those fields require the request-level `bot_detection` table,
+which is not currently deployed; signal-alignment analysis is not supported
+at the deployed grain.
 
 ### Verified vs. Unverified Bots [SOC, SEO]
 
-```sql
--- Verified bot owners
-SELECT
-    verified_bot_owner,
-    bot_verification_tier,
-    count() as requests,
-    countIf(response_status_code >= '400') as errors
-FROM <project>.bot_detection
-WHERE timestamp >= now() - INTERVAL 24 HOUR
-  AND is_bot_traffic = true
-  AND verified_bot_owner != ''
-GROUP BY verified_bot_owner, bot_verification_tier
-ORDER BY requests DESC
-
--- Unverified bots claiming to be known crawlers
-SELECT
-    user_agent,
-    bot_category,
-    bot_verification_tier,
-    count() as requests,
-    uniq(client_ip) as unique_ips
-FROM <project>.bot_detection
-WHERE timestamp >= now() - INTERVAL 24 HOUR
-  AND is_bot_traffic = true
-  AND bot_verification_tier = ''
-  AND user_agent ILIKE '%bot%'
-GROUP BY user_agent, bot_category, bot_verification_tier
-ORDER BY requests DESC
-LIMIT 20
-```
+`verified_bot_owner` and `bot_verification_tier` are request-level
+dimensions; see [seo-analysis.md](seo-analysis.md#verified-vs-unverified-bots-soc-seo)
+for the deployment-state note.
 
 ### Attack Data Analysis [SOC]
 
-```sql
--- Requests with attack data by CDN
-SELECT
-    hdx_cdn,
-    count() as total,
-    countIf(attack_data != '') as with_attack_data,
-    round(with_attack_data / total * 100, 2) as attack_pct
-FROM <project>.bot_detection
-WHERE timestamp >= now() - INTERVAL 1 HOUR
-GROUP BY hdx_cdn
-ORDER BY with_attack_data DESC
-
--- Bot traffic with attack signatures by ASN
-SELECT
-    client_asn,
-    client_country_iso_code,
-    count() as requests,
-    uniq(client_ip) as unique_ips,
-    countIf(attack_data != '') as attack_requests
-FROM <project>.bot_detection
-WHERE timestamp >= now() - INTERVAL 1 HOUR
-  AND is_bot_traffic = true
-GROUP BY client_asn, client_country_iso_code
-ORDER BY attack_requests DESC
-LIMIT 20
-```
-
+`attack_data` is a request-level payload field; the request-level
+`bot_detection` table is not currently deployed. Use
+`bi_siem_policy_summary_*` for policy/action posture (blocked requests, auth
+failures, SIEM bot type) on SIEM-enabled clusters; payload-level inspection
+is not supported at the deployed grain.
 
 ### Bad Bot Behavior Patterns [SOC, Edge/Ops]
 
 ```sql
--- Bad bots targeting specific paths
+-- Bad-bot host concentration from the deployed posture summary.
 SELECT
-    request_path,
-    count() as requests,
-    uniq(client_ip) as unique_ips,
-    avg(bot_score) as avg_bot_score
-FROM <project>.bot_detection
-WHERE timestamp >= now() - INTERVAL 1 HOUR
-  AND bot_class = 'bad'
-GROUP BY request_path
-ORDER BY requests DESC
+    reqHost,
+    sumIf(cnt_all, bot_class = 'bad') AS bad_requests,
+    sum(cnt_all) AS requests,
+    round(sumIf(cnt_all, bot_class = 'bad') / greatest(sum(cnt_all), 1) * 100, 2) AS bad_bot_share_pct,
+    avgIf(avg_bot_score, bot_class = 'bad') AS avg_bot_score_bad
+FROM <project>.bi_summary_hour
+WHERE reqTimeSec >= now() - INTERVAL 1 HOUR
+GROUP BY reqHost
+ORDER BY bad_requests DESC
 LIMIT 20
 ```
+
+Exact-path targeting (`request_path`) and unique client-IP counts are
+request-level dimensions; surface those as limitations when needed.

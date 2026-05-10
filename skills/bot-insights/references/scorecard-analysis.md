@@ -139,16 +139,19 @@ revision.
   `akamai.bi_summary_minute` for Akamai-project host, ASN, bot class, AI
   category, bot share, cache miss rate, 429/5xx rate, and origin latency when
   those retained dimensions answer the question.
-- Use `bot_agg_path_day`, `bot_agg_path_hour`, or `bot_agg_path_minute` for
-  normalized path scorecards, especially query-string diversity and cache miss
-  evidence.
-- Use `bot_agg_asn_hour` when ASN drilldowns need unique normalized paths.
 - Use `akamai.bi_siem_policy_summary_*` for SIEM blocked requests, auth
   failures, and policy/action evidence on the TrafficPeak Akamai project.
-- Use `bot_detection` or `bot_detection_siem` only for fields not retained in
-  summaries, such as exact user agent, verified owner, verification tier, bot
-  confidence, attack payload details, exact query strings, or exact status-code
-  inspection.
+  This surface exists only on SIEM-enabled clusters such as
+  `demo.trafficpeak.live`; SOC scorecards must gracefully fall back to posture
+  evidence when the SIEM surface is absent.
+- Path-grain (`bot_agg_path_*`), focused ASN/UA (`bot_agg_asn_hour`,
+  `bot_agg_ua_hour`), and request-level (`bot_detection`,
+  `bot_detection_siem`) tables are **not currently deployed**; do not seed
+  scorecards from them. When a required dimension (exact user agent, verified
+  owner, verification tier, bot confidence, attack payload, exact query
+  string) is not retained in `bi_summary_*` or `bi_siem_policy_summary_*`,
+  emit a `feature_input_missing` entry rather than substituting a non-deployed
+  table.
 
 If Hydrolix metadata reports aggregate-state columns, replace `sum(metric)`
 with the merge function reported by the table metadata tool.
@@ -284,34 +287,12 @@ LIMIT 50
 
 ### Path Scorecards
 
-```sql
-WITH
-  toDateTime('<current_start>') AS current_start,
-  toDateTime('<current_end>') AS current_end,
-  toDateTime('<baseline_start>') AS baseline_start,
-  toDateTime('<baseline_end>') AS baseline_end
-SELECT
-  request_path_norm,
-  sumIf(cnt_all, timestamp >= current_start AND timestamp < current_end) AS current_requests,
-  sumIf(cnt_all, timestamp >= baseline_start AND timestamp < baseline_end) AS baseline_requests,
-  round(sumIf(uniq_qs, timestamp >= current_start AND timestamp < current_end) / greatest(current_requests, 1), 4) AS qs_diversity_ratio,
-  round(sumIf(cnt_cache_miss, timestamp >= current_start AND timestamp < current_end) / greatest(current_requests, 1) * 100, 2) AS current_cache_miss_pct,
-  round(sumIf(cnt_cache_miss, timestamp >= baseline_start AND timestamp < baseline_end) / greatest(baseline_requests, 1) * 100, 2) AS baseline_cache_miss_pct,
-  maxIf(p95_origin_ttfb, timestamp >= current_start AND timestamp < current_end) AS current_origin_p95_ms,
-  maxIf(p95_origin_ttfb, timestamp >= baseline_start AND timestamp < baseline_end) AS baseline_origin_p95_ms,
-  round(sumIf(cnt_429, timestamp >= current_start AND timestamp < current_end) / greatest(current_requests, 1) * 100, 2) AS current_rate_429_pct,
-  round(sumIf(cnt_429, timestamp >= baseline_start AND timestamp < baseline_end) / greatest(baseline_requests, 1) * 100, 2) AS baseline_rate_429_pct,
-  round(sumIf(cnt_5xx, timestamp >= current_start AND timestamp < current_end) / greatest(current_requests, 1) * 100, 2) AS current_rate_5xx_pct,
-  round(sumIf(cnt_5xx, timestamp >= baseline_start AND timestamp < baseline_end) / greatest(baseline_requests, 1) * 100, 2) AS baseline_rate_5xx_pct
-FROM <project>.bot_agg_path_hour
-WHERE timestamp >= baseline_start
-  AND timestamp < current_end
-  AND request_host = '<host>'
-GROUP BY request_path_norm
-HAVING current_requests > 100 OR baseline_requests > 100
-ORDER BY qs_diversity_ratio DESC, current_requests DESC
-LIMIT 50
-```
+Path-grain scorecards depend on the `bot_agg_path_*` family, which is **not
+currently deployed**. The `edge_ops_impact` report exposes path-grain
+candidates only behind `--include-paths`; without that flag, scorecards run at
+entity grain. When path-grain tables become available, follow the v1 contract
+in [cache-origin-impact.md](cache-origin-impact.md) and feed the resulting
+aggregate rows to `scorecard.py` with entity_type `request_path_norm`.
 
 ### Host Scorecards
 
@@ -564,21 +545,20 @@ LIMIT 50
 
 ```json
 {
-  "entity_type": "request_path_norm",
+  "entity_type": "request_host",
   "comparison_type": "week_over_week",
   "granularity": "hour",
-  "table_used": "bot_agg_path_hour",
+  "table_used": "akamai.bi_summary_hour",
   "current_window": {"start": "2026-04-08T00:00:00Z", "end": "2026-04-15T00:00:00Z"},
   "baseline_windows": [
     {"start": "2026-04-01T00:00:00Z", "end": "2026-04-08T00:00:00Z", "label": "previous_week"}
   ],
-  "scope": {"request_host": "www.example.com"},
+  "scope": {},
   "rows": [
     {
-      "request_path_norm": "/api/search",
+      "request_host": "www.example.com",
       "current_requests": 82000,
       "baseline_requests": 12000,
-      "qs_diversity_ratio": 0.97,
       "current_cache_miss_pct": 94.2,
       "baseline_cache_miss_pct": 32.4,
       "current_origin_p95_ms": 930,
@@ -604,23 +584,23 @@ and every feature skipped because inputs were missing.
   "scorecards": [
     {
       "schema_version": "bot_entity_scorecard.v1",
-      "entity_type": "request_path_norm",
-      "entity": "/api/search",
-      "scope": {"request_host": "www.example.com"},
+      "entity_type": "request_host",
+      "entity": "www.example.com",
+      "scope": {},
       "comparison_type": "week_over_week",
       "granularity": "hour",
-      "table_used": "bot_agg_path_hour",
+      "table_used": "akamai.bi_summary_hour",
       "current_window": {"start": "2026-04-08T00:00:00Z", "end": "2026-04-15T00:00:00Z"},
       "baseline_windows": [
         {"start": "2026-04-01T00:00:00Z", "end": "2026-04-08T00:00:00Z", "label": "previous_week"}
       ],
       "score": 100,
       "band": "urgent_review",
-      "primary_domain": "cache_busting",
+      "primary_domain": "origin_impact",
       "domain_scores": {
         "movement": 34,
         "origin_impact": 28,
-        "cache_busting": 52,
+        "cache_busting": 22,
         "crawler_governance": 8,
         "security_evidence": 26,
         "signal_alignment": 0,
@@ -628,13 +608,12 @@ and every feature skipped because inputs were missing.
       },
       "features": [
         {
-          "name": "querystring_diversity_with_high_miss_rate",
+          "name": "cache_miss_pct_delta_high",
           "domain": "cache_busting",
-          "points": 18,
-          "current": 0.97,
-          "threshold": 0.5,
-          "supporting_metrics": {"cache_miss_pct": 94.2, "cache_miss_threshold": 50},
-          "evidence": "High query-string diversity coincides with 94.2% cache misses."
+          "points": 12,
+          "current": 94.2,
+          "baseline": 32.4,
+          "evidence": "Cache miss share moved from 32.4% to 94.2%."
         }
       ],
       "not_evaluated_features": [
@@ -646,10 +625,10 @@ and every feature skipped because inputs were missing.
         }
       ],
       "evidence_summary": [
-        "High query-string diversity coincides with 94.2% cache misses."
+        "Cache miss share moved from 32.4% to 94.2% on www.example.com."
       ],
       "recommended_next_steps": [
-        "Inspect query-string diversity, cache-key behavior, and cache miss concentration by host and path."
+        "Inspect cache miss concentration on www.example.com and run edge_ops_impact with --include-paths once path-grain aggregates are available."
       ],
       "confidence": "medium",
       "confidence_reasons": [
@@ -669,9 +648,9 @@ and every feature skipped because inputs were missing.
   ],
   "index": {
     "schema_version": "bot_scorecard_index.v1",
-    "scope": {"request_host": "www.example.com"},
+    "scope": {},
     "comparison_type": "week_over_week",
-    "table_used": "bot_agg_path_hour",
+    "table_used": "akamai.bi_summary_hour",
     "current_window": {"start": "2026-04-08T00:00:00Z", "end": "2026-04-15T00:00:00Z"},
     "baseline_windows": [
       {"start": "2026-04-01T00:00:00Z", "end": "2026-04-08T00:00:00Z", "label": "previous_week"}
@@ -679,11 +658,11 @@ and every feature skipped because inputs were missing.
     "ranked_entities": [
       {
         "rank": 1,
-        "entity_type": "request_path_norm",
-        "entity": "/api/search",
+        "entity_type": "request_host",
+        "entity": "www.example.com",
         "score": 100,
         "band": "urgent_review",
-        "primary_domain": "cache_busting",
+        "primary_domain": "origin_impact",
         "confidence": "medium"
       }
     ],

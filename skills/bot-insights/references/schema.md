@@ -1,5 +1,15 @@
 # bot_detection — Column Reference
 
+> **Note**: This file documents the request-level `bot_detection` schema that
+> the Bot Insights summary tables aggregate from. The `bot_detection` and
+> `bot_detection_siem` tables themselves are **not currently deployed** on
+> production clusters; the deployed query surface is `bi_summary_*` and (on
+> SIEM-enabled clusters) `bi_siem_policy_summary_*`. The column list below is
+> retained as a reference for the underlying CDN log shape — do not generate
+> SQL against `bot_detection*` from this document. See
+> [data-model.md](data-model.md) and [summary-tables.md](summary-tables.md) for
+> the supported query surface.
+
 Primary table schema for the **bot-insights** bundle.
 Total columns: 85
 

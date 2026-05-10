@@ -4,6 +4,14 @@ Use this reference when a Bot Insights request asks for structured
 cache-busting, query-string churn, cache-miss movement, or origin-impact
 evidence. The v1 detector output is `cache_origin_impact_report.v1`.
 
+> **Deployment note**: The path-grain summary tables this detector requires
+> (`bot_agg_path_day`, `bot_agg_path_hour`, `bot_agg_path_minute`) are **not
+> currently deployed** on production clusters. The `edge_ops_impact` report
+> only invokes the path-grain code path when called with `--include-paths`;
+> without that flag the report ships entity-grain evidence only. Treat this
+> reference as the contract for the opt-in path-grain detector and for future
+> path-summary deployments.
+
 This detector is deterministic and evidence-first. It ranks aggregate path
 slices where query-string diversity, cache misses, and origin pressure move
 together. It may identify a cache-busting candidate, origin-impact candidate, or
@@ -436,43 +444,11 @@ approximate, or worst-bucket summaries.
 
 ## Tight Request-Level Query
 
-Use request-level `bot_detection` query only when a required v1 path-grain dimension or
-exact metric cannot be answered from path summaries. Keep the range tight,
-filter by timestamp and host, and still emit one of the supported path-grain
-dimension sets.
-
-```sql
--- Tight request-level query for exact path-grain semantics.
-WITH
-  toDateTime('<current_start>') AS current_start,
-  toDateTime('<current_end>') AS current_end,
-  toDateTime('<baseline_start>') AS baseline_start,
-  toDateTime('<baseline_end>') AS baseline_end
-SELECT
-  request_host,
-  request_path_norm,
-  bot_class,
-  asn_type,
-  countIf(timestamp >= current_start AND timestamp < current_end) AS current_requests,
-  countIf(timestamp >= baseline_start AND timestamp < baseline_end) AS baseline_requests,
-  countIf(timestamp >= current_start AND timestamp < current_end AND cache_was_cached = false) AS current_cache_misses,
-  countIf(timestamp >= baseline_start AND timestamp < baseline_end AND cache_was_cached = false) AS baseline_cache_misses,
-  uniqExactIf(request_query_string, timestamp >= current_start AND timestamp < current_end) AS current_unique_query_strings,
-  uniqExactIf(request_query_string, timestamp >= baseline_start AND timestamp < baseline_end) AS baseline_unique_query_strings,
-  quantileIf(0.95)(origin_time_to_first_byte_ms, timestamp >= current_start AND timestamp < current_end AND origin_time_to_first_byte_ms > 0) AS current_origin_p95_ms,
-  quantileIf(0.95)(origin_time_to_first_byte_ms, timestamp >= baseline_start AND timestamp < baseline_end AND origin_time_to_first_byte_ms > 0) AS baseline_origin_p95_ms,
-  sumIf(response_total_bytes, timestamp >= current_start AND timestamp < current_end) AS current_response_bytes,
-  sumIf(response_total_bytes, timestamp >= baseline_start AND timestamp < baseline_end) AS baseline_response_bytes
-FROM <project>.bot_detection
-WHERE timestamp >= baseline_start
-  AND timestamp < current_end
-  AND request_host = '<host>'
-GROUP BY request_host, request_path_norm, bot_class, asn_type
-ORDER BY abs(current_cache_misses - baseline_cache_misses) DESC
-LIMIT 50
-```
-
-Request-level query output should include a reason such as
-`exact_query_string_cardinality_required`. Raw response-byte columns map to
-`optional_metadata.response_bytes`; they do not change v1 score or candidate
-eligibility.
+Historical guidance was to fall back to a tight `bot_detection` query when a
+required path-grain metric (exact query-string cardinality, request-level
+percentile origin TTFB, response bytes) couldn't be answered from path
+summaries. The `bot_detection` table is **not currently deployed** on
+production clusters; surface that limitation in the detector output (for
+example `query_string_cardinality_approximate` with a confidence reason
+explaining the missing surface) rather than substituting a non-deployed
+request-level query.

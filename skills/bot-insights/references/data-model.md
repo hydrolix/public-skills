@@ -15,22 +15,25 @@ intelligence from Akamai SIEM and other CDN sources. Compared to the standard
 bot-detection bundle, this variant includes bot scoring, classification
 confidence, intent analysis, verified bot ownership, and attack data fields.
 
-**Request-level tables**:
-- `bot_detection` — primary table (85 columns, request-level records with bot
-  classification and SIEM enrichment)
-- `bot_detection_siem` — SIEM-oriented request-level records used by Akamai
-  SIEM summaries
-
-**Summary tables**:
+**Deployed summary tables — the supported query surface**:
 - `bi_summary_minute`, `bi_summary_hour`, `bi_summary_day` — posture summaries
   retaining `reqHost`, `asn`, `userAgentCategory`, `isBotTraffic`,
   `aiCategory`, `aiSource`, `trafficCohort`, `resourceCategory`, `reqMethod`,
-  `cacheStatus`, `statusCode`, `requestPathPattern`, and `country`.
-- `bot_agg_*` — focused host, ASN, path, resource, traffic, and bot-class
-  summaries at hour granularity, with selected day/minute variants.
+  `cacheStatus`, `statusCode`, `requestPathPattern`, and `country`. Available
+  on every Bot Insights cluster.
 - `bi_siem_policy_summary_minute`, `bi_siem_policy_summary_hour`,
   `bi_siem_policy_summary_day` — with-SIEM policy/action summaries at
-  minute/hour/day granularity.
+  minute/hour/day granularity. Available only on SIEM-enabled clusters such as
+  `demo.trafficpeak.live` (not, for example, on `acme`).
+
+**Not currently deployed** (kept here for design-intent reference only —
+do not generate SQL against these):
+- `bot_detection`, `bot_detection_siem` — request-level records. The Bot
+  Insights summary tables aggregate from this request-level shape, but the
+  request-level tables themselves are not deployed on observed clusters.
+- `bot_agg_path_*`, `bot_agg_resource_*`, `bot_agg_ua_*`, `bot_agg_asn_hour`,
+  `bot_agg_traffic_hour`, `bot_agg_hour` — focused aggregate families
+  referenced by older skill iterations.
 
 **Data sources**: Akamai DS2, Akamai SIEM, Akamai SIEM GZ, CloudFront Firehose,
 Cloudflare, Fastly, Tencent, and other CDN sources (8 transforms)
@@ -68,8 +71,7 @@ See `references/summary-tables.md` for summary retained dimensions and metrics.
 ## TrafficPeak Demo Shape
 
 The live `demo.trafficpeak.live` Akamai project is dashboarded from summary
-tables rather than from the canonical request-level `bot_detection` tables.
-Posture queries should start with `akamai.bi_summary_minute`,
+tables. Posture queries should start with `akamai.bi_summary_minute`,
 `akamai.bi_summary_hour`, or `akamai.bi_summary_day`. SIEM policy evidence
 should start with `akamai.bi_siem_policy_summary_minute`,
 `akamai.bi_siem_policy_summary_hour`, or
@@ -99,12 +101,15 @@ same-week-last-year, and executive posture. Hourly summaries are the default for
 weekday/hour seasonality. Minute summaries are for short policy-change review or
 incident detail.
 
-Request-level tables are required for fields that are not retained in the
-summary catalog, such as `verified_bot_owner`, `bot_confidence`, `bot_intent`,
-canonical `bot_category`, canonical `bot_type`, `edge_pop`, exact payload
-`attack_data`, and exact `user_agent`. TrafficPeak summary fields include
-`userAgentCategory`, `trafficCohort`, `aiCategory`, `aiSource`,
-`requestPathPattern`, numeric `statusCode`, and `cacheStatus`.
+Fields not retained in `bi_summary_*` or `bi_siem_policy_summary_*` —
+`verified_bot_owner`, `bot_confidence`, `bot_intent`, canonical `bot_category`
+or `bot_type`, `edge_pop`, exact payload `attack_data`, and exact
+`user_agent` — would historically have come from request-level tables, but
+those tables are not currently deployed. Surface the limitation in the
+artifact rather than substituting a non-deployed table. TrafficPeak summary
+fields available today include `userAgentCategory`, `trafficCohort`,
+`aiCategory`, `aiSource`, `requestPathPattern`, numeric `statusCode`, and
+`cacheStatus`.
 
 ## Personas
 

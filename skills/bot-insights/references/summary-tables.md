@@ -1,9 +1,13 @@
 # bot-insights — Summary Tables
 
-Bot Insights has request-level records plus summary tables at minute, hour, and
-day granularity. Prefer summaries when their retained dimensions answer the
-question. Use request-level `bot_detection` or `bot_detection_siem` only when
-the required field is not retained in the summary surface.
+Bot Insights query surface is the summary tables `bi_summary_*` and (on
+SIEM-enabled clusters) `bi_siem_policy_summary_*`. Older skill iterations
+documented request-level (`bot_detection`, `bot_detection_siem`) and focused
+aggregate families (`bot_agg_path_*`, `bot_agg_resource_*`, `bot_agg_ua_*`);
+those rows remain in the inventory below for design-intent reference and are
+flagged "NOT CURRENTLY DEPLOYED". Do not generate SQL against them. When a
+question truly needs a request-level dimension, state the limitation rather
+than falling back to a non-deployed table.
 
 Before querying a deployed Hydrolix summary table, inspect table metadata with
 the Hydrolix MCP server or the host agent's Hydrolix query tool. If a metric is
@@ -93,7 +97,7 @@ denominators are computed in the `scored` CTE before the final output `LIMIT`.
   requested dimension is absent, either answer at the retained dimension level
   or explicitly fall back to raw request-level data with a tight time filter.
 - Do not use request-level raw tables for standard Bot Insights report
-  captures. Standard reports must use `bi_summary_*`, `bot_agg_*`, or
+  captures. Standard reports must use `bi_summary_*` or
   `bi_siem_policy_summary_*`.
 - Do not assume quarter-over-quarter queries need monthly or quarterly
   summaries. Benchmark against daily summaries first.
@@ -105,17 +109,17 @@ denominators are computed in the `scored` CTE before the final output `LIMIT`.
 | `bi_summary_day` | day | `akamai.logs` | `reqTimeSec`, `reqHost`, `asn`, `userAgentCategory`, `isBotTraffic`, `aiCategory`, `aiSource`, `trafficCohort`, `resourceCategory`, `reqMethod`, `cacheStatus`, `statusCode`, `requestPathPattern`, `country` | requests, bytes, status mix, cache hit/miss, average origin TaT, average TTFB, query-string presence/diversity |
 | `bi_summary_hour` | hour | same as `bi_summary_day` | same as `bi_summary_day` | same as `bi_summary_day` |
 | `bi_summary_minute` | minute | same as `bi_summary_day` | same as `bi_summary_day` | same as `bi_summary_day` |
-| `bi_summary_month` | month | `bot_detection` | same as `bi_summary_day` when deployed | same as `bi_summary_day` when deployed |
-| `bot_agg_hour` | hour | `bot_detection` | `timestamp`, `request_host` | requests, 2xx/4xx/429/5xx, cache hit/miss, avg TTFB, avg/p95/p99 origin TTFB, unique client IPs, source latency |
-| `bot_agg_asn_hour` | hour | `bot_detection` | `timestamp`, `request_host`, `client_asn`, `asn_type` | same as `bot_agg_hour`, plus unique normalized paths |
-| `bot_agg_traffic_hour` | hour | `bot_detection` | `timestamp`, `request_host`, `is_bot_traffic`, `ai_category` | same as `bot_agg_hour` |
-| `bot_agg_ua_hour` | hour | `bot_detection` | `timestamp`, `request_host`, `bot_class` | same as `bot_agg_hour` |
-| `bot_agg_path_day` | day | `bot_detection` | `timestamp`, `request_host`, `request_path_norm`, `bot_class`, `asn_type` | requests, 2xx/4xx/429/5xx, cache hit/miss, avg TTFB, avg/p95/p99 origin TTFB, unique client IPs, unique query strings, source latency |
-| `bot_agg_path_hour` | hour | `bot_detection` | same as `bot_agg_path_day` | same as `bot_agg_path_day` |
-| `bot_agg_path_minute` | minute | `bot_detection` | same as `bot_agg_path_day` | same as `bot_agg_path_day` |
-| `bot_agg_resource_day` | day | `bot_detection` | `timestamp`, `request_host`, `resource_category` | same as `bot_agg_path_day` |
-| `bot_agg_resource_hour` | hour | `bot_detection` | same as `bot_agg_resource_day` | same as `bot_agg_path_day` |
-| `bot_agg_resource_minute` | minute | `bot_detection` | same as `bot_agg_resource_day` | same as `bot_agg_path_day` |
+| `bi_summary_month` (NOT CURRENTLY DEPLOYED) | month | `bot_detection` | same as `bi_summary_day` when deployed | same as `bi_summary_day` when deployed |
+| `bot_agg_hour` (NOT CURRENTLY DEPLOYED) | hour | `bot_detection` | `timestamp`, `request_host` | requests, 2xx/4xx/429/5xx, cache hit/miss, avg TTFB, avg/p95/p99 origin TTFB, unique client IPs, source latency |
+| `bot_agg_asn_hour` (NOT CURRENTLY DEPLOYED) | hour | `bot_detection` | `timestamp`, `request_host`, `client_asn`, `asn_type` | same as `bot_agg_hour`, plus unique normalized paths |
+| `bot_agg_traffic_hour` (NOT CURRENTLY DEPLOYED) | hour | `bot_detection` | `timestamp`, `request_host`, `is_bot_traffic`, `ai_category` | same as `bot_agg_hour` |
+| `bot_agg_ua_hour` (NOT CURRENTLY DEPLOYED) | hour | `bot_detection` | `timestamp`, `request_host`, `bot_class` | same as `bot_agg_hour` |
+| `bot_agg_path_day` (NOT CURRENTLY DEPLOYED) | day | `bot_detection` | `timestamp`, `request_host`, `request_path_norm`, `bot_class`, `asn_type` | requests, 2xx/4xx/429/5xx, cache hit/miss, avg TTFB, avg/p95/p99 origin TTFB, unique client IPs, unique query strings, source latency |
+| `bot_agg_path_hour` (NOT CURRENTLY DEPLOYED) | hour | `bot_detection` | same as `bot_agg_path_day` | same as `bot_agg_path_day` |
+| `bot_agg_path_minute` (NOT CURRENTLY DEPLOYED) | minute | `bot_detection` | same as `bot_agg_path_day` | same as `bot_agg_path_day` |
+| `bot_agg_resource_day` (NOT CURRENTLY DEPLOYED) | day | `bot_detection` | `timestamp`, `request_host`, `resource_category` | same as `bot_agg_path_day` |
+| `bot_agg_resource_hour` (NOT CURRENTLY DEPLOYED) | hour | `bot_detection` | same as `bot_agg_resource_day` | same as `bot_agg_path_day` |
+| `bot_agg_resource_minute` (NOT CURRENTLY DEPLOYED) | minute | `bot_detection` | same as `bot_agg_resource_day` | same as `bot_agg_path_day` |
 | `bi_siem_policy_summary_day` | day | `akamai.siem` | `timestamp`, `host`/`reqHost`, `asn`, `userAgentCategory`, `isBotTraffic`, `aiCategory`, `aiSource`, `resourceCategory`, `method`/`reqMethod`, `status`/`statusCode`, `country`, `policyId`, `actionClass`, `botType` | requests, blocked requests, auth failures, avg bot score, 2xx/3xx/4xx/5xx, unique client IPs |
 | `bi_siem_policy_summary_hour` | hour | same as `bi_siem_policy_summary_day` | same as `bi_siem_policy_summary_day` | same as `bi_siem_policy_summary_day` |
 | `bi_siem_policy_summary_minute` | minute | same as `bi_siem_policy_summary_day` | same as `bi_siem_policy_summary_day` | same as `bi_siem_policy_summary_day` |
@@ -130,8 +134,10 @@ Common summary metric columns:
 - `avg_ttfb`, `avg_origin_ttfb`: average edge/origin latency.
 - `p95_origin_ttfb`, `p99_origin_ttfb`: tail origin latency.
 - `uniq_client_ip`: unique client IP count.
-- `uniq_paths`: unique normalized path count on `bot_agg_asn_hour`.
-- `uniq_qs`: unique query-string count on path and resource summaries.
+- `uniq_paths`: unique normalized path count on `bot_agg_asn_hour` (not
+  currently deployed).
+- `uniq_qs`: unique query-string count on path and resource summaries (not
+  currently deployed).
 - `cnt_blocked`, `cnt_auth_fail`, `cnt_biz_fail`: SIEM control outcomes.
 - `avg_bot_score`: average Akamai bot score on SIEM summaries.
 - TrafficPeak/Akamai SIEM aliases are camelCase: `cnt_authFail`,
@@ -155,10 +161,13 @@ same aggregate column for bot-request subsets when supported.
 
 ## Request-Level Dimensions
 
-Use request-level tables when the question depends on fields not retained in the
-summary catalog, such as `verified_bot_owner`, `bot_confidence`, `bot_intent`,
-canonical `bot_category`, canonical `bot_type`, `edge_pop`, `attack_data`, or
-exact `user_agent`. Summary-retained fields include `trafficCohort`,
-`userAgentCategory`, `aiCategory`, `aiSource`, `requestPathPattern`, numeric
-`statusCode`, `cacheStatus`, `policyId`, `actionClass`, and `botType`. State
-the reason and keep the time range narrow.
+Request-level (`bot_detection`, `bot_detection_siem`) and focused aggregate
+(`bot_agg_*`) tables are not currently deployed on production clusters. When a
+question depends on a field not retained in `bi_summary_*` or
+`bi_siem_policy_summary_*` — for example `verified_bot_owner`,
+`bot_confidence`, `bot_intent`, canonical `bot_category` or `bot_type`,
+`edge_pop`, `attack_data`, or exact `user_agent` — state the limitation in the
+artifact rather than substituting a non-deployed table. Summary-retained fields
+include `trafficCohort`, `userAgentCategory`, `aiCategory`, `aiSource`,
+`requestPathPattern`, numeric `statusCode`, `cacheStatus`, `policyId`,
+`actionClass`, and `botType`.

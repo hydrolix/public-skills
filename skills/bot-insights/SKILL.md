@@ -60,29 +60,37 @@ over raw top-N volume.
 
 ## What
 
-Primary request-level tables:
-
-- `bot_detection`: request-level records with normalized CDN fields and bot
-  intelligence.
-- `bot_detection_siem`: SIEM-focused request-level records used by Akamai SIEM
-  summaries.
-
-Summary families:
+Deployed summary tables (the supported query surface):
 
 - `bi_summary_*`: TrafficPeak posture summaries by host, ASN, user-agent
   category, bot flag, AI category/source, resource category, method, cache
-  status, status code, path pattern, country, and traffic cohort. For the
-  `demo.trafficpeak.live` Akamai project, use fully qualified
-  `akamai.bi_summary_minute`, `akamai.bi_summary_hour`, or
+  status, status code, path pattern, country, and traffic cohort. Available on
+  every Bot Insights cluster. For the `demo.trafficpeak.live` Akamai project,
+  use fully qualified `akamai.bi_summary_minute`, `akamai.bi_summary_hour`, or
   `akamai.bi_summary_day`.
-- `bot_agg_*`: focused hourly and selected daily/minute summaries for host,
-  ASN, path, resource, traffic, and bot class drilldowns.
 - `bi_siem_policy_summary_*`: TrafficPeak SIEM policy summaries by host, ASN,
   user-agent category, bot flag, AI category/source, resource category, method,
-  status, country, policy, action class, and SIEM bot type. For the Akamai
+  status, country, policy, action class, and SIEM bot type. Available only on
+  SIEM-enabled clusters such as `demo.trafficpeak.live`. For the Akamai
   project, use fully qualified `akamai.bi_siem_policy_summary_minute`,
   `akamai.bi_siem_policy_summary_hour`, or
   `akamai.bi_siem_policy_summary_day`.
+
+### Deployment Availability
+
+Only the two summary families above are deployed on production clusters today.
+Older skill iterations referenced request-level tables (`bot_detection`,
+`bot_detection_siem`) and focused aggregate families (`bot_agg_path_*`,
+`bot_agg_resource_*`, `bot_agg_ua_*`). Those tables are not currently deployed
+on `demo.trafficpeak.live`, `acme`, or other observed clusters. Treat
+them as design-intent only — do not generate SQL against them. When a question
+truly needs a dimension not retained in `bi_summary_*` or
+`bi_siem_policy_summary_*`, state the limitation rather than falling back to a
+non-deployed table.
+
+`bi_siem_policy_summary_*` is a cluster-specific surface. Confirm SIEM data
+exists for the target cluster before composing SIEM-only queries; SOC reports
+fall back to posture-summary evidence when the SIEM surface is absent.
 
 Canonical field groups:
 
@@ -288,8 +296,9 @@ Reports for which the script-orchestrated capture path is wired:
    produce scorecard-ready aggregate rows and run
    [scripts/scorecard.py](scripts/scorecard.py) to emit
    `bot_entity_scorecard.v1` packets plus a `bot_scorecard_index.v1`.
-8. Use request-level tables only when a required dimension is not retained in
-   summaries, and state the reason.
+8. If a required dimension is not retained in `bi_summary_*` or
+   `bi_siem_policy_summary_*`, state the limitation in the artifact rather than
+   substituting a non-deployed table. See "Deployment Availability" above.
 
 ## Query Guardrails
 
