@@ -1154,7 +1154,7 @@ footer {
   <div class="section-eyebrow">Executive summary</div>
   <h2>What this report says</h2>
     <div class="prose">
-      <p><strong>2 of 3 ASNs need analyst attention — start with ASN 64500 (top 2 entities concentrate 60% of origin pressure; top path /api/v1/pricing carries 72% of cache misses).</strong></p>
+      <p><strong>2 of 3 ASNs need analyst attention — start with ASN 64500 (top 2 entities concentrate 64% of origin pressure; top path /api/v1/pricing carries 72% of cache misses).</strong></p>
         <p class="exec-body">1 to watch.</p>
         <p class="exec-recommendation">
           <span class="exec-recommendation-label">Recommended action</span>
@@ -1260,7 +1260,7 @@ footer {
                         <span class="sec-evidence-rule-name">Origin cost contribution high</span>
                           <span class="sec-evidence-rule-points">+18 pts</span>
                       </div>
-                        <p class="sec-evidence-rule-evidence">Origin cost contribution is 18.00% of fleet origin pressure.</p>
+                        <p class="sec-evidence-rule-evidence">Origin cost contribution is 22.00% of fleet origin pressure.</p>
                     </li>
                     <li class="sec-evidence-rule">
                       <div class="sec-evidence-rule-head">
@@ -1268,6 +1268,13 @@ footer {
                           <span class="sec-evidence-rule-points">+12 pts</span>
                       </div>
                         <p class="sec-evidence-rule-evidence">Cache-miss rate is 72.00%.</p>
+                    </li>
+                    <li class="sec-evidence-rule">
+                      <div class="sec-evidence-rule-head">
+                        <span class="sec-evidence-rule-name">Cache miss delta high</span>
+                          <span class="sec-evidence-rule-points">+12 pts</span>
+                      </div>
+                        <p class="sec-evidence-rule-evidence">Cache-miss rate increased by 14 pp week-over-week.</p>
                     </li>
                     <li class="sec-evidence-rule">
                       <div class="sec-evidence-rule-head">
@@ -1355,7 +1362,7 @@ footer {
           <td>
             <span class="domain-pill primary-active">Cache busting</span>
           </td>
-          <td class="evidence-cell">Origin cost contribution is 18.00% of fleet origin pressure.</td>
+          <td class="evidence-cell">Origin cost contribution is 22.00% of fleet origin pressure.</td>
         </tr>
           <tr class="queue-state-divider">
             <td colspan="6"><span class="pill pill-observe">Watch</span></td>
@@ -1551,7 +1558,7 @@ footer {
                 1 ASN · ASN 64600            </div>
           </li>
           <li class="action">
-            <div class="action-step">18% origin cost contribution combined with ASN 64500 totals 60%; verify whether both ASNs represent the same operator and whether coordinated remediation is appropriate.</div>
+            <div class="action-step">22% origin cost contribution combined with ASN 64500 totals 64%; verify whether both ASNs represent the same operator and whether coordinated remediation is appropriate.</div>
             <div class="action-meta">
                 1 ASN · ASN 64600            </div>
           </li>
@@ -1566,7 +1573,7 @@ footer {
       Rule coverage by domain
       <span class="disclosure-summary-stat">
         — 2 domains evaluated,
-        11.11% of rule evaluations had missing inputs
+        10.00% of rule evaluations had missing inputs
       </span>
     </summary>
     <div class="disclosure-body">
@@ -1583,10 +1590,10 @@ footer {
         <tbody>
             <tr>
               <td class="domain-name">Cache busting</td>
-              <td class="num">5</td>
+              <td class="num">6</td>
               <td class="num">0</td>
               <td class="num">1</td>
-              <td><svg viewBox="0 0 360 14" class="coverage-bar" role="img" aria-label="Rule coverage"><rect x="0.0" y="0" width="300.0" height="14" fill="#4E79A7" /><rect x="300.0" y="0" width="60.0" height="14" fill="#F8C58A" /></svg></td>
+              <td><svg viewBox="0 0 360 14" class="coverage-bar" role="img" aria-label="Rule coverage"><rect x="0.0" y="0" width="308.6" height="14" fill="#4E79A7" /><rect x="308.6" y="0" width="51.4" height="14" fill="#F8C58A" /></svg></td>
             </tr>
             <tr>
               <td class="domain-name">Origin impact</td>

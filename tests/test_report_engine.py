@@ -321,6 +321,8 @@ def test_edge_ops_impact_full_wrapper():
     assert '<table class="data-table domain-matrix">' in actual
     # Full wrapper is NOT degraded
     assert '<div class="degraded-banner"' not in actual
+    assert "ASN 64500" in actual
+    assert "/api/v1/pricing" in actual
 
 
 def test_edge_ops_impact_index_only_degraded():
@@ -332,6 +334,8 @@ def test_edge_ops_impact_index_only_degraded():
     actual = _normalize(_render(wrapper))
     _assert_snapshot(actual, snapshot)
     assert '<div class="degraded-banner"' in actual
+    assert "ASN 64500" in actual
+    assert "ASN 64600" in actual
     assert '<table class="data-table domain-matrix">' not in actual
     assert ">Edge &amp; origin signals<" not in actual
     assert '<article class="sec-evidence-card' not in actual

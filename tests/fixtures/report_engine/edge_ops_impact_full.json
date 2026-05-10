@@ -7,7 +7,7 @@
     {
       "note_id": "note-1",
       "author_type": "llm",
-      "text": "Two ASNs concentrate 60% of origin pressure, driven by high cache-miss rates and query-string diversity patterns; start triage with ASN 64500.",
+      "text": "Two ASNs concentrate 64% of origin pressure, driven by high cache-miss rates and query-string diversity patterns; start triage with ASN 64500.",
       "data_sources": [
         {
           "artifact_id": "edge-pack-1#scorecard-1",
@@ -247,18 +247,19 @@
             "signal_alignment": 0
           },
           "evidence_summary": [
-            "Origin cost contribution is 18% of fleet origin pressure.",
+            "Origin cost contribution is 22% of fleet origin pressure.",
             "Cache-miss rate is 72%.",
-            "Query-string diversity is 890 unique QS."
+            "Query-string diversity is 890 unique QS.",
+            "Cache-miss rate increased by 14 pp week-over-week."
           ],
           "features": [
             {
               "name": "origin_cost_contribution_high",
               "domain": "origin_impact",
-              "current": 18,
+              "current": 22,
               "threshold": 20,
               "points": 18,
-              "evidence": "Origin cost contribution is 18% of fleet origin pressure."
+              "evidence": "Origin cost contribution is 22% of fleet origin pressure."
             },
             {
               "name": "cache_miss_rate_high",
@@ -275,6 +276,19 @@
               "threshold": 500,
               "points": 8,
               "evidence": "Query-string diversity is 890 unique QS."
+            },
+            {
+              "name": "cache_miss_delta_high",
+              "domain": "cache_busting",
+              "baseline": 58,
+              "current": 72,
+              "threshold": 10,
+              "points": 12,
+              "evidence": "Cache-miss rate increased by 14 pp week-over-week.",
+              "supporting_metrics": {
+                "absolute_delta_pp": 14,
+                "pct_change": 24
+              }
             }
           ],
           "not_evaluated_features": [],
@@ -285,7 +299,7 @@
             },
             {
               "summary": "Confirm origin cost share.",
-              "detail": "18% origin cost contribution combined with ASN 64500 totals 60%; verify whether both ASNs represent the same operator and whether coordinated remediation is appropriate."
+              "detail": "22% origin cost contribution combined with ASN 64500 totals 64%; verify whether both ASNs represent the same operator and whether coordinated remediation is appropriate."
             }
           ]
         },
@@ -349,9 +363,7 @@
             }
           ],
           "not_evaluated_features": [],
-          "recommended_next_steps": [],
-          "granularity": "",
-          "table_used": "bi_summary_hour"
+          "recommended_next_steps": []
         }
       ]
     },
