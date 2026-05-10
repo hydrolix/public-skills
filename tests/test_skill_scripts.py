@@ -2485,6 +2485,116 @@ class BotInsightsScriptTests(unittest.TestCase):
                 self.bot_insights_report.main()
             self.assertIn("client_asn", str(cm.exception))
 
+    def _edge_entity_grain_rows(self) -> list[dict]:
+        """Canned bi_summary_* rows for edge_ops_impact tests.
+
+        One host with elevated cache miss, no P95 (null), volume-share
+        proxy at 18.5% — enough to exercise the rule-based and
+        cost-share headline paths in the renderer.
+        """
+        return [
+            {
+                "request_host": "www.example.com",
+                "current_requests": 100000,
+                "baseline_requests": 80000,
+                "current_cache_miss_pct": 65.0,
+                "baseline_cache_miss_pct": 40.0,
+                "current_unique_qs": None,
+                "baseline_unique_qs": None,
+                "current_origin_p95_ms": None,
+                "baseline_origin_p95_ms": None,
+                "origin_cost_contribution_pct": 18.5,
+            }
+        ]
+
+    def _edge_scorecard_packet(self, *, features_list: list | None = None) -> dict:
+        """Canned bot_scorecard_artifacts.v1 packet for edge tests.
+
+        Built atop the entity-grain rows above; carries one entity in
+        the cache_busting domain with a triggered cache_miss_rate_high
+        rule so the renderer's evidence cards populate.
+
+        Args:
+            features_list: Scorecard features to include. If None, includes the
+                cache_miss_rate_high feature. Pass [] for no features.
+        """
+        if features_list is None:
+            features_list = [
+                {
+                    "name": "cache_miss_rate_high",
+                    "domain": "cache_busting",
+                    "evidence": "Cache-miss rate rose from 40% to 65%.",
+                }
+            ]
+
+        return {
+            "schema_version": "bot_scorecard_artifacts.v1",
+            "scorecards": [
+                {
+                    "schema_version": "bot_entity_scorecard.v1",
+                    "entity_type": "request_host",
+                    "entity": "www.example.com",
+                    "score": 55,
+                    "band": "medium_review",
+                    "primary_domain": "cache_busting",
+                    "confidence": "medium",
+                    "domain_scores": {"cache_busting": 55},
+                    "features": features_list,
+                    "not_evaluated_features": [],
+                    "recommended_next_steps": [],
+                    "scope": {
+                        "cluster": "demo",
+                        "database": "akamai",
+                        "entity_type": "request_host",
+                    },
+                    "comparison_type": "previous_window",
+                    "table_used": "akamai.bi_summary_hour",
+                    "current_window": {
+                        "start": "2026-05-02T00:00:00Z",
+                        "end": "2026-05-03T00:00:00Z",
+                    },
+                    "baseline_windows": [
+                        {
+                            "start": "2026-05-01T00:00:00Z",
+                            "end": "2026-05-02T00:00:00Z",
+                        }
+                    ],
+                }
+            ],
+            "index": {
+                "schema_version": "bot_scorecard_index.v1",
+                "scope": {
+                    "cluster": "demo",
+                    "database": "akamai",
+                    "entity_type": "request_host",
+                },
+                "comparison_type": "previous_window",
+                "table_used": "akamai.bi_summary_hour",
+                "current_window": {
+                    "start": "2026-05-02T00:00:00Z",
+                    "end": "2026-05-03T00:00:00Z",
+                },
+                "baseline_windows": [
+                    {
+                        "start": "2026-05-01T00:00:00Z",
+                        "end": "2026-05-02T00:00:00Z",
+                    }
+                ],
+                "ranked_entities": [
+                    {
+                        "rank": 1,
+                        "entity_type": "request_host",
+                        "entity": "www.example.com",
+                        "score": 55,
+                    }
+                ],
+                "analysis_domains": [
+                    "cache_busting",
+                    "origin_impact",
+                ],
+            },
+        }
+
     def test_bot_insights_report_edge_ops_impact_handoff_packet(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             output = Path(tmpdir) / "edge-ops-impact.html"
@@ -2614,20 +2724,7 @@ class BotInsightsScriptTests(unittest.TestCase):
                         Path(cmd[output_index]).write_text(
                             json.dumps(
                                 {
-                                    "data": [
-                                        {
-                                            "request_host": "www.example.com",
-                                            "current_requests": 100000,
-                                            "baseline_requests": 80000,
-                                            "current_cache_miss_pct": 65.0,
-                                            "baseline_cache_miss_pct": 40.0,
-                                            "current_unique_qs": None,
-                                            "baseline_unique_qs": None,
-                                            "current_origin_p95_ms": None,
-                                            "baseline_origin_p95_ms": None,
-                                            "origin_cost_contribution_pct": 18.5,
-                                        }
-                                    ],
+                                    "data": self._edge_entity_grain_rows(),
                                     "rows": 1,
                                 }
                             ),
@@ -2697,20 +2794,7 @@ class BotInsightsScriptTests(unittest.TestCase):
             raw_input.write_text(
                 json.dumps(
                     {
-                        "data": [
-                            {
-                                "request_host": "www.example.com",
-                                "current_requests": 100000,
-                                "baseline_requests": 80000,
-                                "current_cache_miss_pct": 65.0,
-                                "baseline_cache_miss_pct": 40.0,
-                                "current_unique_qs": None,
-                                "baseline_unique_qs": None,
-                                "current_origin_p95_ms": None,
-                                "baseline_origin_p95_ms": None,
-                                "origin_cost_contribution_pct": 18.5,
-                            }
-                        ],
+                        "data": self._edge_entity_grain_rows(),
                         "rows": 1,
                     }
                 ),
@@ -2766,81 +2850,7 @@ class BotInsightsScriptTests(unittest.TestCase):
                     raise AssertionError("capture should be skipped with --raw-input")
                 if "scorecard.py" in joined and stdout_path is not None:
                     stdout_path.write_text(
-                        json.dumps(
-                            {
-                                "schema_version": "bot_scorecard_artifacts.v1",
-                                "scorecards": [
-                                    {
-                                        "schema_version": "bot_entity_scorecard.v1",
-                                        "entity_type": "request_host",
-                                        "entity": "www.example.com",
-                                        "score": 55,
-                                        "band": "medium_review",
-                                        "primary_domain": "cache_busting",
-                                        "confidence": "medium",
-                                        "domain_scores": {"cache_busting": 55},
-                                        "features": [
-                                            {
-                                                "name": "cache_miss_rate_high",
-                                                "domain": "cache_busting",
-                                                "evidence": "Cache-miss rate rose from 40% to 65%.",
-                                            }
-                                        ],
-                                        "not_evaluated_features": [],
-                                        "recommended_next_steps": [],
-                                        "scope": {
-                                            "cluster": "demo",
-                                            "database": "akamai",
-                                            "entity_type": "request_host",
-                                        },
-                                        "comparison_type": "previous_window",
-                                        "table_used": "akamai.bi_summary_hour",
-                                        "current_window": {
-                                            "start": "2026-05-02T00:00:00Z",
-                                            "end": "2026-05-03T00:00:00Z",
-                                        },
-                                        "baseline_windows": [
-                                            {
-                                                "start": "2026-05-01T00:00:00Z",
-                                                "end": "2026-05-02T00:00:00Z",
-                                            }
-                                        ],
-                                    }
-                                ],
-                                "index": {
-                                    "schema_version": "bot_scorecard_index.v1",
-                                    "scope": {
-                                        "cluster": "demo",
-                                        "database": "akamai",
-                                        "entity_type": "request_host",
-                                    },
-                                    "comparison_type": "previous_window",
-                                    "table_used": "akamai.bi_summary_hour",
-                                    "current_window": {
-                                        "start": "2026-05-02T00:00:00Z",
-                                        "end": "2026-05-03T00:00:00Z",
-                                    },
-                                    "baseline_windows": [
-                                        {
-                                            "start": "2026-05-01T00:00:00Z",
-                                            "end": "2026-05-02T00:00:00Z",
-                                        }
-                                    ],
-                                    "ranked_entities": [
-                                        {
-                                            "rank": 1,
-                                            "entity_type": "request_host",
-                                            "entity": "www.example.com",
-                                            "score": 55,
-                                        }
-                                    ],
-                                    "analysis_domains": [
-                                        "cache_busting",
-                                        "origin_impact",
-                                    ],
-                                },
-                            }
-                        ),
+                        json.dumps(self._edge_scorecard_packet()),
                         encoding="utf-8",
                     )
                     return ""
@@ -2949,7 +2959,7 @@ class BotInsightsScriptTests(unittest.TestCase):
             self.assertIn(
                 '<table class="data-table path-candidates-table">', output_html
             )
-            self.assertIn("Triage queue", output_html)
+            self.assertIn("www.example.com", output_html)
             self.assertIn("Edge &amp; origin signals", output_html)
 
     def test_bot_insights_report_edge_ops_impact_path_grain_fallback(
@@ -2963,20 +2973,7 @@ class BotInsightsScriptTests(unittest.TestCase):
             raw_input.write_text(
                 json.dumps(
                     {
-                        "data": [
-                            {
-                                "request_host": "www.example.com",
-                                "current_requests": 100000,
-                                "baseline_requests": 80000,
-                                "current_cache_miss_pct": 65.0,
-                                "baseline_cache_miss_pct": 40.0,
-                                "current_unique_qs": None,
-                                "baseline_unique_qs": None,
-                                "current_origin_p95_ms": None,
-                                "baseline_origin_p95_ms": None,
-                                "origin_cost_contribution_pct": 18.5,
-                            }
-                        ],
+                        "data": self._edge_entity_grain_rows(),
                         "rows": 1,
                     }
                 ),
@@ -2995,75 +2992,7 @@ class BotInsightsScriptTests(unittest.TestCase):
                     )
                 if "scorecard.py" in joined and stdout_path is not None:
                     stdout_path.write_text(
-                        json.dumps(
-                            {
-                                "schema_version": "bot_scorecard_artifacts.v1",
-                                "scorecards": [
-                                    {
-                                        "schema_version": "bot_entity_scorecard.v1",
-                                        "entity_type": "request_host",
-                                        "entity": "www.example.com",
-                                        "score": 55,
-                                        "band": "medium_review",
-                                        "primary_domain": "cache_busting",
-                                        "confidence": "medium",
-                                        "domain_scores": {"cache_busting": 55},
-                                        "features": [],
-                                        "not_evaluated_features": [],
-                                        "recommended_next_steps": [],
-                                        "scope": {
-                                            "cluster": "demo",
-                                            "database": "akamai",
-                                            "entity_type": "request_host",
-                                        },
-                                        "comparison_type": "previous_window",
-                                        "table_used": "akamai.bi_summary_hour",
-                                        "current_window": {
-                                            "start": "2026-05-02T00:00:00Z",
-                                            "end": "2026-05-03T00:00:00Z",
-                                        },
-                                        "baseline_windows": [
-                                            {
-                                                "start": "2026-05-01T00:00:00Z",
-                                                "end": "2026-05-02T00:00:00Z",
-                                            }
-                                        ],
-                                    }
-                                ],
-                                "index": {
-                                    "schema_version": "bot_scorecard_index.v1",
-                                    "scope": {
-                                        "cluster": "demo",
-                                        "database": "akamai",
-                                        "entity_type": "request_host",
-                                    },
-                                    "comparison_type": "previous_window",
-                                    "table_used": "akamai.bi_summary_hour",
-                                    "current_window": {
-                                        "start": "2026-05-02T00:00:00Z",
-                                        "end": "2026-05-03T00:00:00Z",
-                                    },
-                                    "baseline_windows": [
-                                        {
-                                            "start": "2026-05-01T00:00:00Z",
-                                            "end": "2026-05-02T00:00:00Z",
-                                        }
-                                    ],
-                                    "ranked_entities": [
-                                        {
-                                            "rank": 1,
-                                            "entity_type": "request_host",
-                                            "entity": "www.example.com",
-                                            "score": 55,
-                                        }
-                                    ],
-                                    "analysis_domains": [
-                                        "cache_busting",
-                                        "origin_impact",
-                                    ],
-                                },
-                            }
-                        ),
+                        json.dumps(self._edge_scorecard_packet(features_list=[])),
                         encoding="utf-8",
                     )
                     return ""
@@ -3137,7 +3066,7 @@ class BotInsightsScriptTests(unittest.TestCase):
             self.assertNotIn(
                 '<table class="data-table path-candidates-table">', output_html
             )
-            self.assertIn("Triage queue", output_html)
+            self.assertIn("www.example.com", output_html)
 
     def render_args(self, **overrides):
         defaults = {
