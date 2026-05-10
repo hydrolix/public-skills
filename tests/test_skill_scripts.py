@@ -2485,6 +2485,507 @@ class BotInsightsScriptTests(unittest.TestCase):
                 self.bot_insights_report.main()
             self.assertIn("client_asn", str(cm.exception))
 
+    def test_bot_insights_report_edge_ops_impact_handoff_packet(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output = Path(tmpdir) / "edge-ops-impact.html"
+            sample_dir = Path(tmpdir) / "sample"
+            handoff = {
+                "schema_version": "bot_hydrolix_mcp_query_request.v1",
+                "cluster": "demo",
+                "database": "akamai",
+                "validated_sql": "SELECT 1 FROM akamai.bi_summary_hour WHERE reqTimeSec >= now() FORMAT JSON",
+                "target_raw_output_path": str(sample_dir / "edge_ops_impact-raw.json"),
+                "mcp": {
+                    "server": "hydrolix_mux",
+                    "tool": "run_select_query",
+                    "arguments": {
+                        "cluster": "demo",
+                        "query": "SELECT 1 FROM akamai.bi_summary_hour WHERE reqTimeSec >= now() FORMAT JSON",
+                    },
+                },
+            }
+            captured_sqls: list[str] = []
+
+            def fake_run(cmd, *, stdout_path=None, cwd=None, allowed_returncodes=()):
+                joined = " ".join(map(str, cmd))
+                if "bot_insights_capture.py" in joined:
+                    self.assertIn(
+                        self.bot_insights_report.NEEDS_MCP_EXIT, allowed_returncodes
+                    )
+                    sql_index = list(cmd).index("--sql") + 1
+                    captured_sqls.append(cmd[sql_index])
+                    return json.dumps(handoff)
+                raise AssertionError(cmd)
+
+            argv = [
+                "bot-insights-report",
+                "--cluster",
+                "demo",
+                "--database",
+                "akamai",
+                "--report",
+                "edge_ops_impact",
+                "--mode",
+                "report",
+                "--entity-type",
+                "request_host",
+                "--start",
+                "2026-05-02T00:00:00Z",
+                "--end",
+                "2026-05-03T00:00:00Z",
+                "--output",
+                str(output),
+                "--sample-dir",
+                str(sample_dir),
+            ]
+            stdout = io.StringIO()
+            with (
+                mock.patch.object(sys, "argv", argv),
+                mock.patch.object(
+                    self.bot_insights_report, "run", side_effect=fake_run
+                ),
+                mock.patch("sys.stdout", stdout),
+            ):
+                self.assertEqual(
+                    self.bot_insights_report.main(),
+                    self.bot_insights_report.NEEDS_MCP_EXIT,
+                )
+
+            printed = json.loads(stdout.getvalue())
+            self.assertEqual(
+                printed["schema_version"], "bot_hydrolix_mcp_query_request.v1"
+            )
+            self.assertEqual(printed["report_context"]["report"], "edge_ops_impact")
+            self.assertEqual(printed["report_context"]["artifact"], "scorecard")
+            self.assertIn("bi_summary_", printed["report_context"]["table_used"])
+            # Only the entity-grain capture ran; script exits before path query.
+            self.assertEqual(len(captured_sqls), 1)
+            self.assertIn("bi_summary_", captured_sqls[0])
+            self.assertFalse(output.exists())
+
+    def test_bot_insights_report_edge_ops_impact_raw_input_emits_evidence(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output = Path(tmpdir) / "edge-ops-impact.html"
+            sample_dir = Path(tmpdir) / "sample"
+            raw_input = Path(tmpdir) / "entity-raw.json"
+            raw_path_input = Path(tmpdir) / "path-raw.json"
+
+            raw_input.write_text(
+                json.dumps(
+                    {
+                        "data": [
+                            {
+                                "request_host": "www.example.com",
+                                "current_requests": 100000,
+                                "baseline_requests": 80000,
+                                "current_cache_miss_pct": 65.0,
+                                "baseline_cache_miss_pct": 40.0,
+                                "current_unique_qs": None,
+                                "baseline_unique_qs": None,
+                                "current_origin_p95_ms": None,
+                                "baseline_origin_p95_ms": None,
+                                "origin_cost_contribution_pct": 18.5,
+                            }
+                        ],
+                        "rows": 1,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            raw_path_input.write_text(
+                json.dumps(
+                    {
+                        "analysis_type": "cache_busting_origin_impact",
+                        "comparison_type": "previous_window",
+                        "granularity": "hour",
+                        "table_used": "akamai.bot_agg_path_hour",
+                        "summary_table_used": True,
+                        "scope": {"request_host": "www.example.com"},
+                        "dimensions": ["request_path_norm"],
+                        "current_window": {
+                            "start": "2026-05-02T00:00:00Z",
+                            "end": "2026-05-03T00:00:00Z",
+                        },
+                        "baseline_windows": [
+                            {
+                                "start": "2026-05-01T00:00:00Z",
+                                "end": "2026-05-02T00:00:00Z",
+                            }
+                        ],
+                        "metric_semantics": {
+                            "unique_query_strings": "query_string_cardinality",
+                            "origin_p95_ms": "origin_latency",
+                        },
+                        "rows": [
+                            {
+                                "request_path_norm": "/api/v1/pricing",
+                                "current_requests": 50000,
+                                "baseline_requests": 40000,
+                                "current_cache_misses": 35000,
+                                "baseline_cache_misses": 16000,
+                                "current_unique_query_strings": 1200,
+                                "baseline_unique_query_strings": 500,
+                                "current_origin_p95_ms": 820,
+                                "baseline_origin_p95_ms": 580,
+                            },
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            wrapper_seen: dict = {}
+
+            def fake_run(cmd, *, stdout_path=None, cwd=None, allowed_returncodes=()):
+                joined = " ".join(map(str, cmd))
+                if "bot_insights_capture.py" in joined:
+                    raise AssertionError("capture should be skipped with --raw-input")
+                if "scorecard.py" in joined and stdout_path is not None:
+                    stdout_path.write_text(
+                        json.dumps(
+                            {
+                                "schema_version": "bot_scorecard_artifacts.v1",
+                                "scorecards": [
+                                    {
+                                        "schema_version": "bot_entity_scorecard.v1",
+                                        "entity_type": "request_host",
+                                        "entity": "www.example.com",
+                                        "score": 55,
+                                        "band": "medium_review",
+                                        "primary_domain": "cache_busting",
+                                        "confidence": "medium",
+                                        "domain_scores": {"cache_busting": 55},
+                                        "features": [
+                                            {
+                                                "name": "cache_miss_rate_high",
+                                                "domain": "cache_busting",
+                                                "evidence": "Cache-miss rate rose from 40% to 65%.",
+                                            }
+                                        ],
+                                        "not_evaluated_features": [],
+                                        "recommended_next_steps": [],
+                                        "scope": {
+                                            "cluster": "demo",
+                                            "database": "akamai",
+                                            "entity_type": "request_host",
+                                        },
+                                        "comparison_type": "previous_window",
+                                        "table_used": "akamai.bi_summary_hour",
+                                        "current_window": {
+                                            "start": "2026-05-02T00:00:00Z",
+                                            "end": "2026-05-03T00:00:00Z",
+                                        },
+                                        "baseline_windows": [
+                                            {
+                                                "start": "2026-05-01T00:00:00Z",
+                                                "end": "2026-05-02T00:00:00Z",
+                                            }
+                                        ],
+                                    }
+                                ],
+                                "index": {
+                                    "schema_version": "bot_scorecard_index.v1",
+                                    "scope": {
+                                        "cluster": "demo",
+                                        "database": "akamai",
+                                        "entity_type": "request_host",
+                                    },
+                                    "comparison_type": "previous_window",
+                                    "table_used": "akamai.bi_summary_hour",
+                                    "current_window": {
+                                        "start": "2026-05-02T00:00:00Z",
+                                        "end": "2026-05-03T00:00:00Z",
+                                    },
+                                    "baseline_windows": [
+                                        {
+                                            "start": "2026-05-01T00:00:00Z",
+                                            "end": "2026-05-02T00:00:00Z",
+                                        }
+                                    ],
+                                    "ranked_entities": [
+                                        {
+                                            "rank": 1,
+                                            "entity_type": "request_host",
+                                            "entity": "www.example.com",
+                                            "score": 55,
+                                        }
+                                    ],
+                                    "analysis_domains": [
+                                        "cache_busting",
+                                        "origin_impact",
+                                    ],
+                                },
+                            }
+                        ),
+                        encoding="utf-8",
+                    )
+                    return ""
+                if "cache_origin_impact.py" in joined and stdout_path is not None:
+                    # ranked_candidates must be truthy for the orchestrator's
+                    # guard at line 2126 of bot_insights_report.py to pass.
+                    stdout_path.write_text(
+                        json.dumps(
+                            {
+                                "schema_version": "cache_origin_impact_report.v1",
+                                "analysis_type": "cache_busting_origin_impact",
+                                "scope": {"request_host": "www.example.com"},
+                                "dimensions": ["request_path_norm"],
+                                "ranked_candidates": [
+                                    {
+                                        "rank": 1,
+                                        "entity": {
+                                            "request_path_norm": "/api/v1/pricing"
+                                        },
+                                    }
+                                ],
+                                "candidates": [
+                                    {
+                                        "rank": 1,
+                                        "entity": {
+                                            "request_path_norm": "/api/v1/pricing"
+                                        },
+                                        "current": {
+                                            "requests": 50000,
+                                            "cache_misses": 35000,
+                                        },
+                                        "baseline": {
+                                            "requests": 40000,
+                                            "cache_misses": 16000,
+                                        },
+                                        "deltas": {},
+                                        "candidate_score": 72,
+                                        "candidate_band": "high_review",
+                                        "confidence": "medium",
+                                        "finding_types": ["cache_busting_candidate"],
+                                    }
+                                ],
+                                "not_evaluated": [],
+                                "confidence": "medium",
+                                "confidence_reasons": [],
+                                "limitations": [],
+                            }
+                        ),
+                        encoding="utf-8",
+                    )
+                    return ""
+                if "render_report.py" in joined:
+                    wrapper_path = Path(cmd[list(cmd).index("--file") + 1])
+                    wrapper_seen.update(json.loads(wrapper_path.read_text()))
+                    Path(cmd[list(cmd).index("--output") + 1]).write_text(
+                        "<html>edge-ops</html>", encoding="utf-8"
+                    )
+                    return ""
+                raise AssertionError(cmd)
+
+            argv = [
+                "bot-insights-report",
+                "--cluster",
+                "demo",
+                "--database",
+                "akamai",
+                "--report",
+                "edge_ops_impact",
+                "--mode",
+                "report",
+                "--entity-type",
+                "request_host",
+                "--start",
+                "2026-05-02T00:00:00Z",
+                "--end",
+                "2026-05-03T00:00:00Z",
+                "--output",
+                str(output),
+                "--sample-dir",
+                str(sample_dir),
+                "--raw-input",
+                str(raw_input),
+                "--raw-path-input",
+                str(raw_path_input),
+            ]
+            with (
+                mock.patch.object(sys, "argv", argv),
+                mock.patch.object(
+                    self.bot_insights_report, "run", side_effect=fake_run
+                ),
+            ):
+                self.assertEqual(self.bot_insights_report.main(), 0)
+
+            self.assertEqual(wrapper_seen["report_type"], "edge_ops_impact")
+            self.assertEqual(wrapper_seen["schema_version"], "bot_report_input.v1")
+            artifact_schemas = {a["schema_version"] for a in wrapper_seen["artifacts"]}
+            self.assertIn("bot_scorecard_index.v1", artifact_schemas)
+            self.assertIn("cache_origin_impact_report.v1", artifact_schemas)
+            self.assertTrue(output.exists())
+
+    def test_bot_insights_report_edge_ops_impact_path_grain_fallback(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output = Path(tmpdir) / "edge-ops-impact.html"
+            sample_dir = Path(tmpdir) / "sample"
+            raw_input = Path(tmpdir) / "entity-raw.json"
+
+            raw_input.write_text(
+                json.dumps(
+                    {
+                        "data": [
+                            {
+                                "request_host": "www.example.com",
+                                "current_requests": 100000,
+                                "baseline_requests": 80000,
+                                "current_cache_miss_pct": 65.0,
+                                "baseline_cache_miss_pct": 40.0,
+                                "current_unique_qs": None,
+                                "baseline_unique_qs": None,
+                                "current_origin_p95_ms": None,
+                                "baseline_origin_p95_ms": None,
+                                "origin_cost_contribution_pct": 18.5,
+                            }
+                        ],
+                        "rows": 1,
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            wrapper_seen: dict = {}
+
+            def fake_run(cmd, *, stdout_path=None, cwd=None, allowed_returncodes=()):
+                joined = " ".join(map(str, cmd))
+                if "bot_insights_capture.py" in joined:
+                    raise AssertionError("capture should be skipped with --raw-input")
+                if "cache_origin_impact.py" in joined:
+                    raise AssertionError(
+                        "cache_origin_impact should be skipped without --raw-path-input"
+                    )
+                if "scorecard.py" in joined and stdout_path is not None:
+                    stdout_path.write_text(
+                        json.dumps(
+                            {
+                                "schema_version": "bot_scorecard_artifacts.v1",
+                                "scorecards": [
+                                    {
+                                        "schema_version": "bot_entity_scorecard.v1",
+                                        "entity_type": "request_host",
+                                        "entity": "www.example.com",
+                                        "score": 55,
+                                        "band": "medium_review",
+                                        "primary_domain": "cache_busting",
+                                        "confidence": "medium",
+                                        "domain_scores": {"cache_busting": 55},
+                                        "features": [],
+                                        "not_evaluated_features": [],
+                                        "recommended_next_steps": [],
+                                        "scope": {
+                                            "cluster": "demo",
+                                            "database": "akamai",
+                                            "entity_type": "request_host",
+                                        },
+                                        "comparison_type": "previous_window",
+                                        "table_used": "akamai.bi_summary_hour",
+                                        "current_window": {
+                                            "start": "2026-05-02T00:00:00Z",
+                                            "end": "2026-05-03T00:00:00Z",
+                                        },
+                                        "baseline_windows": [
+                                            {
+                                                "start": "2026-05-01T00:00:00Z",
+                                                "end": "2026-05-02T00:00:00Z",
+                                            }
+                                        ],
+                                    }
+                                ],
+                                "index": {
+                                    "schema_version": "bot_scorecard_index.v1",
+                                    "scope": {
+                                        "cluster": "demo",
+                                        "database": "akamai",
+                                        "entity_type": "request_host",
+                                    },
+                                    "comparison_type": "previous_window",
+                                    "table_used": "akamai.bi_summary_hour",
+                                    "current_window": {
+                                        "start": "2026-05-02T00:00:00Z",
+                                        "end": "2026-05-03T00:00:00Z",
+                                    },
+                                    "baseline_windows": [
+                                        {
+                                            "start": "2026-05-01T00:00:00Z",
+                                            "end": "2026-05-02T00:00:00Z",
+                                        }
+                                    ],
+                                    "ranked_entities": [
+                                        {
+                                            "rank": 1,
+                                            "entity_type": "request_host",
+                                            "entity": "www.example.com",
+                                            "score": 55,
+                                        }
+                                    ],
+                                    "analysis_domains": [
+                                        "cache_busting",
+                                        "origin_impact",
+                                    ],
+                                },
+                            }
+                        ),
+                        encoding="utf-8",
+                    )
+                    return ""
+                if "render_report.py" in joined:
+                    wrapper_path = Path(cmd[list(cmd).index("--file") + 1])
+                    wrapper_seen.update(json.loads(wrapper_path.read_text()))
+                    Path(cmd[list(cmd).index("--output") + 1]).write_text(
+                        "<html>edge-ops-no-paths</html>", encoding="utf-8"
+                    )
+                    return ""
+                raise AssertionError(cmd)
+
+            argv = [
+                "bot-insights-report",
+                "--cluster",
+                "demo",
+                "--database",
+                "akamai",
+                "--report",
+                "edge_ops_impact",
+                "--mode",
+                "report",
+                "--entity-type",
+                "request_host",
+                "--start",
+                "2026-05-02T00:00:00Z",
+                "--end",
+                "2026-05-03T00:00:00Z",
+                "--output",
+                str(output),
+                "--sample-dir",
+                str(sample_dir),
+                "--raw-input",
+                str(raw_input),
+                # --raw-path-input intentionally omitted to trigger fallback
+            ]
+            stderr = io.StringIO()
+            with (
+                mock.patch.object(sys, "argv", argv),
+                mock.patch.object(
+                    self.bot_insights_report, "run", side_effect=fake_run
+                ),
+                mock.patch("sys.stderr", stderr),
+            ):
+                self.assertEqual(self.bot_insights_report.main(), 0)
+
+            warning = stderr.getvalue()
+            self.assertIn("path-grain", warning)
+            self.assertEqual(wrapper_seen["report_type"], "edge_ops_impact")
+            self.assertEqual(wrapper_seen["schema_version"], "bot_report_input.v1")
+            artifact_schemas = {a["schema_version"] for a in wrapper_seen["artifacts"]}
+            self.assertIn("bot_scorecard_index.v1", artifact_schemas)
+            self.assertNotIn("cache_origin_impact_report.v1", artifact_schemas)
+            self.assertTrue(output.exists())
+
     def render_args(self, **overrides):
         defaults = {
             "text": [],
