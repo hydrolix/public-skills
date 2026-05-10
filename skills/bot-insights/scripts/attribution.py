@@ -393,6 +393,19 @@ def table_family(
     }
 
 
+# SUMMARY_TABLE_CATALOG documents the summary-table family this skill knows
+# how to interpret. The ``parent`` field records the historical raw table
+# (``bot_detection``, ``bot_detection_siem``) the summary aggregates rolled
+# up from. Those raw tables are **not currently deployed on any production
+# cluster** and the skill does not query them; ``parent`` is retained as
+# lineage metadata only and is surfaced in validation output for callers
+# that care about provenance. The bot_agg_path_*, bot_agg_resource_*,
+# bot_agg_traffic_hour, bot_agg_ua_hour, bot_agg_asn_hour, and bot_agg_hour
+# entries below describe summary tables that are likewise not deployed
+# today; their catalog metadata exists so the detector and SQL validators
+# remain correct if those aggregates are eventually installed. The
+# bi_summary_* and bi_siem_policy_summary_* families are the only entries
+# backed by tables that actually exist in production.
 SUMMARY_TABLE_CATALOG: dict[str, dict[str, Any]] = {}
 SUMMARY_TABLE_CATALOG.update(
     table_family(

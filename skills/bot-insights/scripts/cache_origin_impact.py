@@ -3,6 +3,16 @@
 
 This module parses and validates aggregate rows, derives canonical current,
 baseline, and delta metrics, then assembles scored detector candidates.
+
+Note on inputs: the detector consumes pre-aggregated JSON rows from a caller
+(e.g. ``bot_insights_report.py``'s opt-in path-grain capture), not a live
+Hydrolix query. The path-grain summary tables (``bot_agg_path_minute``,
+``bot_agg_path_hour``, ``bot_agg_path_day``) referenced in ``table_used``
+metadata and the ``bot_agg_path_*`` guard below are **not currently deployed
+on any production cluster**. The detector logic is wired and tested so that
+when those aggregates are eventually installed the path-grain pipeline
+works end to end; today, callers should pass pre-built aggregate JSON via
+``--file``.
 """
 
 from __future__ import annotations

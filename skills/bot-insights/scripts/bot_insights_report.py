@@ -1666,6 +1666,18 @@ def parse_args() -> argparse.Namespace:
         help="Optional hostname filter for edge_ops_impact path-grain query (scopes path candidates to a single request_host).",
     )
     parser.add_argument(
+        "--include-paths",
+        action="store_true",
+        default=False,
+        help=(
+            "Opt in to the edge_ops_impact path-grain capture against "
+            "bot_agg_path_<granularity>. This table is not currently "
+            "deployed on any production cluster, so the path-grain query "
+            "is off by default; enabling it falls back gracefully when "
+            "the table is missing."
+        ),
+    )
+    parser.add_argument(
         "--domains",
         help="Optional comma-separated scorecard domains to evaluate.",
     )
@@ -1850,28 +1862,43 @@ def main() -> int:
                 raw_path_value = load_raw_query_result(
                     Path(args.raw_path_input).expanduser().resolve()
                 )
-            else:
+            elif args.include_paths:
                 print(
                     "WARNING: --raw-path-input not supplied for edge_ops_impact; "
                     "path-grain artifact will be omitted.",
                     file=sys.stderr,
                 )
     else:
-        capture_summary_text = run(
-            [
-                sys.executable,
-                str(CAPTURE),
-                "--cluster",
-                args.cluster,
-                "--database",
-                args.database,
-                "--sql",
-                sql,
-                "--output",
-                str(raw_path),
-            ],
-            allowed_returncodes=(NEEDS_MCP_EXIT,),
-        )
+        try:
+            capture_summary_text = run(
+                [
+                    sys.executable,
+                    str(CAPTURE),
+                    "--cluster",
+                    args.cluster,
+                    "--database",
+                    args.database,
+                    "--sql",
+                    sql,
+                    "--output",
+                    str(raw_path),
+                ],
+                allowed_returncodes=(NEEDS_MCP_EXIT,),
+            )
+        except SystemExit as exc:
+            # SOC triage depends on bi_siem_policy_summary_<granularity>,
+            # which is not deployed on every cluster. Without SIEM data the
+            # script cannot produce a SOC report, so warn clearly and exit
+            # cleanly rather than crash with a raw capture traceback.
+            if args.report == "soc_triage":
+                print(
+                    "WARNING: SOC capture failed; "
+                    f"{table_used} may not be deployed on this cluster ({exc}). "
+                    "soc_triage requires SIEM policy summary data; skipping report.",
+                    file=sys.stderr,
+                )
+                return 0
+            raise
         try:
             capture_summary = json.loads(capture_summary_text)
         except json.JSONDecodeError as exc:
@@ -1969,7 +1996,7 @@ def main() -> int:
                 print(json.dumps(timeseries_summary, sort_keys=True))
                 return NEEDS_MCP_EXIT
             raw_timeseries_value = load_raw_query_result(timeseries_raw_path)
-        if args.report == "edge_ops_impact":
+        if args.report == "edge_ops_impact" and args.include_paths:
             path_grain_sql = cache_origin_path_sql(
                 args.database,
                 start,
