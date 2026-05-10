@@ -2755,6 +2755,7 @@ class BotInsightsScriptTests(unittest.TestCase):
                 str(output),
                 "--sample-dir",
                 str(sample_dir),
+                "--include-paths",
             ]
             stdout = io.StringIO()
             with (
@@ -2776,7 +2777,9 @@ class BotInsightsScriptTests(unittest.TestCase):
             self.assertEqual(printed["report_context"]["report"], "edge_ops_impact")
             self.assertEqual(printed["report_context"]["artifact"], "path")
             self.assertIn("bot_agg_path_", printed["report_context"]["table_used"])
-            # Two capture calls: entity-grain then path-grain.
+            # Two capture calls: entity-grain then path-grain (opted in via
+            # --include-paths). Without the flag, the path-grain branch is
+            # skipped entirely and never produces a second handoff.
             self.assertEqual(len(captured_sqls), 2)
             self.assertIn("bi_summary_", captured_sqls[0])
             self.assertIn("bot_agg_path_", captured_sqls[1])
@@ -3042,7 +3045,10 @@ class BotInsightsScriptTests(unittest.TestCase):
                 str(sample_dir),
                 "--raw-input",
                 str(raw_input),
-                # --raw-path-input intentionally omitted to trigger fallback
+                "--include-paths",
+                # --raw-path-input intentionally omitted to trigger fallback;
+                # --include-paths opts into path-grain so the missing
+                # path-input warning fires.
             ]
             stderr = io.StringIO()
             with (
@@ -3067,6 +3073,189 @@ class BotInsightsScriptTests(unittest.TestCase):
                 '<table class="data-table path-candidates-table">', output_html
             )
             self.assertIn("www.example.com", output_html)
+
+    def test_bot_insights_report_edge_ops_impact_path_grain_skipped_by_default(
+        self,
+    ) -> None:
+        """Without --include-paths the orchestration must skip path-grain
+        capture entirely and render entity-grain only, even on a fresh
+        capture flow (no --raw-input shortcut)."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output = Path(tmpdir) / "edge-ops-impact.html"
+            sample_dir = Path(tmpdir) / "sample"
+            captured_sqls: list[str] = []
+            wrapper_seen: dict = {}
+
+            def fake_run(cmd, *, stdout_path=None, cwd=None, allowed_returncodes=()):
+                joined = " ".join(map(str, cmd))
+                if "bot_insights_capture.py" in joined:
+                    sql_index = list(cmd).index("--sql") + 1
+                    sql = cmd[sql_index]
+                    captured_sqls.append(sql)
+                    # Default-off semantics: only the entity-grain
+                    # bi_summary_* capture should ever fire.
+                    if "bot_agg_path_" in sql:
+                        raise AssertionError(
+                            "path-grain capture must be skipped without --include-paths"
+                        )
+                    output_index = list(cmd).index("--output") + 1
+                    Path(cmd[output_index]).parent.mkdir(parents=True, exist_ok=True)
+                    Path(cmd[output_index]).write_text(
+                        json.dumps(
+                            {
+                                "data": self._edge_entity_grain_rows(),
+                                "rows": 1,
+                            }
+                        ),
+                        encoding="utf-8",
+                    )
+                    return json.dumps({"rows": 1})
+                if "cache_origin_impact.py" in joined:
+                    raise AssertionError(
+                        "cache_origin_impact must be skipped without --include-paths"
+                    )
+                if "scorecard.py" in joined and stdout_path is not None:
+                    stdout_path.write_text(
+                        json.dumps(self._edge_scorecard_packet(features_list=[])),
+                        encoding="utf-8",
+                    )
+                    return ""
+                if "render_report.py" in joined:
+                    wrapper_path = Path(cmd[list(cmd).index("--file") + 1])
+                    wrapper_data = json.loads(wrapper_path.read_text())
+                    wrapper_seen.update(wrapper_data)
+                    out_path = Path(cmd[list(cmd).index("--output") + 1])
+                    engine_render_py = (
+                        ROOT / "skills/bot-insights/scripts/report_engine/render.py"
+                    )
+                    subprocess.run(
+                        [
+                            "uv",
+                            "run",
+                            str(engine_render_py),
+                            "--artifact",
+                            str(wrapper_path),
+                            "--out",
+                            str(out_path),
+                        ],
+                        check=True,
+                        capture_output=True,
+                    )
+                    return ""
+                raise AssertionError(cmd)
+
+            argv = [
+                "bot-insights-report",
+                "--cluster",
+                "demo",
+                "--database",
+                "akamai",
+                "--report",
+                "edge_ops_impact",
+                "--mode",
+                "report",
+                "--entity-type",
+                "request_host",
+                "--start",
+                "2026-05-02T00:00:00Z",
+                "--end",
+                "2026-05-03T00:00:00Z",
+                "--output",
+                str(output),
+                "--sample-dir",
+                str(sample_dir),
+                # --include-paths intentionally omitted to assert the
+                # default-off (entity-grain only) path-grain semantics.
+            ]
+            with (
+                mock.patch.object(sys, "argv", argv),
+                mock.patch.object(
+                    self.bot_insights_report, "run", side_effect=fake_run
+                ),
+            ):
+                self.assertEqual(self.bot_insights_report.main(), 0)
+
+            # Exactly one capture call: entity-grain only.
+            self.assertEqual(len(captured_sqls), 1)
+            self.assertIn("bi_summary_", captured_sqls[0])
+            self.assertNotIn("bot_agg_path_", captured_sqls[0])
+            self.assertEqual(wrapper_seen["report_type"], "edge_ops_impact")
+            artifact_schemas = {a["schema_version"] for a in wrapper_seen["artifacts"]}
+            self.assertIn("bot_scorecard_index.v1", artifact_schemas)
+            self.assertNotIn("cache_origin_impact_report.v1", artifact_schemas)
+            self.assertTrue(output.exists())
+            output_html = output.read_text()
+            self.assertNotIn(
+                '<table class="data-table path-candidates-table">', output_html
+            )
+            self.assertIn("www.example.com", output_html)
+
+    def test_bot_insights_report_soc_triage_missing_siem_table_graceful_error(
+        self,
+    ) -> None:
+        """When the SOC capture subprocess fails because
+        bi_siem_policy_summary_<granularity> is not deployed, the script
+        must exit cleanly (return 0) with a clear stderr warning naming
+        the missing table — not crash with a raw subprocess error."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output = Path(tmpdir) / "soc-evidence.json"
+            sample_dir = Path(tmpdir) / "sample"
+            captures_attempted: list[str] = []
+
+            def fake_run(cmd, *, stdout_path=None, cwd=None, allowed_returncodes=()):
+                joined = " ".join(map(str, cmd))
+                if "bot_insights_capture.py" in joined:
+                    sql_index = list(cmd).index("--sql") + 1
+                    captures_attempted.append(cmd[sql_index])
+                    raise SystemExit(
+                        "HTTP 400: namespace 'akamai' does not exist "
+                        "(akamai.bi_siem_policy_summary_hour)"
+                    )
+                # Nothing else should fire: SOC bails out before
+                # scorecard.py or render_report.py are invoked.
+                raise AssertionError(cmd)
+
+            argv = [
+                "bot-insights-report",
+                "--cluster",
+                "demo",
+                "--database",
+                "akamai",
+                "--report",
+                "soc_triage",
+                "--mode",
+                "evidence",
+                "--entity-type",
+                "request_host",
+                "--start",
+                "2026-05-02T00:00:00Z",
+                "--end",
+                "2026-05-03T00:00:00Z",
+                "--output",
+                str(output),
+                "--sample-dir",
+                str(sample_dir),
+            ]
+            stderr = io.StringIO()
+            with (
+                mock.patch.object(sys, "argv", argv),
+                mock.patch.object(
+                    self.bot_insights_report, "run", side_effect=fake_run
+                ),
+                mock.patch("sys.stderr", stderr),
+            ):
+                # Clean exit (0), not SystemExit / NEEDS_MCP_EXIT.
+                self.assertEqual(self.bot_insights_report.main(), 0)
+
+            warning = stderr.getvalue()
+            self.assertIn("WARNING", warning)
+            self.assertIn("bi_siem_policy_summary_hour", warning)
+            # Exactly one SOC capture attempt was made before the
+            # graceful fallback fired.
+            self.assertEqual(len(captures_attempted), 1)
+            self.assertIn("bi_siem_policy_summary_hour", captures_attempted[0])
+            # No artifacts produced downstream.
+            self.assertFalse(output.exists())
 
     def render_args(self, **overrides):
         defaults = {
