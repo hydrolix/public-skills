@@ -268,9 +268,7 @@ Decision rule before running any `run_select_query`:
 
 Reports for which the script-orchestrated capture path is wired:
 `executive_posture`, `control_review`, `soc_triage`, `scorecard_brief`, and
-`crawler_governance`. `edge_ops_impact` is not yet wired — flag the
-exception when you produce one and capture aggregate rows through MCP into
-`scorecard.py` directly.
+`crawler_governance`, and `edge_ops_impact`.
 
 ## Triage Flow
 
@@ -368,11 +366,7 @@ exception when you produce one and capture aggregate rows through MCP into
   packet, the report script prints that packet and exits with the documented
   `needs MCP` code. After the LLM/agent saves the MCP result JSON, rerun with
   `--raw-input <path>` to add report metadata, produce local artifacts, and
-  emit rendered reports or `bot_report_evidence.v1` packets. The LLM may fill
-  prose in a template from that packet only. For supported report types not
-  yet wired here (`edge_ops_impact`), create the deterministic artifacts
-  through their own scripts or query workflow and pass them to
-  `scripts/render_report.py`. `~/src/utils/bot-insights-report` remains a thin
+  emit rendered reports or `bot_report_evidence.v1` packets. The LLM may fill prose in a template from that packet only. `~/src/utils/bot-insights-report` remains a thin
   executable convenience wrapper around this skill script.
 - Broad, non-preset, exploratory, or non-Bot-Insights SQL investigation belongs
   in the LLM workflow through Hydrolix MCP / host query tools, not in

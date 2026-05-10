@@ -16,8 +16,39 @@ Edge/Ops pattern reference.
 
 ## Contents
 
+- [Producer Orchestration](#producer-orchestration)
 - [Cache-Busting and Querystring Churn Detection](#cache-busting-and-querystring-churn-detection-edgeops)
 - [Origin Impact and Bandwidth Cost](#origin-impact-and-bandwidth-cost-edgeops)
+
+## Producer Orchestration
+
+Use `bot_insights_report.py --report edge_ops_impact` to produce a
+deterministic Edge & Origin Cost wrapper end-to-end. The producer
+runs two Hydrolix queries in sequence, both gated by the data
+firewall (local credentials → no LLM↔database round-trip, or a
+handoff packet for the agent to run via MCP and resume):
+
+1. **Entity-grain** query against `bi_summary_<granularity>` produces
+   per-entity scorecard cards via `scorecard.py`. Supported entity
+   types: `client_asn`, `request_host`, `bot_class`.
+2. **Path-grain** query against `bot_agg_path_<granularity>` produces
+   path candidates via `cache_origin_impact.py`. Optional `--host`
+   flag scopes path candidates to a single request_host.
+
+When local credentials resolve from
+`~/.config/hydrolix/clusters/<cluster>/*.env`, both queries execute
+directly and emit a `bot_report_input.v1` wrapper. When credentials
+are absent, the script emits two handoff packets sequentially with
+`report_context.artifact` annotations (`"scorecard"` then `"path"`)
+that the agent resumes via `--raw-input` and `--raw-path-input`.
+
+Path-grain failure (table missing, query error, zero rows) is
+non-fatal: the wrapper ships with the entity-grain artifact only.
+The renderer suppresses the Top Paths section when path candidates
+are absent.
+
+See [cache-origin-impact.md](cache-origin-impact.md) for the
+path-grain detector contract and required input row shape.
 
 ### Cache-Busting and Querystring Churn Detection [Edge/Ops]
 
