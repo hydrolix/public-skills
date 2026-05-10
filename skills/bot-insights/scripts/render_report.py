@@ -4266,11 +4266,16 @@ def render(
     validate_analyst_notes(notes, artifacts)
     if args.format == "html":
         # Dual-route: HTML for ``executive_posture``, ``soc_triage``,
-        # and ``crawler_governance`` goes through the new report_engine
-        # path. Markdown callers (``md_executive``, ``md_soc``,
-        # ``md_domain_report`` for crawler) stay on the legacy path.
-        # Other report types are unchanged.
-        if report_type in {"executive_posture", "soc_triage", "crawler_governance"}:
+        # ``crawler_governance``, and ``edge_ops_impact`` goes through
+        # the new report_engine path. Markdown callers (``md_executive``,
+        # ``md_soc``, ``md_domain_report`` for crawler and edge) stay on
+        # the legacy path. Other report types are unchanged.
+        if report_type in {
+            "executive_posture",
+            "soc_triage",
+            "crawler_governance",
+            "edge_ops_impact",
+        }:
             engine_html = _render_via_engine(
                 report_type=report_type,
                 value=value,
