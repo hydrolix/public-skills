@@ -261,8 +261,7 @@ SELECT
   period,
   sum(cnt_all) AS requests,
   round(sumIf(cnt_all, is_bot_traffic = true) / greatest(sum(cnt_all), 1) * 100, 2) AS bot_share_pct,
-  round(sumIf(cnt_all, bot_class = 'good') / greatest(sum(cnt_all), 1) * 100, 2) AS good_bot_share_pct,
-  round(sumIf(cnt_all, bot_class = 'bad') / greatest(sum(cnt_all), 1) * 100, 2) AS bad_bot_share_pct,
+  round(sumIf(cnt_all, userAgentCategory = 'Search Engine Crawler') / greatest(sum(cnt_all), 1) * 100, 2) AS good_bot_share_pct,
   round(sum(cnt_429) / greatest(sum(cnt_all), 1) * 100, 2) AS rate_429_pct,
   round(sum(cnt_5xx) / greatest(sum(cnt_all), 1) * 100, 2) AS rate_5xx_pct,
   round(sum(cnt_cache_miss) / greatest(sum(cnt_all), 1) * 100, 2) AS cache_miss_pct,
@@ -283,6 +282,16 @@ FROM (
 GROUP BY period
 ORDER BY period
 ```
+
+`good_bot_share_pct` filters on `userAgentCategory = 'Search Engine Crawler'`
+because deployed posture summaries do not retain a queryable `bot_class`
+column; confirm the metadata-matched user-agent category value for the
+target cluster. `bad_bot_share_pct` is intentionally omitted: there is no
+clean `userAgentCategory` value for "bad". For SIEM-grade bad-bot share on
+SIEM-enabled clusters, layer `bi_siem_policy_summary_*` (filter on
+`botType`) on top of this template; otherwise apply the
+deployment-availability rule (SKILL.md). See the metadata-alias note in
+[scorecard-analysis.md](scorecard-analysis.md) for background.
 
 ### Mover Attribution from a Summary
 

@@ -36,7 +36,6 @@ SELECT
   request_host,
   sum(cnt_all) AS requests,
   round(sumIf(cnt_all, is_bot_traffic = true) / greatest(sum(cnt_all), 1) * 100, 2) AS bot_share_pct,
-  round(sumIf(cnt_all, bot_class = 'bad') / greatest(sum(cnt_all), 1) * 100, 2) AS bad_bot_share_pct,
   round(sumIf(cnt_all, ai_category != '') / greatest(sum(cnt_all), 1) * 100, 2) AS ai_crawler_share_pct,
   round(sum(cnt_429) / greatest(sum(cnt_all), 1) * 100, 2) AS rate_429_pct,
   round(sum(cnt_cache_miss) / greatest(sum(cnt_all), 1) * 100, 2) AS cache_miss_pct
@@ -54,6 +53,13 @@ FROM (
 GROUP BY period, request_host
 ORDER BY request_host, period
 ```
+
+`bad_bot_share_pct` is intentionally omitted: deployed posture summaries do
+not retain a queryable `bot_class` column (see scorecard-analysis.md
+metadata-alias note). For SIEM-grade bad-bot share on SIEM-enabled clusters,
+layer `bi_siem_policy_summary_*` (filter on `botType`) on top of this
+posture-movement query; otherwise apply the deployment-availability rule
+(SKILL.md).
 
 Feed the aggregate rows into `scripts/compare_posture.py` to produce
 `bot_posture_movement.v1` output.
