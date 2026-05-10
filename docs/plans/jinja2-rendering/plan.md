@@ -188,25 +188,39 @@ wrapper inputs. (Raw-artifact mode still uses them.)
 script. It becomes a permanent committed test that asserts DOM-level
 invariants — not just whitespace-normalized string equality.
 
+**Parser decision:** generation uses Jinja2 (unchanged). Parity testing
+uses stdlib **`html.parser`** wrapped in a small `tests/_html_tree.py`
+helper (~80 lines, no third-party dependency) that produces a queryable
+tree (`find`, `find_all`, `select_class`, `text`, table-row iterator).
+No regex fallback — tests fail loudly if the helper can't build a tree,
+which is the right failure mode. **Resolves [REVIEW v2 MEDIUM-2]** on
+regex-fallback unsafety.
+
+- New `tests/_html_tree.py` (helper, test-only): minimal `HTMLParser`
+  subclass building `Node(tag, attrs, children, text)` plus query
+  primitives. Documented and unit-tested via `tests/test_html_tree.py`.
 - New `tests/test_html_parity.py` parameterized over every wrapper
   fixture under `tests/fixtures/`. For each fixture:
   - Render via legacy `render_html()`.
   - Render via the engine `_render_via_engine()`.
-  - Build a DOM (`html.parser` from stdlib or `selectolax` if a
-    dependency add is acceptable — falls back to regex on a minimal set
-    of invariants if no parser is available).
+  - Build a tree using `tests/_html_tree.py` for both outputs.
   - Assert **semantic invariants** are preserved across both renders:
-    - **Heading set:** the set of `<h1>`, `<h2>`, `<h3>` text values.
+    - **Heading set + order:** sequence of `<h1>`, `<h2>`, `<h3>`
+      text values must match (order matters — surfaces section
+      reordering).
     - **Section presence:** `report-purpose`, `score-landscape`,
       `narrative-slot`, `executive-summary`, `findings`, `coverage`,
       `method` — whichever sections the report type emits.
-    - **Numeric content:** every `pct2`-formatted percentage and
-      `signed_pp`-formatted delta appears in both outputs (allowing
-      class-name and DOM-position differences).
+    - **Numeric content (keyed, not just set):** for every percentage
+      or delta, the assertion is keyed by the *nearest enclosing
+      heading text* + *containing table caption* (if any) + *row
+      label* + *column header*. A percentage that moved from the
+      "Bots → Verified" row to "Bots → Unverified" fails. Unordered
+      set membership is insufficient. **Resolves [REVIEW v2 MEDIUM-1]**.
     - **Warning lines:** every `WARNING:` stderr line emitted by one
-      path is emitted by the other.
+      path is emitted by the other (text-identical).
     - **Table row count:** entities/coverage tables emit the same number
-      of rows.
+      of rows; row keys (entity_type + identifier) match as sets.
     - **File-size envelope:** byte count within ±15% of legacy.
   - Class-name **rename allowlist** (e.g., `fleet-kpi` → `kpi-card`) is
     a separate `tests/fixtures/parity_allowlist.json` with one-line
@@ -282,7 +296,7 @@ wrapper inputs.
   `render_report.py` to thread the `args.format` choice through.
 - Resolves **[MEDIUM-3]** from v1 review (.md.j2 under-specified).
 
-### M3.2 Durable Markdown parity suite
+### M3.2 Durable Markdown parity suite + HTML parity refresh
 
 - New `tests/test_markdown_parity.py` mirroring the HTML parity suite.
   Invariants for Markdown:
@@ -297,6 +311,14 @@ wrapper inputs.
   - **Byte envelope:** ±15%.
 - No "class-name rename" allowlist needed (Markdown has no classes).
 - Resolves **[HIGH-2]** and **[MEDIUM-1]** from v1 review.
+
+**HTML parity refresh:** `report_engine/render.py` becomes `fmt`-aware
+in M3.1. Any caller in `tests/test_html_parity.py` that invokes
+`_render_via_engine()` or `report_engine.render.render()` directly
+must be updated to pass `fmt="html"`. After the M3.1 change lands,
+rerun `tests/test_html_parity.py` and confirm zero regression. This
+catches the "M3 plumbing change silently breaks M2 gate" scenario.
+**Resolves [REVIEW v2 LOW-1]**.
 
 ### M3.3 Force Markdown routing
 
@@ -326,20 +348,26 @@ retired.
 
 ### M4.1 Raw-artifact decision gate
 
-Before any deletion in M4:
-- Audit usage. Inspect tests and examples for any caller that submits a
-  non-wrapper input (`schema_version != "bot_report_input.v1"`).
-- Audit `bot_insights_report.py` orchestration: does it ever bypass the
-  wrapper builder? Search for direct `render_report.py` invocations
-  from external scripts and skills.
-- Decide one of two paths:
-  - **Path A — retire raw-artifact mode** (preferred if no live
-    callers): delete the `is_wrapper` short-circuit and every helper
-    only it uses. Plan estimates this removes ~600 lines beyond the
-    `html_*`/`md_*` deletion.
-  - **Path B — preserve raw-artifact mode** (default if any caller
-    found): keep `markdown_to_simple_html()` and a curated minimal set
-    of `html_*`/`md_*` helpers; delete everything else.
+**Committed default: Path B (preserve raw-artifact mode).** Path A
+retirement requires a named telemetry source and an owner sign-off
+*before* the M4 branch is cut. Mid-milestone ad hoc audits do not
+suffice. **Resolves [REVIEW v2 MEDIUM-3]**.
+
+- **Path B (default):** keep `markdown_to_simple_html()`, the
+  `is_wrapper` short-circuit at `render_report.py:4191-4197`, and a
+  curated minimal set of `html_*`/`md_*` helpers needed to satisfy
+  raw-artifact callers. Delete only the wrapper-path legacy code.
+- **Path A (conditional, requires pre-approval):** if a named telemetry
+  source (CI logs, deployment usage stats, or an owner attestation)
+  confirms no raw-artifact callers in a stated time window, delete the
+  short-circuit and the helpers it uniquely depends on. The
+  pre-approval is captured in the M4 PR description with the data
+  source named.
+- Pre-M4 audit (informational only; cannot trigger Path A on its own):
+  inspect tests, examples, and `bot_insights_report.py` orchestration
+  for direct `render_report.py` invocations that bypass the wrapper
+  builder. Findings inform the Path A pre-approval request but do not
+  substitute for telemetry.
 
 ### M4.2 Delete legacy renderers
 
@@ -392,16 +420,30 @@ Before any deletion in M4:
 - Visually diff a representative fixture render before/after CSS
   changes; capture in PR description.
 
-### M4.5 Retire the parity suites
+### M4.5 Retire the parity suites — keep the semantic invariants
+
+**Critical change from v1 and v2:** do **not** downgrade to a
+class-presence audit alone. Class checks prove styling scaffolding
+exists; they don't prove report *content* stayed correct. Carry the
+semantic parity invariants forward as engine-only regression tests.
+**Resolves [REVIEW v2 MEDIUM-4]**.
 
 - Delete `tests/test_html_parity.py` and `tests/test_markdown_parity.py`.
   They diff legacy vs. engine; with legacy gone, both paths collapse
   into one.
-- Replace with `tests/test_report_class_audit.py`: per-report-type
-  expected-class matrix as a test fixture; assert each rendered output
-  contains its expected class subset (`narrative-slot`, `gauge-card`,
-  `report-purpose`, `prose`, plus type-specific like `landscape-grid`
-  for fleet reports). This is the durable post-migration safety net.
+- Replace with **two** new permanent test files:
+  - `tests/test_report_class_audit.py`: per-report-type expected-class
+    matrix as a test fixture; asserts the styling scaffolding
+    (`narrative-slot`, `gauge-card`, `report-purpose`, `prose`, plus
+    type-specific like `landscape-grid` for fleet reports). Lightweight
+    smoke test.
+  - `tests/test_report_semantics.py`: engine-only version of the M2/M3
+    semantic invariants — heading set + order, keyed table rows (by
+    entity_type + identifier), warning text presence, note placement
+    in slot, numeric values keyed by row+column, byte envelope per
+    report type. Uses the same `tests/_html_tree.py` helper.
+  - Together they replace the parity oracle without losing semantic
+    coverage.
 
 ### M4 verification gate
 
@@ -464,7 +506,9 @@ There is no `make pre-push`, no commit gate, and no `uv` in this repo.
 | M1.2 | `report_engine/templates/macros/control_bars.html` (new) | Before/after/expected SVG |
 | M1.2 | `tests/test_report_engine.py` (MOD) | `select_control_companions` unit tests + `test_control_review_*` |
 | M1.3 | `report_engine/templates/` (MOD) | `:.0%`/`:.2f` → filters |
-| M2.1 | `tests/test_html_parity.py` (new, durable) | DOM-invariant parity gate |
+| M2.1 | `tests/_html_tree.py` (new, helper) | stdlib `html.parser`-backed tree-builder for tests |
+| M2.1 | `tests/test_html_tree.py` (new) | Unit tests for the tree-builder helper |
+| M2.1 | `tests/test_html_parity.py` (new, durable until M4) | Keyed semantic parity gate using `_html_tree` |
 | M2.1 | `tests/fixtures/parity_allowlist.json` (new) | Class-rename allowlist with justifications |
 | M2.3 | `render_report.py` (MOD) | Route all 7 types through engine for HTML |
 | M3.1 | `report_engine/templates/reports/*.md.j2` (new × 7) | Markdown templates |
@@ -475,7 +519,8 @@ There is no `make pre-push`, no commit gate, and no `uv` in this repo.
 | M4.2 | `render_report.py` (MOD, large deletion) | Remove `html_*`, `md_*`, dispatcher, etc. |
 | M4.3 | `wrapper_loader.py` (new, conditional) | Split if residual file is unwieldy |
 | M4.4 | `report_engine/templates/_styles.css` (MOD) | Drop dead selectors |
-| M4.5 | `tests/test_report_class_audit.py` (new) | Permanent class-presence audit (replaces parity suites) |
+| M4.5 | `tests/test_report_class_audit.py` (new) | Permanent class-presence audit |
+| M4.5 | `tests/test_report_semantics.py` (new) | Engine-only carry-forward of semantic parity invariants |
 
 ## Out of scope (unchanged)
 
@@ -498,6 +543,24 @@ There is no `make pre-push`, no commit gate, and no `uv` in this repo.
    `direction`, `score_gauge_svg`, `score_bar_svg`, `ENTITY_TYPE_LABELS`
    continue to exist; `rule_label_parts`, `human_metric_name`,
    `METRIC_LABELS` move to `report_engine/humanize.py`.
+
+## Changes from v2 (round-2 codex review tightening)
+
+1. **Parser decision named:** stdlib `html.parser` with a small
+   `tests/_html_tree.py` tree-builder helper. No third-party deps. No
+   regex fallback. Generation still uses Jinja2 unchanged.
+2. **Numeric parity is keyed**, not set-membership: every percentage
+   and delta is asserted against a (heading, table caption, row label,
+   column header) tuple. Catches "right number, wrong cell" bugs.
+3. **HTML parity refresh in M3** when `render.py` becomes `fmt`-aware:
+   update `tests/test_html_parity.py` call sites and re-run to confirm
+   no regression introduced by the Markdown plumbing change.
+4. **M4.1 default is Path B (preserve raw-artifact mode).** Path A
+   requires a named telemetry source pre-approval. No mid-milestone
+   ad hoc audits trigger retirement.
+5. **M4.5 carries semantic invariants forward**: `tests/test_report_semantics.py`
+   (engine-only) plus `tests/test_report_class_audit.py`. Class
+   presence alone is too weak.
 
 ## Changes from v1 (for review)
 
