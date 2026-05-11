@@ -1,0 +1,4 @@
+interface:
+  display_name: "Debugging Hydrolix Queries"
+  short_description: "Diagnose slow, failing, or resource-heavy Hydrolix SQL"
+  default_prompt: "Use $debugging-hydrolix-queries to classify a Hydrolix query error, capture query stats, or choose a safe rewrite."
