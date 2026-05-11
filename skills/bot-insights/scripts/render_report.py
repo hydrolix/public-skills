@@ -4086,33 +4086,24 @@ def _render_via_engine(
     artifacts: list[dict[str, Any]],
     notes: list[dict[str, Any]],
     ctx: ReportContext,
+    output_format: str = "html",
 ) -> str | None:
-    """Route HTML rendering through the report_engine for a given
-    wrapper ``report_type``.
+    """Route rendering through the report_engine for a given wrapper
+    ``report_type`` and ``output_format`` (``"html"`` or ``"markdown"``).
 
     Returns ``None`` only for the raw-artifact short-circuit (the
     caller's signal to fall through to the raw-mode path). For a
     recognized wrapper that the engine cannot service — unknown
     ``report_type`` in the registry, or assembly raising
     ``ValueError``/``KeyError`` — this raises ``ReportError`` rather
-    than silently falling back to the legacy markdown path.
+    than silently falling back to the legacy path.
 
-    M2.3 (this commit) tightened the fallback behavior: the legacy
-    HTML path is now reachable only via the
+    M2.3 tightened HTML fallback behavior; M3.3 (this commit)
+    extends the same routing to Markdown by adding ``output_format``.
+    Both formats now reach legacy only via the
     ``BOT_INSIGHTS_RENDER_PATH=legacy`` test override or for raw-mode
     inputs.
     """
-    try:
-        from report_engine import render as engine_render
-        from report_engine.contexts import REPORT_TYPE_REGISTRY
-    except ImportError:
-        # Raw-mode inputs don't need the engine; the caller's raw-mode
-        # path (``markdown_to_simple_html``) does not import jinja2. A
-        # genuinely missing dependency at engine call time for a wrapper
-        # is a deploy-time issue and surfaces as a clear stderr error
-        # when ``raw_artifact`` is False.
-        return None
-
     is_wrapper = (
         isinstance(value, dict)
         and value.get("schema_version") == "bot_report_input.v1"
@@ -4120,8 +4111,24 @@ def _render_via_engine(
     )
     if not is_wrapper:
         # Raw-artifact short-circuit: the caller decides the fallback.
-        # Plan v3 scopes raw-mode migration to a follow-up plan.
+        # Plan v3 scopes raw-mode migration to a follow-up plan. Raw mode
+        # never needs jinja2, so we don't probe the engine import here.
         return None
+
+    try:
+        from report_engine import findings as findings_mod
+        from report_engine import render as engine_render
+        from report_engine.contexts import REPORT_TYPE_REGISTRY
+    except ImportError as exc:
+        # For wrappers, missing engine dependencies are a deploy-time
+        # bug, not a silent fallback to legacy. Returning None here
+        # would route wrapper traffic into the legacy renderer without
+        # any signal — that masks a real misconfiguration. Raise so the
+        # operator sees the broken state explicitly.
+        raise ReportError(
+            f"Engine dependencies unavailable for wrapper-mode "
+            f"{report_type!r} (output_format={output_format!r}): {exc}"
+        ) from exc
 
     module = REPORT_TYPE_REGISTRY.get(report_type)
     if module is None:
@@ -4144,10 +4151,24 @@ def _render_via_engine(
     )
     template_ctx = module.prepare(artifact)
     template_ctx["notes_by_slot"] = notes_by_slot
+    # Apply the same post_prepare + finding_overrides treatment the
+    # direct engine path uses (``report_engine.render.render``). Without
+    # these, scorecard_entity_review's analyst-note dedupe and the
+    # wrapper's ``finding_overrides`` analyst-note slot are no-ops in
+    # production routing — features that only fire via the direct
+    # engine entry would silently disappear.
+    if hasattr(module, "post_prepare"):
+        module.post_prepare(template_ctx)
     template_ctx["mode"] = "full"
+    overrides_note = notes_by_slot.get("finding_overrides")
+    if overrides_note and "findings" in template_ctx:
+        template_ctx["findings"] = findings_mod.apply_finding_overrides(
+            template_ctx["findings"],
+            overrides_note.get("text"),
+        )
 
-    env = engine_render.build_env()
-    template = env.get_template(module.TEMPLATE)
+    env = engine_render.build_env(output_format=output_format)
+    template = env.get_template(engine_render.template_for(module, output_format))
     return template.render(**template_ctx)
 
 
@@ -4195,43 +4216,47 @@ def render(
     selected = validate_report_artifacts(report_type, artifacts, ctx)
     scan_metadata_warnings(artifacts, ctx)
     validate_analyst_notes(notes, artifacts)
-    if args.format == "html":
-        # Test-only override (M2.1 parity gate; removed in M4 when legacy
-        # is deleted). ``BOT_INSIGHTS_RENDER_PATH`` can force one or the
-        # other path so the parity harness can render the same wrapper
-        # twice — once legacy, once engine — and diff the result. Values:
-        # ``auto`` (default — engine for every wrapper-mode report type;
-        # legacy reachable only for raw-artifact inputs); ``legacy``
-        # (skip the engine call entirely); ``engine`` (force engine and
-        # raise on a wrapper that the engine cannot service).
-        #
-        # M2.3 expanded engine routing from the original four-report
-        # allowlist (executive_posture, soc_triage, crawler_governance,
-        # edge_ops_impact) to all seven wrapper-mode report types
-        # (also: scorecard_brief, scorecard_entity_review, control_review).
-        render_path = os.environ.get("BOT_INSIGHTS_RENDER_PATH", "auto").lower()
-        if render_path != "legacy":
-            engine_html = _render_via_engine(
-                report_type=report_type,
-                value=value,
-                artifacts=artifacts,
-                notes=notes,
-                ctx=ctx,
+    # Test-only override (M2.1 parity gate; removed in M4 when legacy
+    # is deleted). ``BOT_INSIGHTS_RENDER_PATH`` can force one or the
+    # other path so the parity harness can render the same wrapper
+    # twice — once legacy, once engine — and diff the result. Values:
+    # ``auto`` (default — engine for every wrapper-mode report type;
+    # legacy reachable only for raw-artifact inputs); ``legacy``
+    # (skip the engine call entirely); ``engine`` (force engine and
+    # raise on a wrapper that the engine cannot service).
+    #
+    # M2.3 expanded HTML engine routing from the original four-report
+    # allowlist (executive_posture, soc_triage, crawler_governance,
+    # edge_ops_impact) to all seven wrapper-mode report types
+    # (also: scorecard_brief, scorecard_entity_review, control_review).
+    # M3.3 extends the same routing to Markdown by threading
+    # ``args.format`` through ``_render_via_engine``.
+    render_path = os.environ.get("BOT_INSIGHTS_RENDER_PATH", "auto").lower()
+    if render_path != "legacy":
+        engine_output = _render_via_engine(
+            report_type=report_type,
+            value=value,
+            artifacts=artifacts,
+            notes=notes,
+            ctx=ctx,
+            output_format=args.format,
+        )
+        if engine_output is not None:
+            return engine_output, ctx.warnings
+        # ``None`` here means the raw-artifact short-circuit fired:
+        # the input is not a ``bot_report_input.v1`` wrapper. M3.3
+        # tightened the engine bridge so wrapper inputs always either
+        # return a rendered string or raise ``ReportError`` (engine
+        # dep missing, registry miss, or assembly failure) — they
+        # never produce ``None``. Fall through to the legacy
+        # raw-mode renderer for the raw-artifact case.
+        if render_path == "engine":
+            raise ReportError(
+                f"BOT_INSIGHTS_RENDER_PATH=engine but engine returned "
+                f"None for report_type {report_type!r} — input is not a "
+                "wrapper or engine deps unavailable."
             )
-            if engine_html is not None:
-                return engine_html, ctx.warnings
-            # ``None`` here means the raw-artifact short-circuit fired
-            # (input is not a ``bot_report_input.v1`` wrapper) or jinja2
-            # is unavailable at import time. Either way, fall through
-            # to the legacy raw-mode path. Wrapper inputs whose engine
-            # path failed have already raised ReportError from
-            # ``_render_via_engine``.
-            if render_path == "engine":
-                raise ReportError(
-                    f"BOT_INSIGHTS_RENDER_PATH=engine but engine returned "
-                    f"None for report_type {report_type!r} — input is not a "
-                    "wrapper or engine deps unavailable."
-                )
+    if args.format == "html":
         return (
             render_html(
                 title,

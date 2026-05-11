@@ -1,15 +1,24 @@
-"""Durable Markdown parity gate (M3.2).
+"""Durable Markdown parity gate (M3.2, refreshed in M3.3).
 
 For every wrapper-mode fixture under ``tests/fixtures/report_engine/``
 and ``skills/bot-insights/examples/`` (mirroring the HTML parity
-gate's discovery surface), render the wrapper twice — once through
-the legacy ``render_report.py --format markdown`` path and once through
-the engine ``report_engine/render.py --format markdown`` path — and
-assert a small set of *data preservation* invariants. The two renderers
-produce structurally different Markdown by design (the engine is a
-redesign, not a port), so this gate is **not** a byte-equality or
-section-order check; it verifies the engine carries the same
-artifact-derived facts the legacy renderer surfaced.
+gate's discovery surface), render the wrapper twice through
+``render_report.py --format markdown`` with
+``BOT_INSIGHTS_RENDER_PATH`` pinned to ``legacy`` and then ``engine``,
+and assert a small set of *data preservation* invariants. The two
+renderers produce structurally different Markdown by design (the
+engine is a redesign, not a port), so this gate is **not** a
+byte-equality or section-order check; it verifies the engine carries
+the same artifact-derived facts the legacy renderer surfaced.
+
+Both paths flow through the same front-end
+(``load_report_input``/``resolve_options``/``validate_report_artifacts``)
+before reaching the renderer, so validation parity holds by
+construction: a wrapper that fails on legacy fails identically on
+engine and vice versa. (Pre-M3.3 the engine path was invoked directly
+via ``report_engine/render.py``, which had a looser validation
+surface; that asymmetry was reconciled when M3.3 unified routing
+through ``render_report.py``.)
 
 The gate survives M3.2 → M3.3 (forcing routing) → M4.5 (legacy
 deletion), at which point its semantic invariants migrate to
@@ -68,7 +77,6 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 
 RENDER_REPORT = ROOT / "skills/bot-insights/scripts/render_report.py"
-ENGINE_RENDER = ROOT / "skills/bot-insights/scripts/report_engine/render.py"
 FIXTURE_DIRS = (
     ROOT / "tests/fixtures/report_engine",
     ROOT / "skills/bot-insights/examples",
@@ -113,13 +121,16 @@ def _have_uv() -> bool:
     return shutil.which("uv") is not None
 
 
-def _render_legacy(wrapper: Path) -> tuple[str, str, int]:
-    """Render via legacy ``render_report.py --format markdown`` with
-    ``BOT_INSIGHTS_RENDER_PATH=legacy``. The env var is harmless here
-    (the markdown branch of ``render_report.render`` always uses
-    legacy in M3.2 — the engine markdown wiring lands in M3.3), but
-    pinning it makes the intent explicit and protects against future
-    routing changes.
+def _render_markdown(wrapper: Path, render_path: str) -> tuple[str, str, int]:
+    """Render ``wrapper`` via ``render_report.py --format markdown``
+    with ``BOT_INSIGHTS_RENDER_PATH`` pinned to ``render_path``
+    (``"legacy"`` or ``"engine"``).
+
+    Both paths flow through the same front-end (``load_report_input`` /
+    ``resolve_options`` / ``validate_report_artifacts``), so a wrapper
+    that fails validation fails on both — preserving exit-code parity
+    by construction. Mirrors ``tests/test_html_parity.py``'s
+    ``_render_path`` shape so the two gates read as siblings.
     """
     if not _have_uv():
         pytest.skip("uv not available")
@@ -127,7 +138,7 @@ def _render_legacy(wrapper: Path) -> tuple[str, str, int]:
         out_path = Path(f.name)
     try:
         env = os.environ.copy()
-        env["BOT_INSIGHTS_RENDER_PATH"] = "legacy"
+        env["BOT_INSIGHTS_RENDER_PATH"] = render_path
         result = subprocess.run(
             [
                 "uv",
@@ -156,43 +167,12 @@ def _render_legacy(wrapper: Path) -> tuple[str, str, int]:
         out_path.unlink(missing_ok=True)
 
 
-def _render_engine(wrapper: Path) -> tuple[str, str, int]:
-    """Render via the engine's ``report_engine/render.py --format markdown``.
+def _render_legacy(wrapper: Path) -> tuple[str, str, int]:
+    return _render_markdown(wrapper, "legacy")
 
-    The engine path is invoked directly because M3.2 does not yet wire
-    markdown routing into ``render_report.py``'s ``BOT_INSIGHTS_RENDER_PATH``
-    switch (that's M3.3). Calling ``render.py`` directly exercises the
-    same code the M3.3 wiring will reach, so the gate is meaningful
-    today and stable across that migration.
-    """
-    if not _have_uv():
-        pytest.skip("uv not available")
-    with tempfile.NamedTemporaryFile(suffix=".md", delete=False) as f:
-        out_path = Path(f.name)
-    try:
-        result = subprocess.run(
-            [
-                "uv",
-                "run",
-                "--quiet",
-                str(ENGINE_RENDER),
-                "--artifact",
-                str(wrapper),
-                "--out",
-                str(out_path),
-                "--format",
-                "markdown",
-            ],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-        md = out_path.read_text(encoding="utf-8") if out_path.exists() else ""
-        if result.returncode != 0:
-            md = ""
-        return md, result.stderr, result.returncode
-    finally:
-        out_path.unlink(missing_ok=True)
+
+def _render_engine(wrapper: Path) -> tuple[str, str, int]:
+    return _render_markdown(wrapper, "engine")
 
 
 def _render_both(wrapper: Path) -> tuple[tuple[str, str, int], tuple[str, str, int]]:
@@ -232,33 +212,12 @@ def _canonical_error(stderr: str) -> str | None:
 # Wrappers the legacy markdown dispatcher cannot render but the engine
 # can — ``render_markdown`` in ``render_report.py`` has no branch for
 # ``scorecard_entity_review``, so it falls through to a stub (header
-# only). Listing the fixtures here makes the asymmetry explicit: the
-# parity gate skips them with a documented reason rather than failing
-# silently or, worse, "passing" because the stub trivially satisfies
-# every invariant.
+# only). Listing the report_type here makes the asymmetry explicit:
+# the parity gate skips matching fixtures with a documented reason
+# rather than failing silently or, worse, "passing" because the stub
+# trivially satisfies every invariant. M4 deletes the legacy path
+# entirely and the skip drops out.
 _LEGACY_UNSUPPORTED_REPORT_TYPES = frozenset({"scorecard_entity_review"})
-
-# Wrappers that hit a strict-validation rejection in ``render_report.py``
-# but render successfully via the engine. The legacy markdown branch
-# flows through ``load_report_input``/``resolve_options``/
-# ``validate_report_artifacts`` first, which rejects (e.g., index-only
-# inputs missing a scorecard packet, or standalone scorecards without
-# scope metadata). The engine's ``_resolve_module_from_wrapper`` is
-# looser and renders these via degraded-mode templates instead.
-#
-# This asymmetry persists as long as ``_render_engine()`` invokes
-# ``report_engine/render.py`` directly. M3.3 unifies the validation
-# surface by routing engine markdown through ``render_report.py``
-# (mirroring the HTML gate's ``BOT_INSIGHTS_RENDER_PATH=engine``
-# pattern); when this gate's ``_render_engine()`` is updated to match
-# at that point, the three fixtures here will become "expected
-# failure on both paths" and the existing dual-rc-skip handles them
-# without a named list. Until then, skipping is honest.
-_VALIDATION_ASYMMETRIC_FIXTURES = frozenset({
-    "crawler_governance_index_only.json",
-    "edge_ops_impact_index_only.json",
-    "scorecard_brief_acme_malicious_notes.json",
-})
 
 
 def _wrapper_report_type(wrapper: Path) -> str | None:
@@ -277,13 +236,6 @@ def _skip_if_legacy_unsupported(wrapper: Path) -> None:
             f"render_markdown() has no branch for; engine renders it "
             f"fully. Parity is asymmetric by design until M4 deletes "
             f"the legacy path."
-        )
-    if wrapper.name in _VALIDATION_ASYMMETRIC_FIXTURES:
-        pytest.skip(
-            f"{wrapper.name} is rejected by render_report.py validation "
-            f"on the legacy markdown path but renders via the engine "
-            f"(degraded mode). M3.3 unifies validation by routing engine "
-            f"markdown through render_report.py."
         )
 
 
