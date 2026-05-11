@@ -1,0 +1,63 @@
+{# Before/after/expected SVG bar trio for a control_review effect set.
+
+   Ported from ``html_control_bars`` at ``render_report.py:3453-3511``.
+   Each row in ``rows`` is a dict with keys ``metric_label``, ``before``,
+   ``after``, ``expected``, ``status_label``, ``confidence``. Rows where
+   every numeric value is None are filtered out by the context preparer
+   before they reach this macro — the macro renders whatever it's handed.
+
+   The bar width scales each row to its own local max (the legacy
+   renderer's behavior); this keeps a single-metric row legible without
+   forcing all rows to share a fleet-wide axis. #}
+{% macro control_bars(rows) %}
+{% set width = 760 %}
+{% set label_w = 180 %}
+{% set row_height = 96 %}
+{% set bar_max = width - label_w - 140 %}
+{% set height = 40 + row_height * (rows | length) %}
+{% if rows %}
+<section class="control-bars" aria-label="Control before/after/expected">
+  <div class="section-eyebrow">Effect detail</div>
+  <h2>Control before / after / expected</h2>
+  <svg class="control-bars-svg" viewBox="0 0 {{ width }} {{ height }}"
+       role="img" aria-label="Control bar chart">
+    {% for row in rows %}
+      {% set y = 32 + loop.index0 * row_height %}
+      {% set abs_values = [] %}
+      {% if row.before is not none %}{% set _ = abs_values.append(row.before | abs) %}{% endif %}
+      {% if row.after is not none %}{% set _ = abs_values.append(row.after | abs) %}{% endif %}
+      {% if row.expected is not none %}{% set _ = abs_values.append(row.expected | abs) %}{% endif %}
+      {% set local_max = (abs_values | max) if abs_values else 1.0 %}
+      {% if not local_max or local_max <= 0 %}{% set local_max = 1.0 %}{% endif %}
+      <text class="chart-label" x="0" y="{{ y + 14 }}">
+        {{- row.metric_label or row.metric -}}
+      </text>
+      {% for sub_label, sub_value, sub_class in [
+        ("before", row.before, "chart-before"),
+        ("after", row.after, "chart-after"),
+        ("expected", row.expected, "chart-expected"),
+      ] %}
+        {% set row_y = y + loop.index0 * 22 %}
+        {% if sub_value is none %}
+          <text class="chart-value" x="{{ label_w }}" y="{{ row_y + 13 }}">
+            {{- sub_label }}: unavailable
+          </text>
+        {% else %}
+          {% set bar_w = ((sub_value | abs) / local_max * bar_max) | round(0, 'floor') | int %}
+          {% if bar_w < 1 %}{% set bar_w = 1 %}{% endif %}
+          <rect class="chart-bar {{ sub_class }}" x="{{ label_w }}" y="{{ row_y }}"
+                width="{{ bar_w }}" height="14" rx="2"></rect>
+          <text class="chart-value" x="{{ label_w + bar_w + 8 }}" y="{{ row_y + 12 }}">
+            {{- sub_label }} {{ sub_value | big_number -}}
+          </text>
+        {% endif %}
+      {% endfor %}
+      <text class="chart-value" x="{{ label_w }}" y="{{ y + 74 }}">
+        status {{ row.status_label or row.status or "unavailable" -}}
+        {% if row.confidence %} · confidence {{ row.confidence }}{% endif %}
+      </text>
+    {% endfor %}
+  </svg>
+</section>
+{% endif %}
+{% endmacro %}

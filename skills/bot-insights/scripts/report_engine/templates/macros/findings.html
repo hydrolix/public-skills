@@ -1,0 +1,14 @@
+{% macro findings_band(findings) %}
+<section>
+  <div class="section-eyebrow">Headline findings</div>
+  <h2>What changed and what it means</h2>
+  <ol class="findings">
+    {% for f in findings %}
+      <li class="finding">
+        <h3>{{ f.headline if f.headline else f.title }}</h3>
+        <p>{{ f.body }}</p>
+      </li>
+    {% endfor %}
+  </ol>
+</section>
+{% endmacro %}

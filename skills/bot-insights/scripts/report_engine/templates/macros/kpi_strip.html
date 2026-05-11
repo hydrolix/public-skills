@@ -1,0 +1,31 @@
+{% macro kpi_strip(kpis, scope) %}
+<section class="kpis">
+  <div class="kpi">
+    <div class="kpi-label">Hosts evaluated</div>
+    <div class="kpi-value tnum">{{ kpis.n_total }}</div>
+    <div class="kpi-sub">{{ scope.database }} · {{ scope.table_used }}</div>
+  </div>
+  <div class="kpi">
+    <div class="kpi-label">Hosts with triggers</div>
+    <div class="kpi-value tnum">{{ kpis.n_with_triggers }}</div>
+    <div class="kpi-sub">{{ kpis.n_clean }} produced no triggered rule</div>
+  </div>
+  <div class="kpi">
+    <div class="kpi-label">Bands</div>
+    <div class="kpi-value tnum">
+      {% for band, count in kpis.bands.items() if count > 0 %}
+        <span class="pill pill-{{ band }}">{{ band | humanize_band }} · {{ count }}</span>
+      {% endfor %}
+      {% if not kpis.bands.values() | select | list %}
+        <span class="pill pill-neutral">None</span>
+      {% endif %}
+    </div>
+    <div class="kpi-sub">No band escalations</div>
+  </div>
+  <div class="kpi">
+    <div class="kpi-label">Movement vs baseline</div>
+    <div class="kpi-value tnum">{{ kpis.n_moved }} / {{ kpis.n_total }}</div>
+    <div class="kpi-sub">hosts with score delta ≠ 0</div>
+  </div>
+</section>
+{% endmacro %}

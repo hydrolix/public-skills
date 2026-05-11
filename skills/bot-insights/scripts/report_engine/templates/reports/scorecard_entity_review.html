@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% from "macros/triage_verdict.html" import triage_verdict %}
+{% from "macros/volume_impact.html" import volume_impact as render_volume_impact %}
+{% from "macros/executive_summary.html" import executive_summary %}
+{% from "macros/triggered_rules.html" import triggered_rules %}
+{% from "macros/actions.html" import actions_section %}
+{% from "macros/method.html" import method_section %}
+{% from "macros/report_purpose.html" import report_purpose %}
+
+{# Hero: verdict + confidence chip replace the gauge. The gauge tried to be
+   reassuring at N=1 with thin rule coverage; the verdict label is the
+   decision support a director actually needs. #}
+{% block hero %}
+  {{ triage_verdict(verdict, confidence_chip, entity_summary.score) }}
+{% endblock %}
+
+{% block content %}
+  {{ executive_summary(notes_by_slot, deterministic_findings) }}
+
+  {{ render_volume_impact(volume_impact) }}
+
+  {{ triggered_rules(triggered_rules_data, entity_summary) }}
+
+  {{ actions_section(actions, notes_by_slot.get("operational_interpretation") if notes_by_slot else None) }}
+
+  {% if coverage_detail %}
+  <details class="disclosure">
+    <summary>
+      <span>Coverage detail</span>
+      <span class="disclosure-summary-stat">
+        {{ coverage_detail.total }} rule{{ "s" if coverage_detail.total != 1 else "" }} unscored
+      </span>
+    </summary>
+    <div class="disclosure-body">
+      <p class="muted">
+        Rules listed below were not scored because their inputs are absent from
+        the source row. They are not scored as safe.
+      </p>
+      {% for group in coverage_detail.groups %}
+        <div class="coverage-group">
+          <h3 class="coverage-domain">{{ group.domain_label }}</h3>
+          <ul class="coverage-rules">
+            {% for r in group.rules %}
+              <li>
+                <code>{{ r.name }}</code>
+                {% if r.missing_inputs %}
+                  <span class="muted-small">— missing: {{ r.missing_inputs | join(", ") }}</span>
+                {% endif %}
+              </li>
+            {% endfor %}
+          </ul>
+        </div>
+      {% endfor %}
+    </div>
+  </details>
+  {% endif %}
+
+  {{ method_section(method, scope, confidence.reasons) }}
+
+  {% if orientation %}
+  <details class="disclosure">
+    <summary>
+      <span>Orientation — what this report measures</span>
+    </summary>
+    <div class="disclosure-body">
+      {{ report_purpose(orientation, palette) }}
+    </div>
+  </details>
+  {% endif %}
+{% endblock %}

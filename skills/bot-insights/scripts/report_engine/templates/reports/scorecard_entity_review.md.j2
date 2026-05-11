@@ -1,0 +1,121 @@
+{#- Markdown sibling of reports/scorecard_entity_review.html.
+
+    Renders a single-host entity review using the same prepare() context
+    as the HTML template. ``md_escape`` is applied at every
+    producer/user-controlled interpolation site. -#}
+# {{ headline | md_escape }}
+
+{% if dek %}{{ dek | md_escape }}
+
+{% endif %}
+Report type: `scorecard_entity_review`
+
+Scope: {{ scope.cluster | md_escape }}{% if scope.database %} / {{ scope.database | md_escape }}{% endif %}{% if scope.table_used %} · table `{{ scope.table_used }}`{% endif %}
+
+{% if windows and windows.current %}Window: {{ windows.current.start | md_escape }} → {{ windows.current.end | md_escape }}{% if windows.baseline %} vs {{ windows.baseline.start | md_escape }} → {{ windows.baseline.end | md_escape }}{% endif %}
+
+{% endif %}
+## Verdict
+
+**{{ verdict.label | md_escape }}** · score {{ entity_summary.score }}{% if entity_summary.baseline_score is not none %} (baseline {{ entity_summary.baseline_score }}, Δ {% if entity_summary.delta is not none %}{{ entity_summary.delta | signed_pp(2) }}{% else %}—{% endif %}){% endif %} · {{ entity_summary.confidence | humanize_confidence | md_escape }} confidence · primary domain {{ entity_summary.primary_domain_label | md_escape }}
+
+{% if confidence_chip and confidence_chip.label %}_{{ confidence_chip.label | md_escape }}_
+
+{% endif %}
+## Executive Summary
+
+{% set exec_note = notes_by_slot.get("executive_summary") if notes_by_slot else None %}
+{% if deterministic_findings %}
+{% set top = deterministic_findings[0] %}
+**{{ (top.headline if top.headline else top.title) | md_escape }}.**
+
+{% if top.body %}{{ top.body | md_escape }}
+
+{% endif %}
+{% if top.recommendation %}**Recommended action:** {{ top.recommendation | md_escape }}
+
+{% endif %}
+{% if top.caveat %}{{ top.caveat | md_escape }}
+
+{% endif %}
+{% endif %}
+{% if exec_note %}**Analyst note ({{ (exec_note.author_type or "analyst") | humanize_author | md_escape }}):**
+{{ exec_note.text | md_escape }}
+
+{% endif %}
+{% if volume_impact and volume_impact.get("summary") %}
+## Volume Impact
+
+{{ volume_impact.summary | md_escape }}
+
+{% endif %}
+{% if triggered_rules_data %}
+## Triggered Rules
+
+| Rule | Domain | Current | Baseline | Threshold | Points |
+| --- | --- | --- | --- | --- | --- |
+{% for r in triggered_rules_data %}
+| {{ r.name_label | md_escape }} | {{ r.domain_label | md_escape }} | {{ r.current if r.current is not none else "—" }} | {{ r.baseline if r.baseline is not none else "—" }} | {{ r.threshold if r.threshold is not none else "—" }} | {{ r.points if r.points is not none else "—" }} |
+{% endfor %}
+
+{% for r in triggered_rules_data %}
+{% if r.evidence %}- **{{ r.name_label | md_escape }}:** {{ r.evidence | md_escape }}
+
+{% endif %}
+{% endfor %}
+{% else %}
+## Triggered Rules
+
+No rules triggered for this host in the current window.
+
+{% endif %}
+{% if actions %}
+## Recommended Next Steps
+
+{% for a in actions %}
+- {{ a.detail | md_escape }}{% if a.preview %} _({{ a.preview | md_escape }})_{% endif %}
+
+{% endfor %}
+{% endif %}
+{% set op_note = notes_by_slot.get("operational_interpretation") if notes_by_slot else None %}
+{% if op_note %}
+## Operational Interpretation
+
+{{ op_note.text | md_escape }}
+
+_From {{ (op_note.author_type or "analyst") | humanize_author | md_escape }}._
+
+{% endif %}
+{% if coverage_detail %}
+## Coverage Detail
+
+{{ coverage_detail.total }} rule{{ "s" if coverage_detail.total != 1 else "" }} unscored — inputs missing from the source row. These are not scored as safe.
+
+{% for group in coverage_detail.groups %}
+### {{ group.domain_label | md_escape }}
+
+{% for r in group.rules %}
+- `{{ r.name | md_escape }}`{% if r.missing_inputs %} — missing: {{ r.missing_inputs | join(", ") | md_escape }}{% endif %}
+
+{% endfor %}
+{% endfor %}
+{% endif %}
+## Method
+
+Rule-based scorecard for {{ scope.cluster | cluster_display | md_escape }}{% if scope.database %} · {{ scope.database | cluster_display | md_escape }}{% endif %}{% if method.comparison_type %}, compared against {{ method.comparison_type | humanize_comparison | lower | md_escape }}{% endif %}. Missing feature inputs are reported as missing — they are not scored as safe.
+
+- Schema: `{{ method.schema_version }}`
+{% if method.comparison_type %}
+- Comparison: {{ method.comparison_type | humanize_comparison | md_escape }}
+{% endif %}
+- Table: `{{ scope.table_used }}`
+{% if method.interpretation_constraints %}
+- Constraints: {% for c in method.interpretation_constraints %}{{ c | humanize_constraint | md_escape }}{% if not loop.last %}; {% endif %}{% endfor %}
+
+{% endif %}
+{% if confidence.reasons %}
+- Confidence reasons: {% for r in confidence.reasons %}{{ r | humanize_reason | md_escape }}{% if not loop.last %}; {% endif %}{% endfor %}
+
+{% endif %}
+
+Generated {{ generated_at }}

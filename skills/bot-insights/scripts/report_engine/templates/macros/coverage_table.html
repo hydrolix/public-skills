@@ -1,0 +1,48 @@
+{% macro coverage_table(rows, confidence) %}
+{% set total_evals = rows | sum(attribute="triggered") + rows | sum(attribute="evaluated_zero") + rows | sum(attribute="missing") %}
+{% set total_missing = rows | sum(attribute="missing") %}
+{% set pct_missing = (100 * total_missing / total_evals) if total_evals else 0 %}
+<section>
+  <div class="section-eyebrow">Coverage</div>
+  <h2>Which rules could be evaluated</h2>
+  <details class="disclosure coverage-disclosure">
+    <summary>
+      Rule coverage by domain
+      <span class="disclosure-summary-stat">
+        — {{ rows | length }} domain{{ "s" if rows | length != 1 else "" }} evaluated,
+        {{ pct_missing | pct2 }} of rule evaluations had missing inputs
+      </span>
+    </summary>
+    <div class="disclosure-body">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Domain</th>
+            <th class="num">Triggered</th>
+            <th class="num">Below threshold</th>
+            <th class="num">Inputs missing</th>
+            <th>Distribution</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in rows %}
+            <tr>
+              <td class="domain-name">{{ row.domain_label }}</td>
+              <td class="num">{{ row.triggered }}</td>
+              <td class="num">{{ row.evaluated_zero }}</td>
+              <td class="num">{{ row.missing }}</td>
+              <td>{{ coverage_bar(row.triggered, row.evaluated_zero, row.missing) }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <p class="muted" style="margin-top:12px;font-size:12px;">
+        Confidence:
+        {% for level, count in confidence.counts.items() %}{{ level | humanize_confidence }} · {{ count }}{% if not loop.last %}, {% endif %}{% endfor %}.
+        Reasons:
+        {% for reason in confidence.reasons %}{{ reason | humanize_reason }}{% if not loop.last %}, {% endif %}{% endfor %}.
+      </p>
+    </div>
+  </details>
+</section>
+{% endmacro %}

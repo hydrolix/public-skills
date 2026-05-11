@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% from "macros/triage_strip.html" import triage_strip as render_triage_strip %}
+{% from "macros/executive_summary.html" import executive_summary %}
+{% from "macros/movement_table.html" import movement_table %}
+{% from "macros/movers_table.html" import movers_table %}
+{% from "macros/embedded_scorecards.html" import embedded_scorecards as render_embedded_scorecards %}
+{% from "macros/method.html" import method_section %}
+{% from "macros/report_purpose.html" import report_purpose %}
+
+{# Executive summary leads. The actionable Finding carries the bold
+   headline, italicized clarification, recommendation callout, and the
+   coverage caveat — same structure the scorecard brief uses. #}
+{% block hero %}
+  {{ executive_summary(notes_by_slot, findings) }}
+{% endblock %}
+
+{% block content %}
+  {# Per-metric verdict strip — analog of the per-host triage strip in
+     the scorecard brief. ``top_mover`` reuses the shared-signal banner
+     when one mover covers ≥ 50% of the dominant metric's move. #}
+  {% if top_mover %}
+    {% set shared = {"headline": top_mover.headline} %}
+    {{ render_triage_strip(triage_strip, shared) }}
+  {% else %}
+    {{ render_triage_strip(triage_strip) }}
+  {% endif %}
+
+  {{ movement_table(metrics) }}
+
+  {{ movers_table(top_mover) }}
+
+  {# Per-metric actions section. Mirrors actions.html visually but reads
+     "metric" rather than "host", since every entry here ties to one
+     metric row from the movement table above. #}
+  <section>
+    <div class="section-eyebrow">Recommended next steps</div>
+    <h2>Investigations to queue from this report</h2>
+    {% set op_note = notes_by_slot.get("operational_interpretation") if notes_by_slot else None %}
+    {% if op_note %}
+      <div class="prose actions-preamble">
+        {{ markdown_render(op_note.text) }}
+      </div>
+    {% endif %}
+    {% if actions %}
+      <ol class="actions">
+        {% for a in actions %}
+          <li class="action">
+            <div class="action-step">{{ a.detail }}</div>
+            <div class="action-meta">{{ a.preview }}</div>
+          </li>
+        {% endfor %}
+      </ol>
+    {% else %}
+      <p class="muted">No metrics crossed an operator-action threshold.</p>
+    {% endif %}
+  </section>
+
+
+  {{ render_embedded_scorecards(embedded_scorecards) }}
+
+  {{ method_section(method, scope, confidence.reasons) }}
+
+  {% if orientation %}
+  <details class="disclosure">
+    <summary>
+      <span>Orientation — what this report measures</span>
+    </summary>
+    <div class="disclosure-body">
+      {{ report_purpose(orientation, palette) }}
+    </div>
+  </details>
+  {% endif %}
+{% endblock %}

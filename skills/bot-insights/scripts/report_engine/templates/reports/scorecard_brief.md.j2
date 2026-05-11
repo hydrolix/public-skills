@@ -1,0 +1,129 @@
+{#- Markdown sibling of reports/scorecard_brief.html.
+
+    Renders the same ``scorecard_brief.prepare()`` context as the HTML
+    template, formatted as a Markdown document. ``md_escape`` is applied
+    at every producer/user-controlled interpolation site so host
+    identifiers carrying pipes, backticks, or asterisks don't break
+    table structure or sneak into emphasis. -#}
+# {{ headline | md_escape }}
+
+{% if dek %}{{ dek | md_escape }}
+
+{% endif %}
+Report type: `scorecard_brief`
+
+Scope: {{ scope.cluster | md_escape }}{% if scope.database %} / {{ scope.database | md_escape }}{% endif %}{% if scope.table_used %} · table `{{ scope.table_used }}`{% endif %}
+
+{% if windows.current %}Window: {{ windows.current.start | md_escape }} → {{ windows.current.end | md_escape }}{% if windows.baseline %} vs {{ windows.baseline.start | md_escape }} → {{ windows.baseline.end | md_escape }}{% endif %}
+
+{% endif %}
+## Executive Summary
+
+{% set exec_note = notes_by_slot.get("executive_summary") if notes_by_slot else None %}
+{% if findings %}
+{% set top = findings[0] %}
+**{{ (top.headline if top.headline else top.title) | md_escape }}.**
+
+{% if top.body %}{{ top.body | md_escape }}
+
+{% endif %}
+{% if top.recommendation %}**Recommended action:** {{ top.recommendation | md_escape }}
+
+{% endif %}
+{% if top.caveat %}{{ top.caveat | md_escape }}
+
+{% endif %}
+{% else %}
+No findings emitted; inspect the queue below.
+
+{% endif %}
+{% if exec_note %}**Analyst note ({{ (exec_note.author_type or "analyst") | humanize_author | md_escape }}):**
+{{ exec_note.text | md_escape }}
+
+{% endif %}
+## Triage
+
+{{ kpis.n_total }} host{{ "s" if kpis.n_total != 1 else "" }} reviewed; {{ kpis.n_with_triggers }} with triggered rules, {{ kpis.n_clean }} clean.
+
+{% if triage_strip and triage_strip.pills %}
+| State | Hosts |
+| --- | --- |
+{% for p in triage_strip.pills %}
+| {{ p.label | md_escape }} | {{ p.count }} |
+{% endfor %}
+
+{% if triage_strip.rationale %}{{ triage_strip.rationale | md_escape }}
+
+{% endif %}
+{% endif %}
+{% if shared_signal %}
+## Shared Signal
+
+{{ shared_signal.headline | md_escape }}{% if shared_signal.traffic_share_pct is not none %} ({{ shared_signal.traffic_share_pct | pct2 }} of fleet traffic){% endif %}
+
+{% endif %}
+## Score Landscape
+
+Lowest score: {{ score_summary.lowest }}; median: {{ score_summary.median }}; highest: {{ score_summary.highest }}.
+{% if score_summary.lowest_delta_pct is not none %}Lowest-scoring host moved {{ score_summary.lowest_delta_pct | signed_pct(2) }} vs its baseline.
+{% endif %}
+
+{% if lowest_host %}Lowest scoring host: **{{ lowest_host.entity | md_escape }}** · score {{ lowest_host.score }} · {{ lowest_host.verdict_label | md_escape }}
+
+{% endif %}
+{% if queue_rows %}
+## Queue
+
+| Rank | Entity | Score | Δ | Verdict | Primary domain | Confidence |
+| --- | --- | --- | --- | --- | --- | --- |
+{% for q in queue_rows %}
+| {{ q.rank | md_escape if q.rank is string else q.rank }} | {{ q.entity | md_escape }} | {{ q.score }} | {% if q.delta is not none %}{{ q.delta | signed_pp(2) }}{% else %}—{% endif %} | {{ q.verdict_label | md_escape }} | {{ q.primary_domain_label | md_escape }} | {{ q.confidence | humanize_confidence | md_escape }} |
+{% endfor %}
+
+{% endif %}
+{% if actions %}
+## Recommended Next Steps
+
+{% for a in actions %}
+- {{ a.detail | md_escape }}{% if a.preview %} _({{ a.preview | md_escape }})_{% endif %}
+
+{% endfor %}
+{% endif %}
+{% set op_note = notes_by_slot.get("operational_interpretation") if notes_by_slot else None %}
+{% if op_note %}
+## Operational Interpretation
+
+{{ op_note.text | md_escape }}
+
+_From {{ (op_note.author_type or "analyst") | humanize_author | md_escape }}._
+
+{% endif %}
+{% if coverage_rows %}
+## Coverage
+
+| Domain | Triggered | Evaluated clean | Missing inputs |
+| --- | --- | --- | --- |
+{% for c in coverage_rows %}
+| {{ c.domain_label | md_escape }} | {{ c.triggered }} | {{ c.evaluated_zero }} | {{ c.missing }} |
+{% endfor %}
+
+{% endif %}
+## Method
+
+Rule-based scorecard for {{ scope.cluster | cluster_display | md_escape }}{% if scope.database %} · {{ scope.database | cluster_display | md_escape }}{% endif %}{% if method.comparison_type %}, compared against {{ method.comparison_type | humanize_comparison | lower | md_escape }}{% endif %}. Missing feature inputs are reported as missing — they are not scored as safe.
+
+- Schema: `{{ method.schema_version }}`
+{% if method.comparison_type %}
+- Comparison: {{ method.comparison_type | humanize_comparison | md_escape }}
+{% endif %}
+- Table: `{{ scope.table_used }}`
+{% if method.interpretation_constraints %}
+- Constraints: {% for c in method.interpretation_constraints %}{{ c | humanize_constraint | md_escape }}{% if not loop.last %}; {% endif %}{% endfor %}
+
+{% endif %}
+{% if confidence.reasons %}
+- Confidence reasons: {% for r in confidence.reasons %}{{ r | humanize_reason | md_escape }}{% if not loop.last %}; {% endif %}{% endfor %}
+
+{% endif %}
+
+Generated {{ generated_at }}

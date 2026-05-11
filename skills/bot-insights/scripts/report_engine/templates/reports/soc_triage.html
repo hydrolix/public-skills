@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% from "macros/triage_strip.html" import triage_strip as render_triage_strip %}
+{% from "macros/executive_summary.html" import executive_summary %}
+{% from "macros/queue_table.html" import queue_table %}
+{% from "macros/security_evidence_cards.html" import security_evidence_cards %}
+{% from "macros/domain_score_matrix.html" import domain_score_matrix %}
+{% from "macros/coverage_table.html" import coverage_table %}
+{% from "macros/method.html" import method_section %}
+{% from "macros/report_purpose.html" import report_purpose %}
+
+{# Executive summary leads — actionable Finding carries the bold lead,
+   the italicized queue-state line, the recommendation callout, and the
+   "Real risk may be higher" caveat. #}
+{% block hero %}
+  {{ executive_summary(notes_by_slot, findings) }}
+{% endblock %}
+
+{% block content %}
+  {% if degraded %}
+    <div class="degraded-banner" role="note">
+      <span class="degraded-banner-eyebrow">Degraded mode</span>
+      <p>
+        Per-entity scorecards were not bundled with this report. The
+        queue table below reflects the producer-supplied ranking only —
+        per-rule evidence, domain breakdowns, and recommended next steps
+        are not available.
+      </p>
+    </div>
+  {% endif %}
+
+  {{ render_triage_strip(triage_strip) }}
+
+  {{ security_evidence_cards(security_cards) }}
+
+  {{ queue_table(queue_rows, unit_label=entity_type_label_title, unit_label_plural=entity_type_label_plural) }}
+
+  {{ domain_score_matrix(domain_matrix, entity_label=entity_type_label_title) }}
+
+  {# Per-entity actions section — entity-aware variant of the executive
+     posture report's inline actions section. The actions list is
+     deduped across entities by detail text, then preview names the
+     affected entities so the analyst sees the queue at a glance. #}
+  <section>
+    <div class="section-eyebrow">Recommended next steps</div>
+    <h2>Investigations to queue from this report</h2>
+    {% set op_note = notes_by_slot.get("operational_interpretation") if notes_by_slot else None %}
+    {% if op_note %}
+      <div class="prose actions-preamble">
+        {{ markdown_render(op_note.text) }}
+      </div>
+    {% endif %}
+    {% if actions %}
+      <ol class="actions">
+        {% for a in actions %}
+          <li class="action">
+            <div class="action-step">{{ a.detail }}</div>
+            <div class="action-meta">
+              {% if a.host_count %}
+                {{ a.host_count }} {{ entity_type_label if a.host_count == 1 else entity_type_label_plural }}{% if a.preview %} · {{ a.preview }}{% if a.extra %} · +{{ a.extra }} more{% endif %}{% endif %}
+              {% endif %}
+            </div>
+          </li>
+        {% endfor %}
+      </ol>
+    {% else %}
+      <p class="muted">No entities had producer-supplied recommended next steps.</p>
+    {% endif %}
+  </section>
+
+  {% if coverage_rows %}
+    {{ coverage_table(coverage_rows, confidence) }}
+  {% endif %}
+
+  {{ method_section(method, scope, confidence.reasons) }}
+
+  {% if orientation %}
+  <details class="disclosure">
+    <summary>
+      <span>Orientation — what this report measures</span>
+    </summary>
+    <div class="disclosure-body">
+      {{ report_purpose(orientation, palette) }}
+    </div>
+  </details>
+  {% endif %}
+{% endblock %}

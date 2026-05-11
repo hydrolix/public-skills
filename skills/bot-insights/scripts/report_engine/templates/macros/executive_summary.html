@@ -1,0 +1,39 @@
+{% macro executive_summary(notes_by_slot, findings) %}
+{% set note = notes_by_slot.get("executive_summary") if notes_by_slot else None %}
+<section class="narrative-slot exec-summary">
+  <div class="section-eyebrow">Executive summary</div>
+  <h2>What this report says</h2>
+  {% if findings %}
+    {% set top = findings[0] %}
+    <div class="prose">
+      <p><strong>{{ top.headline if top.headline else top.title }}.</strong></p>
+      {% if top.body %}
+        <p class="exec-body">{{ top.body }}</p>
+      {% endif %}
+      {% if top.recommendation %}
+        <p class="exec-recommendation">
+          <span class="exec-recommendation-label">Recommended action</span>
+          {{ top.recommendation }}
+        </p>
+      {% endif %}
+      {% if top.caveat %}
+        <p class="exec-caveat">{{ top.caveat }}</p>
+      {% endif %}
+    </div>
+  {% else %}
+    <div class="prose prose-fallback">
+      <p>This artifact produced no findings to summarize. Inspect the
+         coverage and ranked-host sections below.</p>
+    </div>
+  {% endif %}
+  {% if note %}
+    <div class="analyst-note">
+      <div class="analyst-note-label">Analyst note</div>
+      <div class="prose">{{ markdown_render(note.text) }}</div>
+      <div class="prose-provenance">
+        From {{ (note.author_type or "analyst") | humanize_author }}
+      </div>
+    </div>
+  {% endif %}
+</section>
+{% endmacro %}

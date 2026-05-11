@@ -1,0 +1,17 @@
+{% macro score_movement(entities, kpis) %}
+<section>
+  <div class="section-eyebrow">Movement vs baseline</div>
+  {% if kpis.n_moved == 0 %}
+    <h2>No host scores moved versus baseline</h2>
+    <p class="muted">All {{ kpis.n_total }} entity scores are identical to the
+       prior equivalent window. This report describes the current health
+       snapshot, not change over time.</p>
+  {% else %}
+    <h2>Hosts whose score changed</h2>
+    <div class="slopegraph-card">
+      {% set moved = entities | selectattr("delta", "ne", 0) | list %}
+      {{ slopegraph(moved, "baseline", "current") }}
+    </div>
+  {% endif %}
+</section>
+{% endmacro %}

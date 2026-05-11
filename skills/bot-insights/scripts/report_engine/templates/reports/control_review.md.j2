@@ -1,0 +1,116 @@
+{#- Markdown sibling of reports/control_review.html. Uses the same
+    prepare() context. ``md_escape`` is applied at every
+    producer/user-controlled interpolation site. -#}
+# {{ headline | md_escape }}
+
+{% if dek %}{{ dek | md_escape }}
+
+{% endif %}
+Report type: `control_review`
+
+Scope: {{ scope.cluster | md_escape }}{% if scope.database %} / {{ scope.database | md_escape }}{% endif %}{% if scope.table_used %} · table `{{ scope.table_used }}`{% endif %}
+
+## Target
+
+**{{ (target.descriptor or "Unspecified target") | md_escape }}**
+
+- Before: {{ windows.baseline | window_fmt | md_escape }}
+- After: {{ windows.current | window_fmt | md_escape }}
+{% if windows.expected %}
+- Expected basis window: {{ windows.expected | window_fmt | md_escape }}
+{% endif %}
+{% if expected_basis_label %}
+- Expected basis: {{ expected_basis_label | md_escape }}
+{% endif %}
+
+## Executive Summary
+
+{% set exec_note = notes_by_slot.get("executive_summary") if notes_by_slot else None %}
+{% if findings %}
+{% set top = findings[0] %}
+**{{ (top.headline if top.headline else top.title) | md_escape }}.**
+
+{% if top.body %}{{ top.body | md_escape }}
+
+{% endif %}
+{% if top.recommendation %}**Recommended action:** {{ top.recommendation | md_escape }}
+
+{% endif %}
+{% if top.caveat %}{{ top.caveat | md_escape }}
+
+{% endif %}
+{% else %}
+No findings emitted; inspect the effects table below.
+
+{% endif %}
+{% if exec_note %}**Analyst note ({{ (exec_note.author_type or "analyst") | humanize_author | md_escape }}):**
+{{ exec_note.text | md_escape }}
+
+{% endif %}
+## Target Effects
+
+{% if effects %}
+| Metric | Before | After | Expected | Δ vs expected | % vs expected | Status | Confidence |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+{% for row in effects %}
+| {{ (row.metric_label or row.metric) | md_escape }} | {{ row.before if row.before is not none else "—" }} | {{ row.after if row.after is not none else "—" }} | {{ row.expected if row.expected is not none else "—" }} | {% if row.absolute_delta_vs_expected is not none %}{{ "%+.2f"|format(row.absolute_delta_vs_expected) }}{% else %}—{% endif %} | {% if row.pct_change_vs_expected is not none %}{{ row.pct_change_vs_expected | signed_pct(2) }}{% else %}—{% endif %} | {{ (row.status_label or row.status or "—") | md_escape }} | {{ (row.confidence or "—") | md_escape }} |
+{% endfor %}
+
+{% else %}
+No target effects available.
+
+{% endif %}
+## Collateral Checks
+
+{% if collateral_checks %}
+| Metric | Before | After | Δ | % change | Status | Confidence |
+| --- | --- | --- | --- | --- | --- | --- |
+{% for row in collateral_checks %}
+| {{ (row.metric_label or row.metric or "—") | md_escape }} | {{ row.before if row.before is not none else "—" }} | {{ row.after if row.after is not none else "—" }} | {% if row.delta is not none %}{{ "%+.2f"|format(row.delta) }}{% else %}—{% endif %} | {% if row.pct_change is not none %}{{ row.pct_change | signed_pct(2) }}{% else %}—{% endif %} | {{ (row.status_label or row.status or "—") | md_escape }} | {{ (row.confidence or "—") | md_escape }} |
+{% endfor %}
+
+{% else %}
+No collateral checks reported.
+
+{% endif %}
+## Displacement Checks
+
+{% if displacement_checks %}
+| Metric | Before | After | Δ | % change | Status | Confidence |
+| --- | --- | --- | --- | --- | --- | --- |
+{% for row in displacement_checks %}
+| {{ (row.metric_label or row.metric or "—") | md_escape }} | {{ row.before if row.before is not none else "—" }} | {{ row.after if row.after is not none else "—" }} | {% if row.delta is not none %}{{ "%+.2f"|format(row.delta) }}{% else %}—{% endif %} | {% if row.pct_change is not none %}{{ row.pct_change | signed_pct(2) }}{% else %}—{% endif %} | {{ (row.status_label or row.status or "—") | md_escape }} | {{ (row.confidence or "—") | md_escape }} |
+{% endfor %}
+
+{% else %}
+No displacement checks reported.
+
+{% endif %}
+{% set op_note = notes_by_slot.get("operational_interpretation") if notes_by_slot else None %}
+{% if op_note %}
+## Operational Interpretation
+
+{{ op_note.text | md_escape }}
+
+_From {{ (op_note.author_type or "analyst") | humanize_author | md_escape }}._
+
+{% endif %}
+## Method
+
+Rule-based control review for {{ scope.cluster | cluster_display | md_escape }}{% if scope.database %} · {{ scope.database | cluster_display | md_escape }}{% endif %}{% if method.comparison_type %}, compared against {{ method.comparison_type | humanize_comparison | lower | md_escape }}{% endif %}.
+
+- Schema: `{{ method.schema_version }}`
+{% if method.comparison_type %}
+- Comparison: {{ method.comparison_type | humanize_comparison | md_escape }}
+{% endif %}
+- Table: `{{ scope.table_used }}`
+{% if method.interpretation_constraints %}
+- Constraints: {% for c in method.interpretation_constraints %}{{ c | humanize_constraint | md_escape }}{% if not loop.last %}; {% endif %}{% endfor %}
+
+{% endif %}
+{% if confidence.reasons %}
+- Confidence reasons: {% for r in confidence.reasons %}{{ r | humanize_reason | md_escape }}{% if not loop.last %}; {% endif %}{% endfor %}
+
+{% endif %}
+
+Generated {{ generated_at }}

@@ -1,0 +1,157 @@
+{#- Markdown sibling of reports/crawler_governance.html. Uses the same
+    prepare() context. ``md_escape`` is applied at every
+    producer/user-controlled interpolation site. -#}
+# {{ headline | md_escape }}
+
+{% if dek %}{{ dek | md_escape }}
+
+{% endif %}
+Report type: `crawler_governance`
+
+Scope: {{ scope.cluster | md_escape }}{% if scope.database %} / {{ scope.database | md_escape }}{% endif %}{% if scope.request_host %} · request host `{{ scope.request_host | md_escape }}`{% endif %}{% if scope.table_used %} · table `{{ scope.table_used }}`{% endif %}
+
+Entity axis: {{ entity_type_label | md_escape }}
+
+{% if windows and windows.current %}Window: {{ windows.current.start | md_escape }} → {{ windows.current.end | md_escape }}{% if windows.baseline %} vs {{ windows.baseline.start | md_escape }} → {{ windows.baseline.end | md_escape }}{% endif %}
+
+{% endif %}
+{% if degraded %}
+> **Degraded mode** — per-entity scorecards were not bundled with this report. Queue table reflects producer-supplied ranking only; per-rule evidence, domain breakdowns, and recommended next steps are unavailable.
+
+{% endif %}
+## Executive Summary
+
+{% set exec_note = notes_by_slot.get("executive_summary") if notes_by_slot else None %}
+{% if findings %}
+{% set top = findings[0] %}
+**{{ (top.headline if top.headline else top.title) | md_escape }}.**
+
+{% if top.body %}{{ top.body | md_escape }}
+
+{% endif %}
+{% if top.recommendation %}**Recommended action:** {{ top.recommendation | md_escape }}
+
+{% endif %}
+{% if top.caveat %}{{ top.caveat | md_escape }}
+
+{% endif %}
+{% else %}
+No findings emitted; inspect the queue below.
+
+{% endif %}
+{% if exec_note %}**Analyst note ({{ (exec_note.author_type or "analyst") | humanize_author | md_escape }}):**
+{{ exec_note.text | md_escape }}
+
+{% endif %}
+## Triage
+
+{% if triage_strip and triage_strip.pills %}
+| State | {{ entity_type_label_plural | title_case_label | md_escape }} |
+| --- | --- |
+{% for p in triage_strip.pills %}
+| {{ p.label | md_escape }} | {{ p.count }} |
+{% endfor %}
+
+{% if triage_strip.rationale %}{{ triage_strip.rationale | md_escape }}
+
+{% endif %}
+{% endif %}
+{% if crawler_cards %}
+## Crawler Governance Evidence
+
+{% for card in crawler_cards %}
+### {{ card.entity_display | md_escape }} — {{ card.verdict_label | md_escape }} (score {{ card.score }})
+
+{% if card.crawler_features %}
+**Crawler-governance signals:**
+
+| Rule | Points |
+| --- | --- |
+{% for f in card.crawler_features %}
+| {{ f.name_label | md_escape }} | {{ f.points if f.points is not none else "—" }} |
+{% endfor %}
+
+{% for f in card.crawler_features %}
+{% if f.evidence %}- **{{ f.name_label | md_escape }}:** {{ f.evidence | normalize_percents | md_escape }}
+
+{% endif %}
+{% endfor %}
+{% endif %}
+{% if card.other_features %}
+**Supporting signals:**
+
+| Rule | Domain | Points |
+| --- | --- | --- |
+{% for f in card.other_features %}
+| {{ f.name_label | md_escape }} | {{ f.domain_label | md_escape }} | {{ f.points if f.points is not none else "—" }} |
+{% endfor %}
+
+{% endif %}
+{% endfor %}
+{% endif %}
+{% if queue_rows %}
+## Queue
+
+| Rank | {{ entity_type_label_title | md_escape }} | Score | Verdict | Primary domain | Confidence |
+| --- | --- | --- | --- | --- | --- |
+{% for q in queue_rows %}
+| {{ q.rank | md_escape if q.rank is string else q.rank }} | {{ q.entity_display | md_escape if q.entity_display else (q.entity | md_escape) }} | {{ q.score }} | {{ q.verdict_label | md_escape }} | {{ q.primary_domain_label | md_escape }} | {{ q.confidence | humanize_confidence | md_escape }} |
+{% endfor %}
+
+{% endif %}
+{% if domain_matrix and domain_matrix.rows %}
+## Domain Score Matrix
+
+| {{ entity_type_label | title_case_label | md_escape }} | Score{% for d in domain_matrix.domains %} | {{ d.domain_label | md_escape }}{% endfor %} |
+| ---{% for d in domain_matrix.domains %} | ---{% endfor %} | --- |
+{% for row in domain_matrix.rows %}
+| {{ row.entity_display | md_escape }} | {{ row.score }}{% for c in row.cells %} | {{ c.value }}{% endfor %} |
+{% endfor %}
+
+{% endif %}
+{% if actions %}
+## Recommended Next Steps
+
+{% for a in actions %}
+- {{ a.detail | md_escape }}{% if a.host_count %} _({{ a.host_count }} {{ (entity_type_label if a.host_count == 1 else entity_type_label_plural) | md_escape }}{% if a.preview %} · {{ a.preview | md_escape }}{% if a.extra %}; +{{ a.extra }} more{% endif %}{% endif %})_{% endif %}
+
+{% endfor %}
+{% endif %}
+{% set op_note = notes_by_slot.get("operational_interpretation") if notes_by_slot else None %}
+{% if op_note %}
+## Operational Interpretation
+
+{{ op_note.text | md_escape }}
+
+_From {{ (op_note.author_type or "analyst") | humanize_author | md_escape }}._
+
+{% endif %}
+{% if coverage_rows %}
+## Coverage
+
+| Domain | Triggered | Evaluated clean | Missing inputs |
+| --- | --- | --- | --- |
+{% for c in coverage_rows %}
+| {{ c.domain_label | md_escape }} | {{ c.triggered }} | {{ c.evaluated_zero }} | {{ c.missing }} |
+{% endfor %}
+
+{% endif %}
+## Method
+
+Crawler governance review for {{ scope.cluster | cluster_display | md_escape }}{% if scope.database %} · {{ scope.database | cluster_display | md_escape }}{% endif %}{% if method.comparison_type %}, compared against {{ method.comparison_type | humanize_comparison | lower | md_escape }}{% endif %}.
+
+- Schema: `{{ method.schema_version }}`
+{% if method.comparison_type %}
+- Comparison: {{ method.comparison_type | humanize_comparison | md_escape }}
+{% endif %}
+- Table: `{{ scope.table_used }}`
+{% if method.interpretation_constraints %}
+- Constraints: {% for c in method.interpretation_constraints %}{{ c | humanize_constraint | md_escape }}{% if not loop.last %}; {% endif %}{% endfor %}
+
+{% endif %}
+{% if confidence.reasons %}
+- Confidence reasons: {% for r in confidence.reasons %}{{ r | humanize_reason | md_escape }}{% if not loop.last %}; {% endif %}{% endfor %}
+
+{% endif %}
+
+Generated {{ generated_at }}

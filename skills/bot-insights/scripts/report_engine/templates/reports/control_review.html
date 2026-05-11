@@ -1,0 +1,186 @@
+{% extends "base.html" %}
+{% from "macros/executive_summary.html" import executive_summary %}
+{% from "macros/control_bars.html" import control_bars as render_control_bars %}
+{% from "macros/method.html" import method_section %}
+{% from "macros/report_purpose.html" import report_purpose %}
+
+{# Control Review report shell. Mirrors the executive_posture shape:
+   header → hero (executive summary) → content (effects, collateral,
+   displacement, expected basis) → method → orientation disclosure. #}
+
+{% block hero %}
+  {{ executive_summary(notes_by_slot, findings) }}
+{% endblock %}
+
+{% block content %}
+  {# Target panel — what was changed, when, and where. The target
+     descriptor and windows give the reader a stable anchor before the
+     numerical body of the report. #}
+  <section class="control-target" aria-label="Control target">
+    <div class="section-eyebrow">Target of this control</div>
+    <h2>{{ target.descriptor or "Unspecified target" }}</h2>
+    <dl class="control-target-meta">
+      <dt>Before</dt>
+      <dd>{{ windows.baseline | window_fmt }}</dd>
+      <dt>After</dt>
+      <dd>{{ windows.current | window_fmt }}</dd>
+      {% if windows.expected %}
+        <dt>Expected basis window</dt>
+        <dd>{{ windows.expected | window_fmt }}</dd>
+      {% endif %}
+      {% if expected_basis_label %}
+        <dt>Expected basis</dt>
+        <dd>{{ expected_basis_label }}</dd>
+      {% endif %}
+    </dl>
+  </section>
+
+  {{ render_control_bars(control_bars) }}
+
+  {# Target effects table — every metric the control was scored against,
+     with before/after/expected, delta-vs-expected, status, confidence.
+     Keeps the same column order the legacy markdown rendered. #}
+  <section class="control-effects" aria-label="Target effects">
+    <div class="section-eyebrow">Target effects</div>
+    <h2>Before / after / expected by metric</h2>
+    {% if effects %}
+      <table class="data-table effects-table">
+        <thead>
+          <tr>
+            <th scope="col">Metric</th>
+            <th scope="col" class="num">Before</th>
+            <th scope="col" class="num">After</th>
+            <th scope="col" class="num">Expected</th>
+            <th scope="col" class="num">Δ vs expected</th>
+            <th scope="col" class="num">% vs expected</th>
+            <th scope="col">Status</th>
+            <th scope="col">Confidence</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in effects %}
+            <tr>
+              <td>{{ row.metric_label or row.metric }}</td>
+              <td class="num">{{ row.before if row.before is not none else "—" }}</td>
+              <td class="num">{{ row.after if row.after is not none else "—" }}</td>
+              <td class="num">{{ row.expected if row.expected is not none else "—" }}</td>
+              <td class="num">
+                {%- if row.absolute_delta_vs_expected is not none -%}
+                  {{ "%+.2f"|format(row.absolute_delta_vs_expected) }}
+                {%- else -%}—{%- endif -%}
+              </td>
+              <td class="num">
+                {%- if row.pct_change_vs_expected is not none -%}
+                  {{ row.pct_change_vs_expected | signed_pct(2) }}
+                {%- else -%}—{%- endif -%}
+              </td>
+              <td>
+                <span class="status-pill status-pill-{{ row.status_tone }}">
+                  {{ row.status_label or row.status or "—" }}
+                </span>
+              </td>
+              <td>{{ row.confidence or "—" }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="muted">No target effects available.</p>
+    {% endif %}
+  </section>
+
+  {# Collateral checks — adjacent populations that should not have moved.
+     Renders even when empty so the reader can see the absence is
+     deliberate (the legacy markdown emits "No collateral checks
+     reported." in the same spot). #}
+  <section class="control-collateral" aria-label="Collateral checks">
+    <div class="section-eyebrow">Collateral checks</div>
+    <h2>Adjacent populations</h2>
+    {% if collateral_checks %}
+      {{ check_table(collateral_checks, "collateral") }}
+    {% else %}
+      <p class="muted">No collateral checks reported.</p>
+    {% endif %}
+  </section>
+
+  <section class="control-displacement" aria-label="Displacement checks">
+    <div class="section-eyebrow">Displacement checks</div>
+    <h2>Displacement to substitute paths</h2>
+    {% if displacement_checks %}
+      {{ check_table(displacement_checks, "displacement") }}
+    {% else %}
+      <p class="muted">No displacement checks reported.</p>
+    {% endif %}
+  </section>
+
+  {# Operational interpretation slot — analyst-authored interpretation
+     of the effects, mirroring the same slot in executive_posture.
+     Renders only when the wrapper carried an llm-operational note. #}
+  {% set op_note = notes_by_slot.get("operational_interpretation") if notes_by_slot else None %}
+  {% if op_note %}
+    <section class="narrative-slot operational-interpretation"
+             aria-label="Operational interpretation">
+      <div class="section-eyebrow">Operational interpretation</div>
+      <h2>What this means for the operator</h2>
+      <div class="prose">{{ markdown_render(op_note.text) }}</div>
+      <div class="prose-provenance">
+        From {{ (op_note.author_type or "analyst") | humanize_author }}
+      </div>
+    </section>
+  {% endif %}
+
+  {{ method_section(method, scope, confidence.reasons) }}
+
+  {% if orientation %}
+  <details class="disclosure">
+    <summary><span>Orientation — what this report measures</span></summary>
+    <div class="disclosure-body">
+      {{ report_purpose(orientation, palette) }}
+    </div>
+  </details>
+  {% endif %}
+{% endblock %}
+
+{# Inline macro: shared row format for collateral and displacement
+   tables. Keeping it inline because it is only used inside this
+   template and the row shape is unique to control_review. #}
+{% macro check_table(rows, kind) %}
+<table class="data-table {{ kind }}-table">
+  <thead>
+    <tr>
+      <th scope="col">Metric</th>
+      <th scope="col" class="num">Before</th>
+      <th scope="col" class="num">After</th>
+      <th scope="col" class="num">Δ</th>
+      <th scope="col" class="num">% change</th>
+      <th scope="col">Status</th>
+      <th scope="col">Confidence</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for row in rows %}
+      <tr>
+        <td>{{ row.metric_label or row.metric or "—" }}</td>
+        <td class="num">{{ row.before if row.before is not none else "—" }}</td>
+        <td class="num">{{ row.after if row.after is not none else "—" }}</td>
+        <td class="num">
+          {%- if row.delta is not none -%}
+            {{ "%+.2f"|format(row.delta) }}
+          {%- else -%}—{%- endif -%}
+        </td>
+        <td class="num">
+          {%- if row.pct_change is not none -%}
+            {{ row.pct_change | signed_pct(2) }}
+          {%- else -%}—{%- endif -%}
+        </td>
+        <td>
+          <span class="status-pill status-pill-{{ row.status_tone }}">
+            {{ row.status_label or row.status or "—" }}
+          </span>
+        </td>
+        <td>{{ row.confidence or "—" }}</td>
+      </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endmacro %}

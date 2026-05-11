@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>{{ title }}{% if scope.cluster %} — {{ scope.cluster | cluster_display }}{% endif %}</title>
+  <style>{% include "_styles.css" %}</style>
+  {% block head %}{% endblock %}
+</head>
+<body>
+<main>
+  {% from "macros/report_purpose.html" import report_purpose %}
+
+  {% block header %}
+    <header class="report-header">
+      <div class="header-titles">
+        <div class="kicker">{{ kicker }}</div>
+        <h1>{{ headline }}</h1>
+        {% if dek %}<p class="dek">{{ dek }}</p>{% endif %}
+      </div>
+      {% if windows %}
+      <div class="window">
+        <div class="window-label">Comparison window</div>
+        <div>{{ windows.current | window_fmt }}</div>
+        <div class="window-vs">vs {{ windows.baseline | window_fmt }}</div>
+      </div>
+      {% endif %}
+    </header>
+  {% endblock %}
+
+  {# Hero takeaway slot — the report's primary visual (e.g. score gauge).
+     Sits between the header and the purpose strip so the reader sees the
+     number, then reads the legend that decodes it. Reports without a hero
+     visual leave this block empty. #}
+  {% block hero %}{% endblock %}
+
+  {% block purpose_strip %}
+    {% if purpose %}{{ report_purpose(purpose, palette) }}{% endif %}
+  {% endblock %}
+
+  {% block content %}{% endblock %}
+
+  <footer>
+    Generated {{ generated_at }}
+    {%- if method.schema_version %} · artifact {{ method.schema_version }}{% endif %}
+  </footer>
+</main>
+</body>
+</html>

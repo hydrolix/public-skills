@@ -1,0 +1,36 @@
+{% macro entities_table_brief(entities, limit=3) %}
+<section>
+  <div class="section-eyebrow">Lowest-scoring hosts</div>
+  <h2>Top {{ [entities|length, limit] | min }} by rank</h2>
+  <table class="data-table entities-table">
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Host</th>
+        <th>Score</th>
+        <th>Band</th>
+        <th>Top evidence</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for e in entities[:limit] %}
+        <tr>
+          <td class="rank">{{ e.rank }}</td>
+          <td class="entity">{{ e.entity }}</td>
+          <td class="score-cell">
+            <span class="score-num">{{ e.score }}</span>
+            {{ score_bar(e.score) }}
+          </td>
+          <td><span class="pill pill-{{ e.band }}">{{ e.band | humanize_band }}</span></td>
+          <td class="evidence-cell">{{ e.evidence_top | normalize_percents }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% if entities | length > limit %}
+    <p class="muted-small" style="margin-top:10px;">
+      {{ entities | length - limit }} more host{% if entities | length - limit != 1 %}s{% endif %} omitted in brief mode.
+    </p>
+  {% endif %}
+</section>
+{% endmacro %}

@@ -1,0 +1,28 @@
+{% macro operational_interpretation(notes_by_slot, actions) %}
+{% set note = notes_by_slot.get("operational_interpretation") if notes_by_slot else None %}
+<section class="narrative-slot operational-interp">
+  <div class="section-eyebrow">Operational interpretation</div>
+  <h2>{{ note.title if note else "What to do with this" }}</h2>
+  {% if note %}
+    <div class="prose">
+      {{ markdown_render(note.text) }}
+    </div>
+    <div class="prose-provenance">
+      Interpretation by {{ (note.author_type or "analyst") | humanize_author }}
+    </div>
+  {% else %}
+    <div class="prose prose-fallback">
+      {% if actions %}
+        <p>Begin with the recommended next steps below. The top action
+           affects <strong>{{ actions[0].host_count }}</strong>
+           host{% if actions[0].host_count != 1 %}s{% endif %}:
+           {{ actions[0].step }}</p>
+      {% else %}
+        <p>No automated next-step recommendations are available in this
+           artifact. Use the ranked hosts and method notes below to plan
+           investigation manually.</p>
+      {% endif %}
+    </div>
+  {% endif %}
+</section>
+{% endmacro %}

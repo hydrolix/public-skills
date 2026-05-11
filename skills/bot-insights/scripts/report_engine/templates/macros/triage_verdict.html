@@ -1,0 +1,14 @@
+{% macro triage_verdict(verdict, confidence_chip, score) %}
+<header class="verdict-strip" aria-label="Triage verdict">
+  <div class="verdict-pills">
+    <span class="pill pill-{{ verdict.tone }}">{{ verdict.label }}</span>
+    {% if confidence_chip %}
+      <span class="pill pill-neutral">{{ confidence_chip.label }}</span>
+    {% endif %}
+    <span class="verdict-score">Score {{ score }}</span>
+  </div>
+  {% if verdict.rationale %}
+    <p class="verdict-rationale">{{ verdict.rationale }}</p>
+  {% endif %}
+</header>
+{% endmacro %}
