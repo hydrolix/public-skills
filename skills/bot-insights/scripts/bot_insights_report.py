@@ -176,6 +176,81 @@ def humanize_evidence_packet(packet: dict) -> dict:
             for k, v in domain_scores.items()
         }
 
+    # --- Fleet-shaped packet enrichment ---------------------------------
+    # The scorecard_brief --fleet packet has a different top-level
+    # shape: fleet_summary / top_entities / lowest_entities /
+    # rule_triggers_across_fleet, none of which existed when the
+    # original enrichment was wired. Without the labels here, the
+    # fleet packet still hands the LLM raw identifiers
+    # (band="low_review", primary_domain="cache_busting",
+    # rule_triggers[*].name="volume_delta_high"), defeating the
+    # interpretation-step label-preference rule.
+    fleet_summary = out.get("fleet_summary")
+    if isinstance(fleet_summary, dict):
+        fs = dict(fleet_summary)
+        band_dist = fs.get("band_distribution")
+        if isinstance(band_dist, dict) and "band_distribution_labeled" not in fs:
+            fs["band_distribution_labeled"] = {
+                _humanize.humanize_band(k): v for k, v in band_dist.items()
+            }
+        conf_dist = fs.get("confidence_distribution")
+        if isinstance(conf_dist, dict) and "confidence_distribution_labeled" not in fs:
+            fs["confidence_distribution_labeled"] = {
+                _humanize.humanize_confidence(k): v for k, v in conf_dist.items()
+            }
+        pd_dist = fs.get("primary_domain_distribution")
+        if isinstance(pd_dist, dict) and "primary_domain_distribution_labeled" not in fs:
+            fs["primary_domain_distribution_labeled"] = {
+                _DOMAIN_LABELS.get(k, _humanize.humanize_identifier(k)): v
+                for k, v in pd_dist.items()
+            }
+        mid = fs.get("missing_input_domains")
+        if isinstance(mid, dict) and "missing_input_domains_labeled" not in fs:
+            fs["missing_input_domains_labeled"] = {
+                _DOMAIN_LABELS.get(k, _humanize.humanize_identifier(k)): v
+                for k, v in mid.items()
+            }
+        out["fleet_summary"] = fs
+
+    def _enrich_entity_summary(card: object) -> object:
+        if not isinstance(card, dict):
+            return card
+        e = dict(card)
+        if e.get("entity_type") and "entity_type_label" not in e:
+            e["entity_type_label"] = _humanize.humanize_entity_type(e["entity_type"])
+        if e.get("band") and "band_label" not in e:
+            e["band_label"] = _humanize.humanize_band(e["band"])
+        if e.get("confidence") and "confidence_label" not in e:
+            e["confidence_label"] = _humanize.humanize_confidence(e["confidence"])
+        if e.get("primary_domain") and "primary_domain_label" not in e:
+            e["primary_domain_label"] = _DOMAIN_LABELS.get(
+                e["primary_domain"],
+                _humanize.humanize_identifier(e["primary_domain"]),
+            )
+        return e
+
+    top_entities = out.get("top_entities")
+    if isinstance(top_entities, list):
+        out["top_entities"] = [_enrich_entity_summary(c) for c in top_entities]
+
+    lowest_entities = out.get("lowest_entities")
+    if isinstance(lowest_entities, list):
+        out["lowest_entities"] = [_enrich_entity_summary(c) for c in lowest_entities]
+
+    rule_triggers = out.get("rule_triggers_across_fleet")
+    if isinstance(rule_triggers, list):
+        labelled = []
+        for entry in rule_triggers:
+            if not isinstance(entry, dict):
+                labelled.append(entry)
+                continue
+            e = dict(entry)
+            name = e.get("name")
+            if name and "name_label" not in e:
+                e["name_label"] = _humanize_feature_name(name)
+            labelled.append(e)
+        out["rule_triggers_across_fleet"] = labelled
+
     contract = out.get("interpretation_contract")
     if isinstance(contract, dict):
         out["interpretation_contract"] = _with_label_preference(contract)
@@ -1252,6 +1327,18 @@ def build_scorecard_fleet_evidence_packet(
     scorecards = [
         sc for sc in (artifacts.get("scorecards") or []) if isinstance(sc, dict)
     ]
+    # Fail closed here too, not just in the render path. The
+    # documented two-pass skill flow starts with ``--mode evidence``;
+    # an empty-fleet packet would silently feed the LLM an aggregate
+    # block full of zeros and an empty rule-trigger list, which would
+    # encourage prose like "no rules triggered across the fleet" when
+    # the real condition is "this cluster has nothing to render". Make
+    # the failure mode the same as the render path's.
+    if not scorecards:
+        raise SystemExit(
+            "Scorecard artifacts did not contain any emitted "
+            "scorecards; --fleet has nothing to summarize."
+        )
     n_total = len(scorecards)
 
     band_distribution: dict[str, int] = {}

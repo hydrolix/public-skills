@@ -968,38 +968,70 @@ class BotInsightsScriptTests(unittest.TestCase):
         self.assertNotIn("selected_entity", packet)
         self.assertNotIn("evaluated_feature_evidence", packet)
 
-    def test_fleet_render_rejects_empty_scorecards(self) -> None:
-        """The fleet render path must fail closed when the artifact
-        carries an index but zero emitted scorecards; otherwise the
-        wrapper would render with the index alone and the engine
-        would produce a header-only stub silently.
-        """
-        # The empty-scorecards check lives inline in the report flow.
-        # Exercise it by patching the artifact load + capture so the
-        # flow reaches the wrapper-build step with an empty
-        # scorecards list, then expect SystemExit.
-        from argparse import Namespace
+        # Pass the packet through humanize_evidence_packet (the same
+        # transformation main() applies) and assert that every fleet
+        # aggregate gets paired *_label / *_labeled fields. This is
+        # the round-2 fix for the codex finding that the fleet packet
+        # leaked raw identifiers because the enrichment helper
+        # didn't know about fleet-specific keys.
+        enriched = self.bot_insights_report.humanize_evidence_packet(packet)
+        fs = enriched["fleet_summary"]
+        self.assertEqual(
+            fs["band_distribution_labeled"], {"Observe": 1, "Low review": 2}
+        )
+        self.assertEqual(fs["confidence_distribution_labeled"], {"High": 1, "Medium": 2})
+        self.assertEqual(
+            fs["primary_domain_distribution_labeled"],
+            {"Movement": 2, "Cache busting": 1},
+        )
+        # Top / lowest entities gain entity_type_label, band_label,
+        # confidence_label, primary_domain_label.
+        top = enriched["top_entities"][0]
+        self.assertEqual(top["entity_type_label"], "host")
+        self.assertEqual(top["band_label"], "Observe")
+        self.assertEqual(top["confidence_label"], "High")
+        self.assertEqual(top["primary_domain_label"], "Movement")
+        # Rule triggers gain name_label.
+        rule = enriched["rule_triggers_across_fleet"][0]
+        self.assertEqual(rule["name_label"], "Volume delta high")
 
-        # Build a minimal fake artifact missing scorecards.
-        artifact = {
+    def test_fleet_evidence_rejects_empty_scorecards(self) -> None:
+        """The fleet evidence-packet builder must fail closed when the
+        artifact carries an index but zero emitted scorecards; the
+        empty-fleet packet would otherwise feed the LLM a zero-filled
+        aggregate block and lead to misleading prose. Exercises the
+        actual production function, not a reconstructed inline check.
+        """
+        from argparse import Namespace
+        from pathlib import Path as P
+
+        args = Namespace(
+            cluster="demo",
+            database="akamai",
+            report="scorecard_brief",
+            title=None,
+            scorecard_limit=20,
+            entity_value=None,
+            fleet=True,
+        )
+        # index present, scorecards empty — production reaches this
+        # state when a query returns ranking metadata but the
+        # downstream scorecard producer drops every row.
+        artifacts = {
             "index": {"ranked_entities": [], "total_ranked_entities": 0},
             "scorecards": [],
         }
-        scorecards = [
-            card
-            for card in (artifact.get("scorecards") or [])
-            if isinstance(card, dict)
-        ]
-        # Replicate the inline guard rather than invoking the whole
-        # subprocess flow — the guard is local and stable.
         with self.assertRaises(SystemExit) as ctx:
-            if not scorecards:
-                raise SystemExit(
-                    "Scorecard artifacts did not contain any "
-                    "emitted scorecards; --fleet has nothing to "
-                    "render."
-                )
-        self.assertIn("--fleet has nothing to render", str(ctx.exception))
+            self.bot_insights_report.build_scorecard_fleet_evidence_packet(
+                args=args,
+                artifacts=artifacts,
+                raw_path=P("/tmp/raw.json"),
+                artifact_path=P("/tmp/art.json"),
+                granularity="day",
+                table_used="akamai.bi_summary_day",
+                baseline_start=datetime(2026, 5, 4, tzinfo=timezone.utc),
+            )
+        self.assertIn("--fleet has nothing to summarize", str(ctx.exception))
 
     def test_bot_insights_report_invokes_skill_local_capture(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
