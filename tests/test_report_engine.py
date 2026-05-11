@@ -1106,6 +1106,121 @@ def test_control_review_renders_via_engine_with_oracle_class_names():
     assert "Increased" in actual
 
 
+# ---------------------------------------------------------------------------
+# Markdown engine (M3.1)
+# ---------------------------------------------------------------------------
+
+
+def test_md_escape_escapes_table_pipe_separator():
+    """Table cells separate on ``|`` in GFM tables; a producer-supplied
+    string with a pipe must not break the table structure."""
+    from report_engine.markdown import md_escape
+
+    assert md_escape("a|b") == r"a\|b"
+
+
+def test_md_escape_escapes_emphasis_markers():
+    """``*`` and ``_`` start/end emphasis. Producer identifiers that
+    contain them must stay literal."""
+    from report_engine.markdown import md_escape
+
+    assert md_escape("*bold*") == r"\*bold\*"
+    assert md_escape("under_score") == r"under\_score"
+
+
+def test_md_escape_escapes_backslash_first_to_avoid_recursion():
+    """A literal backslash in the input must survive as a single escaped
+    backslash, not double-escape into ``\\\\``."""
+    from report_engine.markdown import md_escape
+
+    assert md_escape("a\\b") == r"a\\b"
+
+
+def test_md_escape_coerces_non_strings():
+    from report_engine.markdown import md_escape
+
+    assert md_escape(None) == ""
+    assert md_escape(42) == "42"
+    assert md_escape("") == ""
+
+
+def test_md_escape_preserves_alphanumerics_and_spaces():
+    from report_engine.markdown import md_escape
+
+    assert md_escape("plain text 42") == "plain text 42"
+
+
+def test_engine_template_for_derives_markdown_sibling_from_html():
+    """The fmt-aware template selector replaces ``.html`` with ``.md.j2``
+    so each context module only has to declare one TEMPLATE constant."""
+    pytest.importorskip("jinja2")
+    from report_engine import render as engine_render
+
+    class _StubModule:
+        REPORT_TYPE = "stub"
+        TEMPLATE = "reports/stub_report.html"
+
+    assert engine_render.template_for(_StubModule, "html") == "reports/stub_report.html"
+    assert (
+        engine_render.template_for(_StubModule, "markdown")
+        == "reports/stub_report.md.j2"
+    )
+
+
+def test_engine_template_for_rejects_non_html_template_path():
+    pytest.importorskip("jinja2")
+    from report_engine import render as engine_render
+
+    class _BadModule:
+        REPORT_TYPE = "bad"
+        TEMPLATE = "reports/bad_report.txt"
+
+    with pytest.raises(ValueError, match="does not end in .html"):
+        engine_render.template_for(_BadModule, "markdown")
+
+
+def test_engine_render_executive_posture_markdown(tmp_path):
+    """End-to-end smoke: render the executive_posture fixture through the
+    engine's Markdown env and verify the output looks like Markdown
+    (has H1 + H2 headers, has a GFM table, uses pct2 formatting)."""
+    if not shutil.which("uv"):
+        pytest.skip("uv not available")
+    out = tmp_path / "exec.md"
+    subprocess.run(
+        [
+            "uv",
+            "run",
+            "--quiet",
+            "skills/bot-insights/scripts/report_engine/render.py",
+            "--artifact",
+            str(FIXTURES / "executive_posture_full.json"),
+            "--out",
+            str(out),
+            "--format",
+            "markdown",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    md = out.read_text()
+    # Markdown structural markers
+    assert md.startswith("# ")  # H1
+    assert "\n## Executive Summary\n" in md
+    assert "\n## Metric Deltas\n" in md
+    assert "| Metric |" in md  # GFM table header
+    # pct2 formatting reaches the body
+    assert "87.18%" in md
+    # md_escape applied — periods in domain identifiers are backslash-escaped
+    assert "www\\.example\\.com" in md
+    # The Markdown env does NOT HTML-escape (would have produced "&amp;").
+    # md_escape uses CommonMark's backslash-escape list, which includes ``&``,
+    # so a literal ampersand renders as ``\&`` in source and as ``&`` to the
+    # reader.
+    assert "\\&" in md
+    assert "&amp;" not in md
+
+
 def test_control_review_target_descriptor_falls_back_to_key_value_join():
     """When the target dict carries an unfamiliar identifier shape, the
     descriptor falls back to a deterministic ``key=value`` join so the

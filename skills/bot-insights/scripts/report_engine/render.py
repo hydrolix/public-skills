@@ -51,10 +51,24 @@ TEMPLATES_DIR = Path(__file__).parent / "templates"
 WRAPPER_SCHEMA = "bot_report_input.v1"
 
 
-def build_env() -> Environment:
+def build_env(output_format: str = "html") -> Environment:
+    """Build a Jinja2 environment for ``output_format`` rendering.
+
+    HTML mode keeps the default autoescape policy (escape ``<``, ``>``,
+    ``&``, etc. in interpolated values so producer-supplied text can't
+    inject markup). Markdown mode disables autoescape — escaping
+    HTML entities into a Markdown source document would render as
+    literal ``&amp;`` in the final reading. Markdown templates are
+    expected to apply the ``md_escape`` filter at every
+    user/producer-controlled interpolation site instead.
+    """
+    if output_format == "markdown":
+        autoescape = False  # md_escape filter is the escaping boundary
+    else:
+        autoescape = select_autoescape(["html"])
     env = Environment(
         loader=FileSystemLoader(str(TEMPLATES_DIR)),
-        autoescape=select_autoescape(["html"]),
+        autoescape=autoescape,
         undefined=StrictUndefined,
         trim_blocks=True,
         lstrip_blocks=True,
@@ -101,6 +115,11 @@ def build_env() -> Environment:
     env.filters["humanize_status"] = humanize_mod.humanize_status
     env.filters["humanize"] = humanize_mod.humanize_identifier
     env.filters["cluster_display"] = humanize_mod.cluster_display
+    # md_escape escapes Markdown-syntactic characters in producer-supplied
+    # strings. Available in both HTML and Markdown envs (HTML templates
+    # never need it, but registering it keeps the filter set consistent
+    # so an accidental .md.j2 → .html template move doesn't break).
+    env.filters["md_escape"] = md_mod.md_escape
     return env
 
 
@@ -160,13 +179,43 @@ def _resolve_module_from_artifact(data: dict, schema_override: str | None):
     return SCHEMA_REGISTRY[schema]
 
 
+def template_for(module, output_format: str) -> str:
+    """Pick the template path for ``module`` in ``output_format``.
+
+    Each context module exposes ``TEMPLATE`` pointing at the HTML
+    template (e.g. ``reports/executive_posture.html``). The Markdown
+    sibling lives next to it with the ``.md.j2`` suffix. M3.1 selects
+    by filename suffix per plan v3 (no separate registry needed).
+    """
+    if output_format == "markdown":
+        # Replace the .html suffix with .md.j2. The TEMPLATE constant
+        # always ends in .html across the existing context modules.
+        if not module.TEMPLATE.endswith(".html"):
+            raise ValueError(
+                f"{module.REPORT_TYPE} TEMPLATE {module.TEMPLATE!r} does not "
+                "end in .html; cannot derive a .md.j2 sibling."
+            )
+        return module.TEMPLATE[: -len(".html")] + ".md.j2"
+    return module.TEMPLATE
+
+
 def render(
     artifact_path: Path,
     out_path: Path,
     schema_override: str | None = None,
     input_kind: str = "auto",
     mode: str = "full",
+    output_format: str = "html",
 ) -> None:
+    """Render an artifact or wrapper to ``output_format``.
+
+    ``output_format`` is ``"html"`` (default) or ``"markdown"``.
+    Markdown mode renders the sibling ``.md.j2`` template via a
+    Markdown-flavored Jinja2 env (autoescape off; ``md_escape``
+    filter on). The context the templates consume is format-agnostic
+    — ``module.prepare()`` is called once and the same dict feeds
+    either renderer.
+    """
     data = json.loads(artifact_path.read_text())
     kind = _detect_input_kind(data, input_kind)
 
@@ -203,8 +252,9 @@ def render(
             overrides_note.get("text"),
         )
 
-    env = build_env()
-    template = env.get_template(module.TEMPLATE)
+    env = build_env(output_format=output_format)
+    template_path = template_for(module, output_format)
+    template = env.get_template(template_path)
     out_path.write_text(template.render(**ctx))
     print(f"wrote {out_path}")
 
@@ -237,8 +287,16 @@ def main() -> None:
         default="full",
         help="brief = exec one-pager; full = analyst exhibit (default).",
     )
+    ap.add_argument(
+        "--format",
+        choices=["html", "markdown"],
+        default="html",
+        help="Output format. Markdown renders the sibling .md.j2 template.",
+    )
     args = ap.parse_args()
-    render(args.artifact, args.out, args.schema, args.input, args.mode)
+    render(
+        args.artifact, args.out, args.schema, args.input, args.mode, args.format
+    )
 
 
 if __name__ == "__main__":

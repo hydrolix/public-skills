@@ -1,0 +1,112 @@
+{#- Markdown sibling of reports/executive_posture.html.
+
+    Renders the same ``executive_posture.prepare()`` context as the HTML
+    template, formatted as a Markdown document. The Markdown env has
+    ``autoescape=False`` and the ``md_escape`` filter is applied at every
+    producer/user-controlled interpolation site so identifiers carrying
+    pipes, backticks, or asterisks don't break the table structure or
+    sneak into emphasis.
+
+    Sections roughly mirror the legacy ``md_executive`` shape so the
+    Markdown parity gate in M3.2 can verify factual content
+    equivalence. Layout-only differences (engine wording vs. legacy
+    section titles) are acceptable — the gate compares facts. -#}
+# {{ headline | md_escape }}
+
+{% if dek %}{{ dek | md_escape }}
+
+{% endif %}
+Report type: `executive_posture`
+
+Scope: {{ scope.cluster | md_escape }}{% if scope.database %} / {{ scope.database | md_escape }}{% endif %}{% if scope.table_used %} · table `{{ scope.table_used }}`{% endif %}
+
+{% if windows.current %}Window: {{ windows.current.start | md_escape }} → {{ windows.current.end | md_escape }}{% if windows.baseline %} vs {{ windows.baseline.start | md_escape }} → {{ windows.baseline.end | md_escape }}{% endif %}
+
+{% endif %}
+## Executive Summary
+
+{% set exec_note = notes_by_slot.get("executive_summary") if notes_by_slot else None %}
+{% if findings %}
+{% set top = findings[0] %}
+**{{ (top.headline if top.headline else top.title) | md_escape }}.**
+
+{% if top.body %}{{ top.body | md_escape }}
+
+{% endif %}
+{% if top.recommendation %}**Recommended action:** {{ top.recommendation | md_escape }}
+
+{% endif %}
+{% if top.caveat %}{{ top.caveat | md_escape }}
+
+{% endif %}
+{% else %}
+No findings emitted; inspect the metric table below.
+
+{% endif %}
+{% if exec_note %}**Analyst note ({{ (exec_note.author_type or "analyst") | humanize_author | md_escape }}):**
+{{ exec_note.text | md_escape }}
+
+{% endif %}
+## Metric Deltas
+
+{% if metrics %}
+| Metric | Current | Baseline | Δ | % change | Verdict | Confidence |
+| --- | --- | --- | --- | --- | --- | --- |
+{% for m in metrics %}
+| {{ m.label | md_escape }} | {% if m.current is not none %}{{ m.current | big_number }}{% else %}—{% endif %} | {% if m.baseline is not none %}{{ m.baseline | big_number }}{% else %}—{% endif %} | {% if m.absolute_delta %}{{ ("+" if m.absolute_delta > 0 else "") }}{{ m.absolute_delta | big_number }}{% else %}—{% endif %} | {{ m.pct_change | signed_pct(2) }} | {{ m.verdict_label | md_escape }} | {{ m.confidence | md_escape }} |
+{% endfor %}
+
+{% else %}
+No metric deltas available.
+
+{% endif %}
+{% if top_mover %}
+## Top Mover
+
+**{{ top_mover.dimension_label | md_escape }} {{ top_mover.value | md_escape }}** covers {{ top_mover.contribution_pct | pct2 }} of the {{ top_mover.metric_label | lower | md_escape }} move.
+
+{% if top_mover.movers %}
+| {{ top_mover.dimension_label | md_escape }} | Current | Baseline | Δ | Covers |
+| --- | --- | --- | --- | --- |
+{% for m in top_mover.movers %}
+| {{ m.value | md_escape }} | {% if m.current is not none %}{{ m.current | big_number }}{% else %}—{% endif %} | {% if m.baseline is not none %}{{ m.baseline | big_number }}{% else %}—{% endif %} | {% set d = m.absolute_delta or 0 %}{{ ("+" if d > 0 else "") }}{{ d | big_number }} | {% if m.contribution_pct is not none %}{{ m.contribution_pct | pct2 }}{% else %}—{% endif %} |
+{% endfor %}
+
+{% endif %}
+{% endif %}
+{% if actions %}
+## Recommended next steps
+
+{% for a in actions %}
+- {{ a.detail | md_escape }}{% if a.preview %} _({{ a.preview | md_escape }})_{% endif %}
+
+{% endfor %}
+{% endif %}
+{% set op_note = notes_by_slot.get("operational_interpretation") if notes_by_slot else None %}
+{% if op_note %}
+## Operational interpretation
+
+{{ op_note.text | md_escape }}
+
+_From {{ (op_note.author_type or "analyst") | humanize_author | md_escape }}._
+
+{% endif %}
+## Method
+
+Rule-based scorecard for {{ scope.cluster | cluster_display | md_escape }}{% if scope.database %} · {{ scope.database | cluster_display | md_escape }}{% endif %}{% if method.comparison_type %}, compared against {{ method.comparison_type | humanize_comparison | lower | md_escape }}{% endif %}. Reports what was measured, not why. Missing feature inputs are reported as missing — they are not scored as safe.
+
+- Schema: `{{ method.schema_version }}`
+{% if method.comparison_type %}
+- Comparison: {{ method.comparison_type | humanize_comparison | md_escape }}
+{% endif %}
+- Table: `{{ scope.table_used }}`
+{% if method.interpretation_constraints %}
+- Constraints: {% for c in method.interpretation_constraints %}{{ c | humanize_constraint | md_escape }}{% if not loop.last %}; {% endif %}{% endfor %}
+
+{% endif %}
+{% if confidence.reasons %}
+- Confidence reasons: {% for r in confidence.reasons %}{{ r | humanize_reason | md_escape }}{% if not loop.last %}; {% endif %}{% endfor %}
+
+{% endif %}
+
+Generated {{ generated_at }}
