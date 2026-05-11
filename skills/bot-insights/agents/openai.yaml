@@ -1,0 +1,4 @@
+interface:
+  display_name: "Bot Insights"
+  short_description: "Analyze bot posture and report artifacts"
+  default_prompt: "Use $bot-insights to investigate bot traffic posture, scorecards, policy impact, or report artifacts."
