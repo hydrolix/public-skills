@@ -13,6 +13,7 @@ import copy
 import html
 import json
 import math
+import os
 import re
 import sys
 from datetime import datetime, timezone
@@ -4176,17 +4177,41 @@ def render(
     scan_metadata_warnings(artifacts, ctx)
     validate_analyst_notes(notes, artifacts)
     if args.format == "html":
-        # Dual-route: HTML for ``executive_posture``, ``soc_triage``,
-        # ``crawler_governance``, and ``edge_ops_impact`` goes through
-        # the new report_engine path. Markdown callers (``md_executive``,
-        # ``md_soc``, ``md_domain_report`` for crawler and edge) stay on
-        # the legacy path. Other report types are unchanged.
-        if report_type in {
+        # Test-only override (M2.1 parity gate; removed in M4 when legacy
+        # is deleted). ``BOT_INSIGHTS_RENDER_PATH`` can force one or the
+        # other path so the parity harness can render the same wrapper
+        # twice — once legacy, once engine — and diff the result. Values:
+        # ``auto`` (default, current dispatcher behavior); ``legacy``
+        # (skip the engine fallback entirely); ``engine`` (raise if the
+        # engine returns ``None`` for a known wrapper schema).
+        render_path = os.environ.get("BOT_INSIGHTS_RENDER_PATH", "auto").lower()
+        engine_eligible = report_type in {
             "executive_posture",
             "soc_triage",
             "crawler_governance",
             "edge_ops_impact",
-        }:
+        }
+        if render_path == "engine":
+            engine_html = _render_via_engine(
+                report_type=report_type,
+                value=value,
+                artifacts=artifacts,
+                notes=notes,
+                ctx=ctx,
+            )
+            if engine_html is None:
+                raise ReportError(
+                    f"BOT_INSIGHTS_RENDER_PATH=engine but engine returned "
+                    f"None for report_type {report_type!r} — wrapper input "
+                    "not recognized by the engine or registry miss."
+                )
+            return engine_html, ctx.warnings
+        if render_path != "legacy" and engine_eligible:
+            # Dual-route: HTML for ``executive_posture``, ``soc_triage``,
+            # ``crawler_governance``, and ``edge_ops_impact`` goes through
+            # the new report_engine path. Markdown callers (``md_executive``,
+            # ``md_soc``, ``md_domain_report`` for crawler and edge) stay on
+            # the legacy path. Other report types are unchanged.
             engine_html = _render_via_engine(
                 report_type=report_type,
                 value=value,
