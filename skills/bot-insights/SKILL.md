@@ -215,7 +215,20 @@ wired through `scripts/bot_insights_report.py`.
 4. Hand the evidence packet to the LLM with the packet's
    `interpretation_contract`. Require concise interpretation prose only: no new
    metrics, no root-cause claims, no malicious-traffic claims without additional
-   artifacts, and no Hydrolix queries from the interpretation step.
+   artifacts, and no Hydrolix queries from the interpretation step. The packet
+   pairs every producer-side identifier with a human-readable label —
+   `entity_type_label` next to `entity_type`, `band_label` next to `band`,
+   `name_label` next to `name` on each feature evidence card,
+   `confidence_reasons_labels` next to `confidence_reasons`,
+   `domain_label` / `primary_domain_label` next to the domain key,
+   `missing_inputs_labels` next to `missing_inputs`, and
+   `domain_scores_labeled` alongside `domain_scores`. The interpretation prose
+   should use those label fields ("Cache miss rate high", "Origin impact",
+   "Feature input missing", "Request host") rather than the snake_case
+   identifier; the identifiers exist only to anchor cross-references back into
+   the artifact. Do not name internal tables (`bi_summary_*`,
+   `bi_siem_policy_summary_*`, `bot_agg_path_*`) in prose; refer to the data
+   source as "this report's evidence" or by the report type.
 5. Build a `bot_report_input.v1` wrapper with the deterministic artifacts and a
    single `analyst_notes` entry for the returned prose. Use
    `author_type: "llm"`, title it `Executive Interpretation` or another

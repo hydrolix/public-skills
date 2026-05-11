@@ -700,6 +700,102 @@ class BotInsightsScriptTests(unittest.TestCase):
 
         self.assertEqual([], violations)
 
+    def test_humanize_evidence_packet_pairs_labels_with_identifiers(self) -> None:
+        """The skill's interpretation-step LLM should never have to read raw
+        snake_case identifiers when human labels exist. This test pins the
+        contract: every producer-side identifier in a synthetic packet
+        gets a paired ``*_label`` field, raw identifiers are preserved
+        alongside, the contract gets the label-preference rule appended
+        once, and a second call is idempotent.
+        """
+        packet = {
+            "schema_version": "bot_report_evidence.v1",
+            "report_type": "edge_ops_impact",
+            "selected_entity": {
+                "entity_type": "request_host",
+                "entity": "example.com",
+                "band": "low_review",
+                "confidence": "medium",
+                "primary_domain": "origin_impact",
+                "confidence_reasons": [
+                    "summary_table_used",
+                    "feature_input_missing",
+                ],
+            },
+            "domain_scores": {"cache_busting": 10, "origin_impact": 18},
+            "evaluated_feature_evidence": [
+                {
+                    "name": "cache_miss_rate_high",
+                    "domain": "cache_busting",
+                    "evidence": "...",
+                },
+                {
+                    "name": "origin_cost_contribution_high",
+                    "domain": "origin_impact",
+                    "evidence": "...",
+                },
+            ],
+            "missing_inputs": ["baseline_origin_p95_ms", "qs_diversity_ratio"],
+            "interpretation_contract": {
+                "allowed": ["Summarize only the fields in this packet."],
+                "forbidden": ["Do not query Hydrolix from the interpretation step."],
+            },
+        }
+
+        out = self.bot_insights_report.humanize_evidence_packet(packet)
+
+        s = out["selected_entity"]
+        self.assertEqual(s["entity_type_label"], "host")
+        self.assertEqual(s["band_label"], "Low review")
+        self.assertEqual(s["confidence_label"], "Medium")
+        self.assertEqual(s["primary_domain_label"], "Origin impact")
+        self.assertEqual(
+            s["confidence_reasons_labels"],
+            ["Summary table used", "Some feature inputs missing"],
+        )
+        # Raw identifiers preserved next to the labels for downstream
+        # consumers that key off them.
+        self.assertEqual(s["entity_type"], "request_host")
+        self.assertEqual(s["band"], "low_review")
+
+        features = out["evaluated_feature_evidence"]
+        self.assertEqual(features[0]["name_label"], "Cache miss rate high")
+        self.assertEqual(features[0]["domain_label"], "Cache busting")
+        self.assertEqual(features[1]["name_label"], "Origin cost contribution high")
+        self.assertEqual(features[1]["domain_label"], "Origin impact")
+        # Raw still there.
+        self.assertEqual(features[0]["name"], "cache_miss_rate_high")
+
+        self.assertEqual(
+            out["missing_inputs_labels"],
+            ["Baseline origin p95 ms", "Qs diversity ratio"],
+        )
+        self.assertEqual(out["missing_inputs"], packet["missing_inputs"])
+
+        self.assertEqual(
+            out["domain_scores_labeled"],
+            {"Cache busting": 10, "Origin impact": 18},
+        )
+
+        # Contract gains the label-preference rule, appended once.
+        allowed = out["interpretation_contract"]["allowed"]
+        label_rules = [r for r in allowed if "Prefer human-readable label fields" in r]
+        self.assertEqual(len(label_rules), 1)
+        # Forbidden list is untouched.
+        self.assertEqual(
+            out["interpretation_contract"]["forbidden"],
+            packet["interpretation_contract"]["forbidden"],
+        )
+
+        # Idempotency: a second pass through doesn't duplicate the rule
+        # or re-add the *_label fields.
+        twice = self.bot_insights_report.humanize_evidence_packet(out)
+        allowed_twice = twice["interpretation_contract"]["allowed"]
+        self.assertEqual(
+            sum(1 for r in allowed_twice if "Prefer human-readable label fields" in r),
+            1,
+        )
+
     def test_bot_insights_report_invokes_skill_local_capture(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             output = Path(tmpdir) / "evidence.json"

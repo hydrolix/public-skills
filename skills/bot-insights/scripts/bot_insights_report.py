@@ -7,6 +7,16 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+# report_engine.humanize and report_engine.theme are pure-Python
+# (no jinja2 / bleach / markdown-it-py imports). Importing them here
+# lets the orchestrator surface human-readable labels alongside the
+# raw snake_case identifiers in evidence packets so the LLM
+# interpretation step doesn't have to copy ``cache_miss_rate_high`` /
+# ``feature_input_missing`` / ``request_host`` into prose.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from report_engine import humanize as _humanize  # noqa: E402
+from report_engine.theme import DOMAIN_LABELS as _DOMAIN_LABELS  # noqa: E402
+
 
 # Root of the public-skills checkout that hosts this script. Derived
 # from __file__ so the orchestrator continues to work from a git
@@ -55,6 +65,150 @@ METRIC_LABELS = {
     "siem_blocked_requests": "SIEM blocked requests",
     "unique_client_ips": "Unique client IPs",
 }
+
+
+# --- Label enrichment for evidence packets ------------------------------
+#
+# The deterministic capture path produces packets with raw snake_case
+# identifiers in every field that names a producer concept: entity_type,
+# rule names (cache_miss_rate_high), domain keys (origin_impact),
+# confidence reason codes (feature_input_missing), band keys
+# (low_review). When the LLM writes interpretation prose against the
+# packet it tends to copy those identifiers verbatim, which leaks
+# internal naming into reader-facing text. The fix is to pair every
+# identifier with a human-readable label in the packet itself; the
+# interpretation_contract then directs the LLM to prefer the label
+# fields. Tables (``bi_summary_*``, ``bot_agg_path_*``) are not user
+# concepts and should not appear in prose at all — see SKILL.md.
+
+
+def _humanize_feature_name(name: object) -> str:
+    """Human label for a scorecard rule name. Wraps
+    ``humanize_identifier`` so the orchestrator doesn't have to repeat
+    the snake_case → Sentence-case rule.
+    """
+    if not name:
+        return ""
+    return _humanize.humanize_identifier(str(name))
+
+
+def _humanize_input_list(inputs: object) -> list[str]:
+    if not isinstance(inputs, list):
+        return []
+    return [_humanize.humanize_identifier(str(x)) for x in inputs if x]
+
+
+def _enrich_feature_card(card: dict) -> dict:
+    """Add human label fields to a single feature/rule entry.
+
+    Mirrors the same enrichment the engine's render-time filters apply,
+    so the LLM sees ready-to-paste labels (``Cache miss rate high``,
+    ``Origin impact``) instead of the producer-side identifier
+    (``cache_miss_rate_high``, ``origin_impact``).
+    """
+    if not isinstance(card, dict):
+        return card
+    out = dict(card)
+    name = card.get("name")
+    if name and "name_label" not in out:
+        out["name_label"] = _humanize_feature_name(name)
+    domain = card.get("domain")
+    if domain and "domain_label" not in out:
+        out["domain_label"] = _DOMAIN_LABELS.get(domain, _humanize.humanize_identifier(domain))
+    missing_inputs = card.get("missing_inputs")
+    if isinstance(missing_inputs, list) and "missing_inputs_labels" not in out:
+        out["missing_inputs_labels"] = _humanize_input_list(missing_inputs)
+    return out
+
+
+def humanize_evidence_packet(packet: dict) -> dict:
+    """Return a copy of ``packet`` with ``*_label`` fields added next
+    to each producer-identifier field. Pure transformation — does not
+    rename or remove existing keys. Safe to call on any
+    ``bot_report_evidence.v1`` packet shape; missing sections are
+    no-ops.
+    """
+    if not isinstance(packet, dict):
+        return packet
+    out = dict(packet)
+
+    selected = out.get("selected_entity")
+    if isinstance(selected, dict):
+        s = dict(selected)
+        if s.get("entity_type") and "entity_type_label" not in s:
+            s["entity_type_label"] = _humanize.humanize_entity_type(s["entity_type"])
+        if s.get("band") and "band_label" not in s:
+            s["band_label"] = _humanize.humanize_band(s["band"])
+        if s.get("confidence") and "confidence_label" not in s:
+            s["confidence_label"] = _humanize.humanize_confidence(s["confidence"])
+        if s.get("primary_domain") and "primary_domain_label" not in s:
+            s["primary_domain_label"] = _DOMAIN_LABELS.get(
+                s["primary_domain"],
+                _humanize.humanize_identifier(s["primary_domain"]),
+            )
+        reasons = s.get("confidence_reasons")
+        if isinstance(reasons, list) and "confidence_reasons_labels" not in s:
+            s["confidence_reasons_labels"] = [
+                _humanize.humanize_confidence_reason(str(r)) for r in reasons
+            ]
+        out["selected_entity"] = s
+
+    features = out.get("evaluated_feature_evidence")
+    if isinstance(features, list):
+        out["evaluated_feature_evidence"] = [_enrich_feature_card(c) for c in features]
+
+    not_evaluated = out.get("not_evaluated_features")
+    if isinstance(not_evaluated, list):
+        out["not_evaluated_features"] = [_enrich_feature_card(c) for c in not_evaluated]
+
+    missing_inputs = out.get("missing_inputs")
+    if isinstance(missing_inputs, list) and "missing_inputs_labels" not in out:
+        out["missing_inputs_labels"] = _humanize_input_list(missing_inputs)
+
+    rule_results = out.get("rule_results")
+    if isinstance(rule_results, list):
+        out["rule_results"] = [_enrich_feature_card(c) for c in rule_results]
+
+    domain_scores = out.get("domain_scores")
+    if isinstance(domain_scores, dict) and "domain_scores_labeled" not in out:
+        out["domain_scores_labeled"] = {
+            _DOMAIN_LABELS.get(k, _humanize.humanize_identifier(k)): v
+            for k, v in domain_scores.items()
+        }
+
+    contract = out.get("interpretation_contract")
+    if isinstance(contract, dict):
+        out["interpretation_contract"] = _with_label_preference(contract)
+
+    return out
+
+
+# Common interpretation-contract addendum: instructs the LLM to prefer
+# the ``*_label`` fields for prose. Appended to every per-report
+# ``allowed`` list. Keeping the rest of the contract untouched
+# preserves the existing forbidden constraints.
+_LABEL_PREFERENCE_RULE = (
+    "Prefer human-readable label fields (entity_type_label, band_label, "
+    "confidence_label, primary_domain_label, confidence_reasons_labels, "
+    "name_label, domain_label, missing_inputs_labels, "
+    "domain_scores_labeled) over the paired raw snake_case identifier "
+    "when writing prose. Do not name internal tables (bi_summary_*, "
+    "bot_agg_path_*, bi_siem_policy_summary_*) in prose; describe the "
+    "data source as 'this report's evidence' or refer to it by the "
+    "report type."
+)
+
+
+def _with_label_preference(contract: dict) -> dict:
+    """Append ``_LABEL_PREFERENCE_RULE`` to ``allowed`` once."""
+    if not isinstance(contract, dict):
+        return contract
+    out = dict(contract)
+    allowed = list(out.get("allowed") or [])
+    if _LABEL_PREFERENCE_RULE not in allowed:
+        allowed.append(_LABEL_PREFERENCE_RULE)
+    out["allowed"] = allowed
+    return out
 
 
 def as_number(value):
@@ -1494,12 +1648,20 @@ def render_template_packet(packet: dict) -> str:
         for effect in packet.get("target_effects", [])
     )
     selected_entity = packet.get("selected_entity") or {}
+    # Prefer the labelled domain_scores_labeled when present (added by
+    # humanize_evidence_packet). Falls back to the raw domain_scores so
+    # this renderer continues to work on packets that haven't been
+    # enriched.
+    domain_scores_source = packet.get("domain_scores_labeled") or packet.get("domain_scores") or {}
     domain_scores = "\n".join(
         f"- {domain}: {score}"
-        for domain, score in (packet.get("domain_scores") or {}).items()
+        for domain, score in domain_scores_source.items()
     )
     feature_evidence = "\n".join(
-        f"- {feature.get('domain')}/{feature.get('name')}: {feature.get('evidence')}"
+        "- "
+        + f"{feature.get('domain_label') or feature.get('domain')} / "
+        + f"{feature.get('name_label') or feature.get('name')}: "
+        + f"{feature.get('evidence')}"
         for feature in packet.get("evaluated_feature_evidence", [])
         if isinstance(feature, dict)
     )
@@ -1539,11 +1701,11 @@ LLM: Write 2-4 concise sentences using only the evidence below. Do not infer roo
 
 ## Selected Scorecard Entity
 
-- Entity: {selected_entity.get("entity_type", "unavailable")}={selected_entity.get("entity", "unavailable")}
+- Entity: {selected_entity.get("entity_type_label") or selected_entity.get("entity_type", "unavailable")}={selected_entity.get("entity", "unavailable")}
 - Rank: {selected_entity.get("rank", "unavailable")}
 - Score: {selected_entity.get("score", "unavailable")}
-- Band: {selected_entity.get("band", "unavailable")}
-- Confidence: {selected_entity.get("confidence", "unavailable")}
+- Band: {selected_entity.get("band_label") or selected_entity.get("band", "unavailable")}
+- Confidence: {selected_entity.get("confidence_label") or selected_entity.get("confidence", "unavailable")}
 
 ## Domain Scores
 
@@ -2032,10 +2194,20 @@ def main() -> int:
             except SystemExit as exc:
                 # Path-grain summary table may not exist on every cluster
                 # (bot_agg_path_* is optional infrastructure). Degrade
-                # gracefully to entity-grain only.
+                # gracefully to entity-grain only. The reader-facing
+                # warning is humanized (no raw table name) so that an
+                # LLM consuming stderr alongside the evidence packet
+                # doesn't paste internal table identifiers into prose;
+                # the raw exception text is kept on a separate
+                # debug-prefix line for operator triage.
                 print(
-                    f"WARNING: path-grain capture failed ({exc}); "
-                    "path artifact will be omitted.",
+                    "WARNING: per-path cache data is not available on "
+                    "this cluster; the path artifact will be omitted.",
+                    file=sys.stderr,
+                )
+                print(
+                    f"DEBUG: path-grain capture failed ({exc}); "
+                    f"path table used was {path_table_used}.",
                     file=sys.stderr,
                 )
                 path_capture_text = ""
@@ -2043,8 +2215,8 @@ def main() -> int:
                 path_capture_summary = json.loads(path_capture_text) if path_capture_text else {}
             except json.JSONDecodeError:
                 print(
-                    "WARNING: path-grain capture did not return machine-readable JSON; "
-                    "path artifact will be omitted.",
+                    "WARNING: per-path cache data could not be parsed; "
+                    "the path artifact will be omitted.",
                     file=sys.stderr,
                 )
                 path_capture_summary = {}
@@ -2241,6 +2413,13 @@ def main() -> int:
         )
     else:
         raise AssertionError(args.report)
+
+    # Enrich every emitted evidence packet with reader-friendly
+    # ``*_label`` fields and append the label-preference rule to the
+    # interpretation_contract. The transformation is additive — every
+    # raw identifier is preserved next to its label so the deterministic
+    # cross-reference back to the producer artifact still works.
+    evidence_packet = humanize_evidence_packet(evidence_packet)
 
     if args.mode == "evidence":
         output_path.write_text(
