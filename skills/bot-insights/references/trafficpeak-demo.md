@@ -80,7 +80,10 @@ and SIEM policy surfaces:
 
 Do not use request-level raw tables for standard report captures. Use raw tables
 only for an ad hoc investigation that requires fields absent from summaries,
-and keep those queries explicitly time-bounded.
+and keep those queries explicitly time-bounded. Treat request-level surfaces
+(`bot_detection`, `bot_detection_siem`) as not currently deployed unless you
+have verified their presence on the target cluster — when absent, apply the
+deployment-availability rule (SKILL.md).
 
 Most live panels use a constant `${timestamp}` variable with value
 `reqTimeSec`. When translating dashboard SQL into standalone SQL, replace

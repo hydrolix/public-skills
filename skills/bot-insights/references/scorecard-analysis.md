@@ -32,7 +32,10 @@ perform forecast, correlation, ML, or opaque classification.
 
 1. Pick the report lens and entity type. Supported entity types are
    `client_asn`, `request_path_norm`, `request_host`, `bot_class`, or
-   `ai_category`.
+   `ai_category`. `request_path_norm` and `bot_class` are not retained at
+   deployed-summary grain on every cluster — when the cluster lacks them,
+   apply the deployment-availability rule (SKILL.md) and state the limitation
+   rather than substituting a non-deployed table.
 2. Start from the narrowest summary table whose retained dimensions fit that
    lens, entity, and requested scope. For TrafficPeak/Akamai SOC/security
    scorecards, seed the entity population from `bi_siem_policy_summary_*`; do
@@ -41,8 +44,10 @@ perform forecast, correlation, ML, or opaque classification.
 3. Aggregate current and baseline windows in Hydrolix, returning one row per
    entity with scorecard-ready fields.
 4. Add SIEM enrichment only when security action or policy evidence is needed.
-5. Fall back to request-level tables only when required dimensions or features
-   are unavailable in summaries, and state the reason.
+5. Fall back to request-level tables only when (a) those tables are deployed
+   on the target cluster and (b) the required dimension is unavailable in
+   summaries; otherwise apply the deployment-availability rule (SKILL.md).
+   State the reason.
 6. Run `scripts/scorecard.py` on the aggregate JSON to create reusable packets.
    Pass `analysis_domains` in the input JSON, or `--domains` on the CLI, when
    generating a lens-specific scorecard such as `security_evidence` for SOC or

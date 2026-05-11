@@ -63,7 +63,10 @@ uv run python skills/bot-insights/scripts/attribution.py \
 The aggregate rows should cover one metric and one retained dimension set, such
 as `request_host`, `request_path_norm`, `client_asn`, `bot_class`,
 `ai_category`, SIEM `policy_id`/`policyId`, or `action_taken`/`actionClass`.
-The report preserves
+`request_path_norm`, `bot_class`, and request-level `policy_id`/`action_taken`
+are not retained at deployed-summary grain on every cluster — apply the
+deployment-availability rule (SKILL.md) when the target cluster lacks them
+rather than substituting a non-deployed table. The report preserves
 `policy_change`, `policy_change_window`, `reviewed_policy`, and `target_effect`
 metadata when provided.
 

@@ -86,8 +86,11 @@ deployment-availability rule (SKILL.md).
 
 After confirming something changed, identify *who* is driving the change. Rank by
 absolute delta (not total volume) to surface the entities that changed the most.
-Use summaries first for retained dimensions such as ASN, bot class, path, host,
-resource category, AI category, action, and policy.
+Use summaries first. ASN, host, and AI category are retained on deployed
+posture surfaces; bot class, request path, resource category, and
+request-level action/policy are not retained at deployed-summary grain on
+every cluster — apply the deployment-availability rule (SKILL.md) when the
+cluster lacks them rather than substituting a non-deployed table.
 
 ```sql
 SELECT
