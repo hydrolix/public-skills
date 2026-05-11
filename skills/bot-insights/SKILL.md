@@ -245,7 +245,14 @@ At the skill level:
   for a predefined report type.
 - About to substitute a non-deployed table because a needed dimension is
   absent from summaries.
+- About to draft a recommendation, reference, or example that names a
+  non-deployed table or column without invoking the deployment-availability
+  rule in the same paragraph.
 - About to write final HTML/Markdown layout from the LLM rather than feed
   prose into `analyst_notes`.
+- About to hand the LLM a raw capture response instead of a
+  `bot_report_evidence.v1` packet.
 - About to add database connectivity to an artifact-only script.
+- About to claim a report "works" against a window without checking that
+  the cluster actually has data in that range.
 - About to recommend action from a single dimension or single signal.
