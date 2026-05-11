@@ -1221,6 +1221,114 @@ def test_engine_render_executive_posture_markdown(tmp_path):
     assert "&amp;" not in md
 
 
+# ---- M3.1b: per-type Markdown smoke tests -----------------------------------
+#
+# Each test renders one fixture through the engine's Markdown env and verifies
+# the .md.j2 template produces a non-empty document with the expected
+# structural markers (H1, the report-type fence, the type-specific section
+# headers, and at least one GFM table for types that emit tabular content).
+# These are deliberately lightweight — the full DOM-level Markdown parity
+# gate lands in M3.2.
+
+def _render_markdown(tmp_path, fixture_name: str) -> str:
+    if not shutil.which("uv"):
+        pytest.skip("uv not available")
+    out = tmp_path / f"{fixture_name}.md"
+    subprocess.run(
+        [
+            "uv",
+            "run",
+            "--quiet",
+            "skills/bot-insights/scripts/report_engine/render.py",
+            "--artifact",
+            str(FIXTURES / f"{fixture_name}.json"),
+            "--out",
+            str(out),
+            "--format",
+            "markdown",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return out.read_text()
+
+
+def test_engine_render_scorecard_brief_markdown(tmp_path):
+    md = _render_markdown(tmp_path, "scorecard_brief_acme_artifact")
+    assert md.startswith("# ")
+    assert "Report type: `scorecard_brief`" in md
+    assert "\n## Executive Summary\n" in md
+    assert "\n## Triage\n" in md
+    assert "\n## Queue\n" in md
+    assert "\n## Method\n" in md
+    assert "| State |" in md
+    assert "| Rank |" in md
+    # md_escape applied to host identifiers
+    assert "acme\\.org" in md
+
+
+def test_engine_render_scorecard_entity_review_markdown(tmp_path):
+    # The wrapper has a single scorecard, so render auto-promotes to
+    # scorecard_entity_review.
+    md = _render_markdown(tmp_path, "scorecard_brief_acme_wrapper")
+    assert md.startswith("# ")
+    assert "Report type: `scorecard_entity_review`" in md
+    assert "\n## Verdict\n" in md
+    assert "\n## Executive Summary\n" in md
+    assert "\n## Method\n" in md
+    assert "acme\\.org" in md
+
+
+def test_engine_render_control_review_markdown(tmp_path):
+    md = _render_markdown(tmp_path, "control_review_full")
+    assert md.startswith("# ")
+    assert "Report type: `control_review`" in md
+    assert "\n## Target\n" in md
+    assert "\n## Executive Summary\n" in md
+    assert "\n## Target Effects\n" in md
+    assert "\n## Collateral Checks\n" in md
+    assert "\n## Displacement Checks\n" in md
+    assert "\n## Method\n" in md
+    assert "| Metric |" in md
+
+
+def test_engine_render_soc_triage_markdown(tmp_path):
+    md = _render_markdown(tmp_path, "soc_triage_full")
+    assert md.startswith("# ")
+    assert "Report type: `soc_triage`" in md
+    assert "\n## Executive Summary\n" in md
+    assert "\n## Triage\n" in md
+    assert "\n## Queue\n" in md
+    assert "\n## Method\n" in md
+    # Per-entity security evidence cards render as H3s.
+    assert "\n### ASN " in md
+
+
+def test_engine_render_crawler_governance_markdown(tmp_path):
+    md = _render_markdown(tmp_path, "crawler_governance_full")
+    assert md.startswith("# ")
+    assert "Report type: `crawler_governance`" in md
+    assert "\n## Executive Summary\n" in md
+    assert "\n## Triage\n" in md
+    assert "\n## Queue\n" in md
+    assert "\n## Method\n" in md
+    assert "\n## Crawler Governance Evidence\n" in md
+
+
+def test_engine_render_edge_ops_impact_markdown(tmp_path):
+    md = _render_markdown(tmp_path, "edge_ops_impact_full")
+    assert md.startswith("# ")
+    assert "Report type: `edge_ops_impact`" in md
+    assert "\n## Executive Summary\n" in md
+    assert "\n## Triage\n" in md
+    assert "\n## Queue\n" in md
+    assert "\n## Method\n" in md
+    # edge_ops_impact_full carries path candidates.
+    assert "\n## Top Paths\n" in md
+    assert "\n## Edge & Origin Evidence\n" in md
+
+
 def test_control_review_target_descriptor_falls_back_to_key_value_join():
     """When the target dict carries an unfamiliar identifier shape, the
     descriptor falls back to a deterministic ``key=value`` join so the
