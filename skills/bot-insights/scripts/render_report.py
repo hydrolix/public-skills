@@ -4110,9 +4110,12 @@ def _render_via_engine(
         and value.get("report_type") == report_type
     )
     if not is_wrapper:
-        # Raw-artifact short-circuit: the caller decides the fallback.
-        # Plan v3 scopes raw-mode migration to a follow-up plan. Raw mode
-        # never needs jinja2, so we don't probe the engine import here.
+        # Raw-artifact short-circuit. M4.1 confirmed Path B (preserve
+        # raw-artifact mode) as the committed default for this plan —
+        # no telemetry source was named and signed off ahead of M4 to
+        # justify Path A's retirement of raw mode. Raw mode never needs
+        # jinja2, so we don't probe the engine import here. Migrating
+        # raw-mode to the engine is tracked as a follow-up plan.
         return None
 
     try:

@@ -544,6 +544,39 @@ There is no `make pre-push`, no commit gate, and no `uv` in this repo.
    continue to exist; `rule_label_parts`, `human_metric_name`,
    `METRIC_LABELS` move to `report_engine/humanize.py`.
 
+## M4.1 decision record (Path B confirmed)
+
+**Decision (2026-05-10):** M4 proceeds under **Path B (preserve
+raw-artifact mode)**. No named telemetry source was identified and
+signed off ahead of M4 to justify Path A's retirement of raw-mode,
+which is the pre-approval gate the plan v3 trailer requires
+([REVIEW v2 MEDIUM-3]).
+
+Consequences carried through the rest of M4:
+
+- `markdown_to_simple_html()`, the `is_wrapper` short-circuit, the
+  inline `<style>` heredoc, and the `html_*`/`md_*`/`render_html`/
+  `render_markdown` dispatch tree all stay reachable for raw-mode
+  inputs.
+- The wrapper-only deletion list narrows to: the
+  `_render_executive_posture_via_engine` backwards-compat shim
+  (M2.3 left it as a name-only fallback; no caller depends on it),
+  the `BOT_INSIGHTS_RENDER_PATH` test override and its parity-gate
+  consumers (`tests/test_html_parity.py`,
+  `tests/test_markdown_parity.py`), and any `BotInsightsScriptTests`
+  legacy-output assertions whose intent is *engine* coverage (the
+  rest become pinned legacy-mode regression tests with a documented
+  end-of-life at the eventual Path A retirement).
+- M4.5 semantic-test carry-forward
+  (`tests/test_report_semantics.py` + `tests/test_report_class_audit.py`)
+  lands **before** the parity retirement so the engine path stays
+  covered without a regression window.
+- Path A remains revisitable: a future PR with a named telemetry
+  source attesting to zero raw-mode callers in a stated time window
+  could delete the surviving raw-mode helpers, the
+  `markdown_to_simple_html()` regex builder, and the inline
+  `<style>` heredoc. This M4 leaves the wiring intact.
+
 ## Changes from v2 (round-2 codex review tightening)
 
 1. **Parser decision named:** stdlib `html.parser` with a small
