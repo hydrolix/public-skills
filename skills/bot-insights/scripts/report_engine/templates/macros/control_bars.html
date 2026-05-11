@@ -48,7 +48,7 @@
           <rect class="chart-bar {{ sub_class }}" x="{{ label_w }}" y="{{ row_y }}"
                 width="{{ bar_w }}" height="14" rx="2"></rect>
           <text class="chart-value" x="{{ label_w + bar_w + 8 }}" y="{{ row_y + 12 }}">
-            {{- sub_label }} {{ "%.2f"|format(sub_value) -}}
+            {{- sub_label }} {{ sub_value | big_number -}}
           </text>
         {% endif %}
       {% endfor %}

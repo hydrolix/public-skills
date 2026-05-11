@@ -71,7 +71,7 @@
               </td>
               <td class="num">
                 {%- if row.pct_change_vs_expected is not none -%}
-                  {{ "%+.2f"|format(row.pct_change_vs_expected) }}%
+                  {{ row.pct_change_vs_expected | signed_pct(2) }}
                 {%- else -%}—{%- endif -%}
               </td>
               <td>
@@ -170,7 +170,7 @@
         </td>
         <td class="num">
           {%- if row.pct_change is not none -%}
-            {{ "%+.2f"|format(row.pct_change) }}%
+            {{ row.pct_change | signed_pct(2) }}
           {%- else -%}—{%- endif -%}
         </td>
         <td>

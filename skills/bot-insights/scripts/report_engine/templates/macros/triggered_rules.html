@@ -34,7 +34,7 @@
                   {% if k == "absolute_delta_points" %}
                     {% if v is not none and (v | abs) >= 0.05 %}
                       <dt>Δ vs prior window</dt>
-                      <dd>{% if v >= 0 %}+{% endif %}{{ "%.2f"|format(v) }} pp</dd>
+                      <dd>{{ v | signed_pp(2) }}</dd>
                     {% endif %}
                   {% elif k == "absolute_delta_ms" %}
                     <dt>Δ vs prior window</dt>

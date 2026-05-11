@@ -5,7 +5,7 @@
   <h2>Top movers — who drove the change</h2>
   <p class="movers-headline">
     <strong>{{ top_mover.dimension_label }} {{ top_mover.value }}</strong>
-    covers {{ "%.0f"|format(top_mover.contribution_pct) }}% of the
+    covers {{ top_mover.contribution_pct | pct2 }} of the
     {{ top_mover.metric_label | lower }} move.
   </p>
   <table class="data-table movers-table">
@@ -33,7 +33,7 @@
           {% if d > 0 %}+{% endif %}{{ d | big_number }}
         </td>
         <td class="num">
-          {% if m.contribution_pct is not none %}{{ "%.0f"|format(m.contribution_pct) }}%{% else %}—{% endif %}
+          {% if m.contribution_pct is not none %}{{ m.contribution_pct | pct2 }}{% else %}—{% endif %}
         </td>
       </tr>
       {% endfor %}
