@@ -1,0 +1,135 @@
+{
+  "schema_version": "bot_report_input.v1",
+  "report_type": "scorecard_brief",
+  "title": "Bot Scorecard Entity Review",
+  "scope_label": "trafficpeak/akamai request_host=apihub.acme.com",
+  "analyst_notes": [],
+  "artifacts": [
+    {
+      "schema_version": "bot_entity_scorecard.v1",
+      "artifact_id": "apihub-scorecard",
+      "entity_type": "request_host",
+      "entity": "apihub.acme.com",
+      "scope": {
+        "cluster": "trafficpeak",
+        "database": "akamai",
+        "entity_type": "request_host"
+      },
+      "comparison_type": "previous_window",
+      "granularity": "hour",
+      "table_used": "akamai.bi_summary_hour",
+      "current_window": {"start": "2026-05-08T00:00:00Z", "end": "2026-05-09T00:00:00Z"},
+      "baseline_windows": [
+        {"start": "2026-05-07T00:00:00Z", "end": "2026-05-08T00:00:00Z"}
+      ],
+      "score": 90,
+      "baseline_score": 90,
+      "score_delta_points": 0,
+      "score_delta_basis": "previous_window",
+      "band": "observe",
+      "primary_domain": "cache_busting",
+      "domain_scores": {"cache_busting": 10},
+      "features": [
+        {
+          "name": "cache_miss_rate_high",
+          "domain": "cache_busting",
+          "points": 10,
+          "evidence": "Cache miss rate is 99.99%.",
+          "current": 99.99,
+          "baseline": 99.98,
+          "threshold": 50,
+          "supporting_metrics": {
+            "absolute_delta_points": 0.01
+          }
+        }
+      ],
+      "not_evaluated_features": [
+        {"name": "querystring_diversity_high", "domain": "cache_busting", "missing_inputs": ["querystring_diversity_ratio"], "reason": "feature_input_missing"},
+        {"name": "querystring_diversity_with_high_miss_rate", "domain": "cache_busting", "missing_inputs": ["querystring_diversity_ratio"], "reason": "feature_input_missing"},
+        {"name": "cache_miss_delta_high", "domain": "cache_busting", "missing_inputs": ["baseline_cache_miss_pct"], "reason": "feature_input_missing"},
+        {"name": "origin_p95_delta_high", "domain": "origin_impact", "missing_inputs": ["current_origin_p95_ms", "baseline_origin_p95_ms"], "reason": "feature_input_missing"},
+        {"name": "origin_cost_contribution_high", "domain": "origin_impact", "missing_inputs": ["origin_cost_proxy"], "reason": "feature_input_missing"},
+        {"name": "volume_delta_high", "domain": "movement", "missing_inputs": ["baseline_requests"], "reason": "feature_input_missing"},
+        {"name": "bot_share_delta_high", "domain": "movement", "missing_inputs": ["bot_share_pct"], "reason": "feature_input_missing"},
+        {"name": "rate_429_delta_high", "domain": "crawler_governance", "missing_inputs": ["current_rate_429_pct", "baseline_rate_429_pct"], "reason": "feature_input_missing"},
+        {"name": "rate_5xx_delta_high", "domain": "crawler_governance", "missing_inputs": ["current_rate_5xx_pct", "baseline_rate_5xx_pct"], "reason": "feature_input_missing"},
+        {"name": "good_bot_429_present", "domain": "crawler_governance", "missing_inputs": ["good_bot_429_count"], "reason": "feature_input_missing"},
+        {"name": "good_bot_error_rate_high", "domain": "crawler_governance", "missing_inputs": ["good_bot_error_rate"], "reason": "feature_input_missing"},
+        {"name": "policy_surface_failure_present", "domain": "crawler_governance", "missing_inputs": ["policy_surface_failures"], "reason": "feature_input_missing"},
+        {"name": "ai_crawler_growth_high", "domain": "crawler_governance", "missing_inputs": ["ai_crawler_growth_pct"], "reason": "feature_input_missing"},
+        {"name": "siem_blocked_present", "domain": "security_evidence", "missing_inputs": ["siem_blocked_requests"], "reason": "feature_input_missing"},
+        {"name": "auth_failure_rate_high", "domain": "security_evidence", "missing_inputs": ["auth_failure_rate"], "reason": "feature_input_missing"}
+      ],
+      "rule_results": [
+        {"name": "cache_miss_rate_high", "domain": "cache_busting", "status": "triggered", "points": 10, "evidence": "Cache miss rate is 99.99%.", "current": 99.99, "baseline": 99.98, "threshold": 50, "supporting_metrics": {"absolute_delta_points": 0.01}},
+        {"name": "querystring_diversity_high", "domain": "cache_busting", "status": "missing_input", "points": 0, "missing_inputs": ["querystring_diversity_ratio"], "reason": "feature_input_missing"},
+        {"name": "querystring_diversity_with_high_miss_rate", "domain": "cache_busting", "status": "missing_input", "points": 0, "missing_inputs": ["querystring_diversity_ratio"], "reason": "feature_input_missing"},
+        {"name": "cache_miss_delta_high", "domain": "cache_busting", "status": "missing_input", "points": 0, "missing_inputs": ["baseline_cache_miss_pct"], "reason": "feature_input_missing"},
+        {"name": "origin_p95_delta_high", "domain": "origin_impact", "status": "missing_input", "points": 0, "missing_inputs": ["current_origin_p95_ms", "baseline_origin_p95_ms"], "reason": "feature_input_missing"},
+        {"name": "origin_cost_contribution_high", "domain": "origin_impact", "status": "missing_input", "points": 0, "missing_inputs": ["origin_cost_proxy"], "reason": "feature_input_missing"},
+        {"name": "volume_delta_high", "domain": "movement", "status": "missing_input", "points": 0, "missing_inputs": ["baseline_requests"], "reason": "feature_input_missing"},
+        {"name": "bot_share_delta_high", "domain": "movement", "status": "missing_input", "points": 0, "missing_inputs": ["bot_share_pct"], "reason": "feature_input_missing"},
+        {"name": "rate_429_delta_high", "domain": "crawler_governance", "status": "missing_input", "points": 0, "missing_inputs": ["current_rate_429_pct", "baseline_rate_429_pct"], "reason": "feature_input_missing"},
+        {"name": "rate_5xx_delta_high", "domain": "crawler_governance", "status": "missing_input", "points": 0, "missing_inputs": ["current_rate_5xx_pct", "baseline_rate_5xx_pct"], "reason": "feature_input_missing"},
+        {"name": "good_bot_429_present", "domain": "crawler_governance", "status": "missing_input", "points": 0, "missing_inputs": ["good_bot_429_count"], "reason": "feature_input_missing"},
+        {"name": "good_bot_error_rate_high", "domain": "crawler_governance", "status": "missing_input", "points": 0, "missing_inputs": ["good_bot_error_rate"], "reason": "feature_input_missing"},
+        {"name": "policy_surface_failure_present", "domain": "crawler_governance", "status": "missing_input", "points": 0, "missing_inputs": ["policy_surface_failures"], "reason": "feature_input_missing"},
+        {"name": "ai_crawler_growth_high", "domain": "crawler_governance", "status": "missing_input", "points": 0, "missing_inputs": ["ai_crawler_growth_pct"], "reason": "feature_input_missing"},
+        {"name": "siem_blocked_present", "domain": "security_evidence", "status": "missing_input", "points": 0, "missing_inputs": ["siem_blocked_requests"], "reason": "feature_input_missing"},
+        {"name": "auth_failure_rate_high", "domain": "security_evidence", "status": "missing_input", "points": 0, "missing_inputs": ["auth_failure_rate"], "reason": "feature_input_missing"}
+      ],
+      "evidence_summary": [
+        "Cache miss rate is 99.99%.",
+        "15 feature inputs were missing and were not scored as safe."
+      ],
+      "recommended_next_steps": [
+        "Inspect query-string diversity, cache-key behavior, and cache miss concentration by host and path.",
+        "Regenerate aggregate rows with the missing scorecard feature inputs listed in not_evaluated_features."
+      ],
+      "confidence": "low",
+      "confidence_reasons": [
+        "summary_table_used",
+        "feature_input_missing"
+      ],
+      "entity_metrics": {
+        "current_requests": 12500000,
+        "baseline_requests": 12100000,
+        "current_cache_misses": 12498750,
+        "current_cache_miss_pct": 99.99,
+        "baseline_cache_miss_pct": 99.98,
+        "current_origin_p95_ms": null,
+        "baseline_origin_p95_ms": null,
+        "current_5xx_pct": null,
+        "baseline_5xx_pct": null
+      },
+      "interpretation_constraints": [
+        "rule_based_scorecard",
+        "mechanical_features_only",
+        "no_causal_claim",
+        "llm_may_summarize_structured_evidence_only"
+      ]
+    },
+    {
+      "schema_version": "bot_scorecard_index.v1",
+      "artifact_id": "apihub-index",
+      "scope": {"cluster": "trafficpeak", "database": "akamai", "entity_type": "request_host"},
+      "comparison_type": "previous_window",
+      "table_used": "akamai.bi_summary_hour",
+      "current_window": {"start": "2026-05-08T00:00:00Z", "end": "2026-05-09T00:00:00Z"},
+      "baseline_windows": [{"start": "2026-05-07T00:00:00Z", "end": "2026-05-08T00:00:00Z"}],
+      "producer_limit": 20,
+      "result_row_count": 1,
+      "result_truncated": false,
+      "total_ranked_entities": 1,
+      "ranked_entities": [
+        {"rank": 1, "entity_type": "request_host", "entity": "apihub.acme.com", "score": 90, "band": "observe", "primary_domain": "cache_busting", "confidence": "low"}
+      ],
+      "interpretation_constraints": [
+        "rule_based_scorecard",
+        "mechanical_features_only",
+        "no_causal_claim",
+        "llm_may_summarize_structured_evidence_only"
+      ]
+    }
+  ]
+}

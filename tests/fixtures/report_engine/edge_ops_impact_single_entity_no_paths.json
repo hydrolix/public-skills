@@ -1,0 +1,147 @@
+{
+  "schema_version": "bot_report_input.v1",
+  "report_type": "edge_ops_impact",
+  "title": "Edge & Origin Cost - single entity - 2026-04-14",
+  "scope_label": "www.example.com",
+  "analyst_notes": [],
+  "artifacts": [
+    {
+      "artifact_id": "edge-pack-single",
+      "schema_version": "bot_scorecard_artifacts.v1",
+      "producer_limit": 5,
+      "result_row_count": 1,
+      "result_truncated": false,
+      "total_ranked_entities": 1,
+      "index": {
+        "schema_version": "bot_scorecard_index.v1",
+        "comparison_type": "week_over_week",
+        "scope": {
+          "request_host": "www.example.com",
+          "cluster": "prod",
+          "database": "bot_insights"
+        },
+        "table_used": "bi_summary_hour",
+        "current_window": {
+          "start": "2026-04-07T00:00:00Z",
+          "end": "2026-04-14T00:00:00Z"
+        },
+        "baseline_windows": [
+          {
+            "start": "2026-03-31T00:00:00Z",
+            "end": "2026-04-07T00:00:00Z"
+          }
+        ],
+        "producer_limit": 5,
+        "result_row_count": 1,
+        "result_truncated": false,
+        "total_ranked_entities": 1,
+        "interpretation_constraints": [
+          "rule_based_scorecard",
+          "mechanical_features_only",
+          "no_causal_claim"
+        ],
+        "ranked_entities": [
+          {
+            "rank": 1,
+            "entity": "64500",
+            "entity_type": "client_asn",
+            "score": 62,
+            "band": "high_review",
+            "confidence": "high",
+            "primary_domain": "cache_busting"
+          }
+        ]
+      },
+      "scorecards": [
+        {
+          "schema_version": "bot_entity_scorecard.v1",
+          "entity": "64500",
+          "entity_type": "client_asn",
+          "score": 62,
+          "band": "high_review",
+          "confidence": "high",
+          "confidence_reasons": [
+            "summary_table_used",
+            "current_count_sufficient",
+            "baseline_count_sufficient",
+            "feature_input_complete"
+          ],
+          "primary_domain": "cache_busting",
+          "scope": {
+            "request_host": "www.example.com",
+            "cluster": "prod",
+            "database": "bot_insights"
+          },
+          "table_used": "bi_summary_hour",
+          "comparison_type": "week_over_week",
+          "current_window": {
+            "start": "2026-04-07T00:00:00Z",
+            "end": "2026-04-14T00:00:00Z"
+          },
+          "baseline_windows": [
+            {
+              "start": "2026-03-31T00:00:00Z",
+              "end": "2026-04-07T00:00:00Z"
+            }
+          ],
+          "interpretation_constraints": [
+            "rule_based_scorecard",
+            "mechanical_features_only",
+            "no_causal_claim"
+          ],
+          "entity_metrics": {
+            "current_requests": 250000,
+            "baseline_requests": 210000
+          },
+          "domain_scores": {
+            "cache_busting": 48,
+            "origin_impact": 14,
+            "movement": 0,
+            "crawler_governance": 0,
+            "policy_collateral": 0,
+            "security_evidence": 0,
+            "signal_alignment": 0
+          },
+          "evidence_summary": [
+            "Cache-miss rate is 74%.",
+            "Origin p95 latency increased by 145%."
+          ],
+          "features": [
+            {
+              "name": "cache_miss_rate_high",
+              "domain": "cache_busting",
+              "current": 74,
+              "threshold": 50,
+              "points": 12,
+              "evidence": "Cache-miss rate is 74%."
+            },
+            {
+              "name": "origin_p95_delta_high",
+              "domain": "origin_impact",
+              "baseline": 200,
+              "current": 490,
+              "threshold": 100,
+              "points": 14,
+              "evidence": "Origin p95 latency increased by 145%.",
+              "supporting_metrics": {
+                "absolute_delta_ms": 290,
+                "pct_change": 145
+              }
+            }
+          ],
+          "not_evaluated_features": [],
+          "recommended_next_steps": [
+            {
+              "summary": "Investigate cache-miss rate.",
+              "detail": "Cache-miss rate of 74% exceeds the 50% threshold; review query-string patterns and confirm whether a cache-key normalization rule would improve hit rate."
+            },
+            {
+              "summary": "Check origin p95 spike.",
+              "detail": "Origin p95 latency increased 145% this window; investigate whether the same traffic pattern driving cache misses is also straining origin response times."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

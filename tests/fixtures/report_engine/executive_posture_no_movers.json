@@ -1,0 +1,52 @@
+{
+  "schema_version": "bot_report_input.v1",
+  "report_type": "executive_posture",
+  "scope_label": "www.example.com",
+  "title": "Bot & Edge Movement",
+  "analyst_notes": [],
+  "artifacts": [
+    {
+      "schema_version": "bot_posture_movement.v1",
+      "artifact_id": "posture-week-1",
+      "scope": {"request_host": "www.example.com"},
+      "table_used": "bi_summary_day",
+      "comparison_type": "week_over_week",
+      "granularity": "day",
+      "current_window": {"start": "2026-04-07", "end": "2026-04-14"},
+      "baseline_windows": [{"start": "2026-03-31", "end": "2026-04-07"}],
+      "interpretation_constraints": ["movement_only", "no_causal_claim"],
+      "metrics": [
+        {
+          "name": "requests",
+          "current": 1500000,
+          "baseline": 1250000,
+          "absolute_delta": 250000,
+          "pct_change": 20,
+          "direction": "increase",
+          "confidence": "high",
+          "confidence_reasons": ["summary_table_used", "comparable_windows_available"]
+        },
+        {
+          "name": "bot_share_pct",
+          "current": 34.5,
+          "baseline": 29.0,
+          "absolute_delta": 5.5,
+          "pct_change": 18.97,
+          "direction": "increase",
+          "confidence": "high",
+          "confidence_reasons": ["summary_table_used"]
+        },
+        {
+          "name": "cache_misses",
+          "current": 100000,
+          "baseline": 95000,
+          "absolute_delta": 5000,
+          "pct_change": 5.26,
+          "direction": "increase",
+          "confidence": "high",
+          "confidence_reasons": ["summary_table_used"]
+        }
+      ]
+    }
+  ]
+}
