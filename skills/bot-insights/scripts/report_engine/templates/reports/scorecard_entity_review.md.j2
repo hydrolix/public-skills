@@ -43,7 +43,7 @@ Scope: {{ scope.cluster | md_escape }}{% if scope.database %} / {{ scope.databas
 {{ exec_note.text | md_escape }}
 
 {% endif %}
-{% if volume_impact and volume_impact.summary %}
+{% if volume_impact and volume_impact.get("summary") %}
 ## Volume Impact
 
 {{ volume_impact.summary | md_escape }}

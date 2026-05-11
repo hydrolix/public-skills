@@ -8,7 +8,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
-PUBLIC_SKILLS = Path("/Users/turtlebender/src/public-skills")
+# Root of the public-skills checkout that hosts this script. Derived
+# from __file__ so the orchestrator continues to work from a git
+# worktree (e.g. ~/src/public-skills/.worktrees/<feature>) — the
+# previous hardcoded ~/src/public-skills path made worktree-based
+# development silently route the render subprocess through the main
+# checkout's render_report.py, which is the wrong version when M3.x
+# changes only exist on the worktree branch.
+PUBLIC_SKILLS = Path(__file__).resolve().parents[3]
 CAPTURE = Path(__file__).resolve().with_name("bot_insights_capture.py")
 DEFAULT_SAMPLE_ROOT = Path("/Users/turtlebender/src/sample-data/bot-insights/1.1")
 NEEDS_MCP_EXIT = 42
