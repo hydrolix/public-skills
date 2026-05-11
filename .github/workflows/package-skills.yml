@@ -1,0 +1,139 @@
+name: Package Hydrolix AI Toolkit
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'skills/**'
+      - 'CONTRIBUTING.md'
+      - 'README.md'
+      - '.claude-plugin/plugin.json'
+      - 'scripts/validate-skill-examples.py'
+      - 'scripts/generate-site.sh'
+      - 'tests/**'
+      - '.github/workflows/package-skills.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'skills/**'
+      - 'CONTRIBUTING.md'
+      - 'README.md'
+      - '.claude-plugin/plugin.json'
+      - 'scripts/validate-skill-examples.py'
+      - 'scripts/generate-site.sh'
+      - 'tests/**'
+      - '.github/workflows/package-skills.yml'
+  workflow_dispatch:
+  release:
+    types: [published]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Install test dependencies
+        run: uv pip install --system pytest
+
+      - name: Validate skills
+        run: uv run python scripts/validate-skill-examples.py --strict
+
+      - name: Test skill scripts
+        run: uv run python -m unittest discover -s tests
+
+      - name: Verify generated site
+        run: scripts/generate-site.sh
+
+  package:
+    runs-on: ubuntu-latest
+    needs: validate
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create output directory
+        run: mkdir -p dist
+
+      - name: Package each skill
+        run: |
+          for skill_dir in skills/*/; do
+            if [ -f "${skill_dir}SKILL.md" ]; then
+              skill_name=$(basename "$skill_dir")
+              echo "Packaging: $skill_name"
+
+              temp_dir=$(mktemp -d)
+              mkdir -p "$temp_dir/$skill_name"
+              cp -r "$skill_dir"* "$temp_dir/$skill_name/"
+              (cd "$temp_dir" && zip -r "$skill_name.zip" "$skill_name")
+              mv "$temp_dir/$skill_name.zip" "dist/"
+              rm -rf "$temp_dir"
+
+              echo "  Created: dist/$skill_name.zip"
+            fi
+          done
+
+      - name: List packages
+        run: ls -la dist/
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: hydrolix-ai-toolkit
+          path: dist/*.zip
+          retention-days: 90
+
+      - name: Upload to release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v1
+        with:
+          files: dist/*.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate site
+        if: github.event_name == 'release' || github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        run: |
+          export RELEASE_TAG="${{ github.event.release.tag_name || 'latest' }}"
+          chmod +x scripts/generate-site.sh
+          scripts/generate-site.sh
+
+      - name: Copy downloads to site
+        if: github.event_name == 'release' || github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        run: cp dist/*.zip site/
+
+      - name: Configure GitHub Pages
+        if: github.event_name == 'release' || github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        uses: actions/configure-pages@v5
+
+      - name: Upload GitHub Pages artifact
+        if: github.event_name == 'release' || github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./site
+
+  deploy:
+    if: github.event_name == 'release' || github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    needs: package
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
