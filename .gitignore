@@ -1,0 +1,9 @@
+dist/
+site/
+docs/
+.claude/
+__pycache__/
+*.pyc
+.DS_Store
+.ralph/
+.ccb/
