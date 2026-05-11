@@ -202,7 +202,21 @@ wired through `scripts/bot_insights_report.py`.
 
 1. Confirm or infer the report scope: cluster, database, report type, current
    window, baseline behavior, output format, and output path. Ask the user only
-   for missing scope that cannot be safely inferred.
+   for missing scope that cannot be safely inferred. For `scorecard_brief`,
+   also decide between two framings:
+
+   - **Single-entity (default):** no flag — the orchestrator picks the
+     top-ranked entity and the engine auto-promotes the render to
+     `scorecard_entity_review` (one host, triggered rules, missing-input
+     detail). Use this when the user wants a focused per-host write-up.
+     Optionally pin a specific entity with
+     `--entity-type <type> --entity-value <name>`.
+   - **Fleet:** pass `--fleet` — every emitted scorecard stays in the
+     wrapper and the engine renders the multi-entity `scorecard_brief`
+     template (queue table, triage strip, fleet coverage, score
+     landscape). Use this when the user wants the multi-host view across
+     the ranked entities. `--fleet` is mutually exclusive with
+     `--entity-value`.
 2. Run the skill-owned deterministic script first, normally
    `scripts/bot_insights_report.py --mode evidence`, and save the
    `bot_report_evidence.v1` packet. Do not query Hydrolix MCP before the script

@@ -1222,6 +1222,201 @@ EDGE_OPS_TEMPLATE_SECTIONS = [
 ]
 
 
+def build_scorecard_fleet_evidence_packet(
+    *,
+    args: argparse.Namespace,
+    artifacts: dict,
+    raw_path: Path,
+    artifact_path: Path,
+    granularity: str,
+    table_used: str,
+    baseline_start: datetime,
+) -> dict:
+    """Fleet-shaped evidence packet for ``--fleet scorecard_brief``.
+
+    The single-entity packet shape (``selected_entity`` +
+    ``evaluated_feature_evidence``) anchors the LLM on one host's
+    rules, which is exactly the wrong framing when the render is
+    going to be a multi-entity ``scorecard_brief``. This builder
+    swaps that section for fleet aggregates: band distribution, rule
+    trigger counts across hosts, top-N entities by score, aggregate
+    missing-input domains. The shape stays under the same
+    ``bot_report_evidence.v1`` schema_version because the additions
+    are additive — consumers that read only the universal fields
+    (scope, query_context, interpretation_contract, rowset_context)
+    keep working.
+    """
+    from collections import Counter
+
+    index = artifacts.get("index") if isinstance(artifacts.get("index"), dict) else {}
+    scorecards = [
+        sc for sc in (artifacts.get("scorecards") or []) if isinstance(sc, dict)
+    ]
+    n_total = len(scorecards)
+
+    band_distribution: dict[str, int] = {}
+    confidence_distribution: dict[str, int] = {}
+    primary_domain_distribution: dict[str, int] = {}
+    rule_trigger_counts: Counter[str] = Counter()
+    missing_input_domains: Counter[str] = Counter()
+    aggregate_recommended: dict[str, dict] = {}
+    for sc in scorecards:
+        band = sc.get("band")
+        if band:
+            band_distribution[band] = band_distribution.get(band, 0) + 1
+        confidence = sc.get("confidence")
+        if confidence:
+            confidence_distribution[confidence] = (
+                confidence_distribution.get(confidence, 0) + 1
+            )
+        primary = sc.get("primary_domain")
+        if primary:
+            primary_domain_distribution[primary] = (
+                primary_domain_distribution.get(primary, 0) + 1
+            )
+        for rule in sc.get("rule_results") or []:
+            if isinstance(rule, dict) and rule.get("status") == "triggered":
+                name = rule.get("name")
+                if name:
+                    rule_trigger_counts[name] += 1
+        for feature in sc.get("not_evaluated_features") or []:
+            if isinstance(feature, dict):
+                domain = feature.get("domain")
+                if domain:
+                    missing_input_domains[domain] += 1
+        for step in sc.get("recommended_next_steps") or []:
+            if isinstance(step, dict):
+                detail = step.get("detail") or step.get("summary") or ""
+            else:
+                detail = str(step)
+            detail = detail.strip()
+            if not detail:
+                continue
+            entry = aggregate_recommended.setdefault(
+                detail,
+                {"detail": detail, "host_count": 0, "hosts": []},
+            )
+            entry["host_count"] += 1
+            entity = sc.get("entity")
+            if entity and entity not in entry["hosts"]:
+                entry["hosts"].append(str(entity))
+
+    scored = [sc for sc in scorecards if isinstance(sc.get("score"), (int, float))]
+    top_entities = [
+        {
+            "entity_type": sc.get("entity_type"),
+            "entity": sc.get("entity"),
+            "score": sc.get("score"),
+            "band": sc.get("band"),
+            "primary_domain": sc.get("primary_domain"),
+            "confidence": sc.get("confidence"),
+        }
+        for sc in sorted(scored, key=lambda s: -float(s.get("score") or 0))[:5]
+    ]
+    lowest_entities = [
+        {
+            "entity_type": sc.get("entity_type"),
+            "entity": sc.get("entity"),
+            "score": sc.get("score"),
+            "band": sc.get("band"),
+            "primary_domain": sc.get("primary_domain"),
+            "confidence": sc.get("confidence"),
+        }
+        for sc in sorted(scored, key=lambda s: float(s.get("score") or 0))[:5]
+    ]
+
+    rule_triggers = [
+        {"name": name, "host_count": count}
+        for name, count in rule_trigger_counts.most_common()
+    ]
+
+    recommended_next_steps = sorted(
+        ({
+            "detail": entry["detail"],
+            "host_count": entry["host_count"],
+            "hosts": entry["hosts"][:5],
+        } for entry in aggregate_recommended.values()),
+        key=lambda e: (-e["host_count"], e["detail"]),
+    )
+
+    current_window = None
+    baseline_windows = None
+    if scorecards:
+        current_window = scorecards[0].get("current_window")
+        baseline_windows = scorecards[0].get("baseline_windows")
+
+    interpretation_contract = {
+        "allowed": [
+            "Summarize fleet aggregates: band distribution, rule trigger counts, top and lowest scoring entities.",
+            "Use the rule_triggers_across_fleet counts and the top_entities / lowest_entities lists to describe the shape of the fleet's risk.",
+            "Describe rowset_context.total_ranked_entities, result_truncated, and producer_limit as caveats when relevant.",
+        ],
+        "forbidden": [
+            "Do not single out an individual entity's evidence as if it were the whole fleet.",
+            "Do not invent rule names, band labels, or hosts not present in this packet.",
+            "Do not query Hydrolix from the interpretation step.",
+            "Do not claim root cause or malicious intent from scorecard rules alone.",
+            "Do not emit final HTML or Markdown layout.",
+        ],
+    }
+    template_sections = [
+        "Scorecard Interpretation",
+        "Fleet Summary",
+        "Rule Triggers Across Fleet",
+        "Top and Lowest Entities",
+        "Recommended Next Steps",
+        "Method and Caveats",
+    ]
+
+    return {
+        "schema_version": "bot_report_evidence.v1",
+        "report_type": args.report,
+        "title": args.title or "Bot Insights Scorecard Brief — Fleet",
+        "scope": {"cluster": args.cluster, "database": args.database},
+        "query_context": {
+            "cluster": args.cluster,
+            "database": args.database,
+            "table_used": table_used,
+            "granularity": granularity,
+            "raw_artifact_path": str(raw_path),
+            "deterministic_artifact_path": str(artifact_path),
+            "producer_limit": args.scorecard_limit,
+            "entity_selection": "fleet",
+        },
+        "fleet_summary": {
+            "n_ranked_entities": n_total,
+            "band_distribution": band_distribution,
+            "confidence_distribution": confidence_distribution,
+            "primary_domain_distribution": primary_domain_distribution,
+            "missing_input_domains": dict(missing_input_domains),
+        },
+        "top_entities": top_entities,
+        "lowest_entities": lowest_entities,
+        "rule_triggers_across_fleet": rule_triggers,
+        "recommended_next_steps": recommended_next_steps,
+        "rowset_context": {
+            "producer_limit": artifacts.get("producer_limit")
+            or index.get("producer_limit"),
+            "result_row_count": artifacts.get("result_row_count")
+            or index.get("result_row_count"),
+            "result_truncated": artifacts.get("result_truncated")
+            or index.get("result_truncated"),
+            "total_ranked_entities": artifacts.get("total_ranked_entities")
+            or index.get("total_ranked_entities"),
+        },
+        "current_window": current_window,
+        "baseline_windows": baseline_windows,
+        "analysis_domains": (
+            (scorecards[0].get("analysis_domains") if scorecards else None)
+            or index.get("analysis_domains")
+        ),
+        "interpretation_contract": interpretation_contract,
+        "template": {"sections": template_sections},
+        "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "baseline_start": baseline_start.isoformat().replace("+00:00", "Z"),
+    }
+
+
 def build_scorecard_evidence_packet(
     *,
     args: argparse.Namespace,
@@ -1823,6 +2018,26 @@ def parse_args() -> argparse.Namespace:
         help="Optional explicit entity value to render for scorecard_brief. Defaults to top-ranked scorecard entity.",
     )
     parser.add_argument(
+        "--fleet",
+        action="store_true",
+        default=False,
+        help=(
+            "Render scorecard_brief as a fleet (multi-entity) view "
+            "instead of collapsing to a single entity. The default "
+            "(no flag, no --entity-value) selects the top-ranked "
+            "entity and the engine auto-promotes to "
+            "scorecard_entity_review for that one host. --fleet "
+            "keeps every ranked scorecard in the wrapper so the "
+            "report renders as scorecard_brief with the queue table, "
+            "triage strip, and coverage detail; --mode evidence with "
+            "--fleet also emits a fleet-shaped packet (band "
+            "distribution, rule trigger counts across hosts, top "
+            "entities) instead of the single-entity packet shape, so "
+            "the LLM's interpretation prose matches the rendered "
+            "framing. Only valid for --report scorecard_brief."
+        ),
+    )
+    parser.add_argument(
         "--scorecard-limit",
         type=int,
         default=20,
@@ -1884,6 +2099,18 @@ def main() -> int:
         raise SystemExit(
             "--entity-value is only supported with --report scorecard_brief, --report soc_triage, "
             "--report crawler_governance, or --report edge_ops_impact."
+        )
+    if args.fleet and args.report != "scorecard_brief":
+        raise SystemExit(
+            "--fleet is only supported with --report scorecard_brief; "
+            "soc_triage, crawler_governance, and edge_ops_impact "
+            "already render multi-entity views by default."
+        )
+    if args.fleet and args.entity_value:
+        raise SystemExit(
+            "--fleet and --entity-value are mutually exclusive: "
+            "--fleet renders every emitted scorecard, while "
+            "--entity-value pins to one specific entity."
         )
     if args.report == "soc_triage" and args.entity_type not in SOC_ENTITY_SQL:
         raise SystemExit(
@@ -2396,21 +2623,36 @@ def main() -> int:
         "crawler_governance",
         "edge_ops_impact",
     }:
-        selected_card = select_scorecard(
-            artifact,
-            entity_type=args.entity_type if args.entity_value else None,
-            entity_value=args.entity_value,
-        )
-        evidence_packet = build_scorecard_evidence_packet(
-            args=args,
-            artifacts=artifact,
-            selected_card=selected_card,
-            raw_path=raw_path,
-            artifact_path=artifact_path,
-            granularity=granularity,
-            table_used=table_used,
-            baseline_start=baseline_start,
-        )
+        if args.report == "scorecard_brief" and args.fleet:
+            # Fleet evidence packet — different shape from the
+            # single-entity packet (fleet aggregates instead of
+            # selected_entity + evaluated_feature_evidence) so the
+            # LLM's prose matches the multi-entity render.
+            evidence_packet = build_scorecard_fleet_evidence_packet(
+                args=args,
+                artifacts=artifact,
+                raw_path=raw_path,
+                artifact_path=artifact_path,
+                granularity=granularity,
+                table_used=table_used,
+                baseline_start=baseline_start,
+            )
+        else:
+            selected_card = select_scorecard(
+                artifact,
+                entity_type=args.entity_type if args.entity_value else None,
+                entity_value=args.entity_value,
+            )
+            evidence_packet = build_scorecard_evidence_packet(
+                args=args,
+                artifacts=artifact,
+                selected_card=selected_card,
+                raw_path=raw_path,
+                artifact_path=artifact_path,
+                granularity=granularity,
+                table_used=table_used,
+                baseline_start=baseline_start,
+            )
     else:
         raise AssertionError(args.report)
 
@@ -2432,14 +2674,40 @@ def main() -> int:
         )
     else:
         if args.report == "scorecard_brief":
-            selected_card = select_scorecard(
-                artifact,
-                entity_type=args.entity_type if args.entity_value else None,
-                entity_value=args.entity_value,
-            )
-            render_artifacts = [selected_card]
-            if isinstance(artifact.get("index"), dict):
-                render_artifacts.append(artifact["index"])
+            if args.fleet:
+                # Fleet view: keep every emitted scorecard so the
+                # engine renders the multi-entity scorecard_brief
+                # template (queue table, triage strip, fleet
+                # coverage, score landscape) instead of auto-
+                # promoting to scorecard_entity_review. The engine's
+                # _maybe_promote_singleton only fires when
+                # ``len(scorecards) == 1``; including every card
+                # keeps the wrapper above that threshold and the
+                # ``scorecard_brief`` report_type is preserved.
+                scorecards = [
+                    card
+                    for card in (artifact.get("scorecards") or [])
+                    if isinstance(card, dict)
+                ]
+                if not scorecards:
+                    raise SystemExit(
+                        "Scorecard artifacts did not contain any "
+                        "emitted scorecards; --fleet has nothing to "
+                        "render."
+                    )
+                render_artifacts = []
+                if isinstance(artifact.get("index"), dict):
+                    render_artifacts.append(artifact["index"])
+                render_artifacts.extend(scorecards)
+            else:
+                selected_card = select_scorecard(
+                    artifact,
+                    entity_type=args.entity_type if args.entity_value else None,
+                    entity_value=args.entity_value,
+                )
+                render_artifacts = [selected_card]
+                if isinstance(artifact.get("index"), dict):
+                    render_artifacts.append(artifact["index"])
         elif args.report in {"soc_triage", "crawler_governance"}:
             render_artifacts = []
             if isinstance(artifact.get("index"), dict):
