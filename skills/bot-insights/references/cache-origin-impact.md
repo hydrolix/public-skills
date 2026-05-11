@@ -334,6 +334,15 @@ Use confidence reasons such as:
 
 ## Summary SQL Template Guidance
 
+> **Deployment-availability check first.** `bot_agg_path_day`,
+> `bot_agg_path_hour`, and `bot_agg_path_minute` are **not currently
+> deployed** on observed clusters (see the Deployment note at the top of
+> this file). Do not generate SQL against them as a default — confirm the
+> target cluster retains the path-summary surface, or apply the
+> deployment-availability rule (SKILL.md) and ship entity-grain
+> `bi_summary_*` evidence via `edge_ops_impact` instead. The template below
+> is the contract for when path summaries are deployed.
+
 Prefer the narrowest path summary that retains the requested dimensions:
 
 - Use `bot_agg_path_day` for long-window path-level cache/origin movement.
