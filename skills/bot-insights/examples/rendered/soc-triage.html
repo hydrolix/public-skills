@@ -1,0 +1,1542 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>SOC Triage</title>
+  <style>:root {
+  --bg: #fafaf9;
+  --surface: #ffffff;
+  --surface-2: #f4f4f5;
+  --text: #18181b;
+  --muted: #71717a;
+  --muted-2: #a1a1aa;
+  --border: #e4e4e7;
+  --observe: #4E79A7;
+  --monitor: #F28E2B;
+  --escalate: #E15759;
+}
+* { box-sizing: border-box; }
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI",
+               Roboto, Helvetica, Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+.tnum { font-variant-numeric: tabular-nums; }
+main { max-width: 1080px; margin: 0 auto; padding: 56px 32px 96px; }
+
+/* Header */
+header.report-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 32px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 20px;
+  margin-bottom: 28px;
+}
+.header-titles { min-width: 0; }
+.kicker {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+h1 {
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+.dek {
+  margin: 10px 0 0;
+  font-size: 15px;
+  line-height: 1.45;
+  color: var(--muted);
+  max-width: 680px;
+}
+.window {
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+.window-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+  color: var(--muted-2);
+  margin-bottom: 4px;
+}
+.window-vs { color: var(--muted-2); margin-top: 2px; }
+
+/* Verdict strip — replaces the gauge as the entity-review hero. */
+.verdict-strip {
+  margin: 4px 0 28px;
+  padding: 18px 22px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.verdict-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: baseline;
+}
+.verdict-score {
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  margin-left: auto;
+}
+.verdict-rationale {
+  margin: 10px 0 0;
+  font-size: 14px;
+  color: var(--text);
+  line-height: 1.5;
+}
+.pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.pill-escalate {
+  background: color-mix(in srgb, var(--escalate) 15%, var(--surface));
+  color: var(--escalate);
+  border-color: color-mix(in srgb, var(--escalate) 35%, transparent);
+}
+.pill-monitor {
+  background: color-mix(in srgb, var(--monitor) 15%, var(--surface));
+  color: var(--monitor);
+  border-color: color-mix(in srgb, var(--monitor) 35%, transparent);
+}
+.pill-observe {
+  background: color-mix(in srgb, var(--observe) 15%, var(--surface));
+  color: var(--observe);
+  border-color: color-mix(in srgb, var(--observe) 40%, transparent);
+}
+.pill-neutral {
+  background: var(--surface-2);
+  color: var(--muted);
+  border-color: var(--border);
+}
+.muted-small { font-size: 11px; color: var(--muted-2); }
+
+/* Executive summary — recommendation + caveat callouts under the lead. */
+.exec-recommendation {
+  margin: 14px 0 0 !important;
+  padding: 10px 14px;
+  background: var(--surface-2);
+  border-left: 3px solid var(--observe);
+  border-radius: 0 4px 4px 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text);
+}
+.exec-recommendation-label {
+  display: inline-block;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--muted);
+  margin-right: 8px;
+  vertical-align: 1px;
+}
+.exec-caveat {
+  margin: 10px 0 0 !important;
+  font-size: 12px;
+  color: var(--muted);
+  font-style: italic;
+}
+.exec-body {
+  margin: 8px 0 0 !important;
+  font-style: italic;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+/* Triage count pills — fleet-view counts of hosts in each verdict state. */
+.pill.triage-count {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 6px 14px;
+  font-size: 13px;
+}
+.pill.triage-count strong {
+  font-size: 16px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.pill.triage-count .triage-pill-label {
+  font-weight: 500;
+  letter-spacing: 0;
+}
+.pill.triage-count.pill-muted {
+  opacity: 0.45;
+  font-size: 11px;
+  padding: 3px 10px;
+}
+.pill.triage-count.pill-muted strong {
+  font-size: 13px;
+  font-weight: 500;
+}
+.pill.pill-sm { padding: 2px 9px; font-size: 11px; }
+
+/* Shared-signal banner — promoted finding when ≥ 50% of fleet shares one rule. */
+.shared-signal-banner {
+  margin-top: 14px;
+  padding: 12px 14px;
+  background: var(--surface-2);
+  border-left: 3px solid var(--escalate);
+  border-radius: 0 6px 6px 0;
+}
+.shared-signal-eyebrow {
+  display: block;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+.shared-signal-banner p {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+/* Queue table — same data-table styling, with per-state divider rows. */
+.queue-state-divider td {
+  background: var(--surface-2);
+  padding: 8px 12px !important;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+/* Coverage detail — listing of unscored rules behind a disclosure. */
+.coverage-group { margin-top: 14px; }
+.coverage-domain {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin: 0 0 6px;
+  font-weight: 600;
+}
+.coverage-rules {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+  font-size: 13px;
+}
+.coverage-rules code {
+  background: var(--surface-2);
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 0.9em;
+}
+.actions-preamble {
+  margin: 0 0 14px;
+  padding: 0 0 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 14px;
+  color: var(--text);
+}
+
+/* Purpose strip */
+.purpose-strip {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 32px;
+  padding: 22px 0 26px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 36px;
+}
+.purpose-cell { min-width: 0; }
+.purpose-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+.purpose-cell p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text);
+}
+.purpose-key {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.key-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 8px;
+  vertical-align: 1px;
+}
+
+/* KPI strip */
+.kpis {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  margin-bottom: 40px;
+}
+.kpi {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 18px 20px;
+}
+.kpi-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+.kpi-value {
+  font-size: 30px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+  line-height: 1.1;
+}
+.kpi-sub { font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+/* Sections */
+section { margin-bottom: 48px; }
+.section-eyebrow {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+section > h2 {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0 0 16px;
+  letter-spacing: -0.005em;
+}
+
+/* Narrative slots (executive summary, operational interpretation) */
+.narrative-slot {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 24px 28px;
+}
+.narrative-slot h2 { margin-top: 0; margin-bottom: 12px; }
+.narrative-slot .prose {
+  font-size: 14.5px;
+  line-height: 1.55;
+  color: var(--text);
+}
+.narrative-slot .prose p { margin: 0 0 10px; }
+.narrative-slot .prose p:last-child { margin-bottom: 0; }
+.narrative-slot .prose ul,
+.narrative-slot .prose ol { margin: 8px 0 10px 22px; padding: 0; }
+.narrative-slot .prose li { margin: 4px 0; }
+.narrative-slot .prose code {
+  background: var(--surface-2);
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 0.92em;
+}
+.narrative-slot .prose-fallback p { color: var(--muted); }
+.narrative-slot .prose-fallback p strong { color: var(--text); }
+.analyst-note {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+.analyst-note-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+.prose-provenance {
+  margin-top: 10px;
+  font-size: 11px;
+  color: var(--muted-2);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+}
+
+/* Findings */
+.findings { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.finding {
+  border-top: 1px solid var(--border);
+  padding: 18px 0;
+  display: grid;
+  grid-template-columns: minmax(0, 360px) 1fr;
+  gap: 32px;
+  align-items: baseline;
+}
+.finding:last-child { border-bottom: 1px solid var(--border); }
+.finding h3 { margin: 0; font-size: 16px; font-weight: 600; letter-spacing: -0.005em; }
+.finding p { margin: 0; color: var(--muted); }
+
+/* Score landscape */
+.landscape-grid {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  gap: 32px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 28px 32px;
+  align-items: center;
+}
+.landscape-grid-compact {
+  grid-template-columns: 1fr;
+  justify-items: center;
+}
+.gauge-card { display: flex; align-items: center; justify-content: center; }
+.lowest-host-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+  justify-content: center;
+}
+.lowest-host-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  font-weight: 600;
+}
+.lowest-host-entity {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 16px;
+  color: var(--text);
+  word-break: break-all;
+}
+.lowest-host-meta {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.lowest-host-score {
+  font-variant-numeric: tabular-nums;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+.triage-hist { width: 100%; max-width: 660px; height: auto; display: block; }
+.gauge-svg { width: 100%; max-width: 300px; height: auto; display: block; }
+.gauge-number {
+  fill: var(--text);
+  font-size: 48px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+  font-family: inherit;
+}
+.gauge-band {
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-family: inherit;
+}
+.gauge-delta {
+  font-size: 14px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  font-family: inherit;
+}
+.gauge-tick {
+  fill: var(--muted-2);
+  font-size: 11px;
+  font-family: inherit;
+  font-variant-numeric: tabular-nums;
+}
+.gauge-caption { fill: var(--muted); font-size: 12px; font-family: inherit; }
+
+/* Band distribution stacked bar (hero) */
+.band-dist-bar {
+  width: 100%;
+  max-width: 280px;
+  height: auto;
+  display: block;
+}
+.band-dist-label {
+  fill: var(--muted);
+  font-size: 11px;
+  font-family: inherit;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Bullet chart */
+.bullet-chart { width: 100%; max-width: 360px; height: auto; display: block; }
+.bullet-label {
+  fill: var(--muted);
+  font-size: 11px;
+  font-family: inherit;
+}
+
+/* Slopegraph */
+.slopegraph-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 24px 28px;
+}
+.slopegraph { width: 100%; max-width: 540px; height: auto; display: block; }
+.slope-axis-label {
+  fill: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+  font-family: inherit;
+}
+.slope-entity-label {
+  fill: var(--text);
+  font-size: 11px;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+}
+/* Score histogram (hero right panel) */
+.hist-card { min-width: 0; }
+.hist-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+.score-hist { width: 100%; max-width: 660px; height: auto; display: block; }
+.hist-zone-label {
+  fill: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+  font-family: inherit;
+}
+.hist-bar-count {
+  fill: var(--text);
+  font-size: 11px;
+  font-family: inherit;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+.hist-axis-tick {
+  fill: var(--muted);
+  font-size: 11px;
+  font-family: inherit;
+  font-variant-numeric: tabular-nums;
+}
+.hist-annotation {
+  fill: var(--text);
+  font-size: 11px;
+  font-family: inherit;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+/* Generic data tables */
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.data-table th {
+  text-align: left;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  font-weight: 600;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+}
+.data-table td {
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+.data-table tr:last-child td { border-bottom: 0; }
+.num {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  width: 70px;
+  color: var(--muted);
+}
+.coverage-bar { width: 100%; max-width: 360px; height: 14px; }
+.domain-name { font-weight: 500; }
+
+.entities-table .rank {
+  width: 36px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  font-size: 12px;
+}
+.entities-table .entity {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 13px;
+}
+.entities-table .group-row td.entity { font-family: inherit; font-size: 13px; }
+.host-list { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+.host-list > summary {
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+  color: var(--text);
+  font-size: 13px;
+}
+.host-list > summary::-webkit-details-marker { display: none; }
+.host-list > summary::before {
+  content: "▸";
+  display: inline-block;
+  margin-right: 6px;
+  color: var(--muted-2);
+  font-size: 10px;
+}
+.host-list[open] > summary::before { content: "▾"; }
+.host-list > summary:hover { color: var(--escalate); }
+.host-list-items {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  color: var(--muted);
+  list-style: disc;
+}
+.host-list-items li { margin: 2px 0; }
+.score-cell { display: flex; align-items: center; gap: 10px; width: 160px; }
+.score-num {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  font-size: 14px;
+  width: 28px;
+}
+.score-bar { width: 88px; height: 8px; }
+.evidence-cell { color: var(--muted); font-size: 13px; }
+.muted, .muted-small { color: var(--muted); }
+.muted-small { font-size: 12px; }
+
+/* Pills — Tableau-tinted */
+.pill {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  border: 1px solid transparent;
+}
+.pill-observe {
+  background: #EDF2F8;
+  color: #2D4A6B;
+  border-color: #B5C7DC;
+}
+.pill-monitor {
+  background: #FDF1E2;
+  color: #8C4A0A;
+  border-color: #F8C58A;
+}
+.pill-escalate {
+  background: #FBE7E7;
+  color: #8B2728;
+  border-color: #F0A8A9;
+}
+.pill-neutral {
+  background: var(--surface-2);
+  color: var(--muted);
+  border-color: var(--border);
+}
+.domain-pill {
+  display: inline-block;
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+}
+.domain-pill.primary-none {
+  color: var(--muted);
+  background: transparent;
+  border-style: dashed;
+}
+
+.delta-flat { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 13px; }
+.delta-up {
+  color: var(--escalate);
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  font-weight: 500;
+}
+.delta-down {
+  color: #3F8C5A;
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+/* Actions */
+.actions { list-style: none; margin: 0; padding: 0; counter-reset: action; }
+.action {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 16px 20px 16px 56px;
+  margin-bottom: 10px;
+  position: relative;
+  counter-increment: action;
+}
+.action::before {
+  content: counter(action);
+  position: absolute;
+  left: 16px;
+  top: 16px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.action-step { font-weight: 500; margin-bottom: 4px; letter-spacing: -0.005em; }
+.action-meta {
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+
+/* Triggered-rules list (single-entity report) */
+.triggered-rules { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+.triggered-rule {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--escalate);
+  border-radius: 8px;
+  padding: 16px 20px;
+}
+.triggered-rule-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.rule-name {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+}
+.rule-points {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--escalate);
+  margin-left: auto;
+}
+.rule-evidence {
+  margin: 0 0 10px;
+  font-size: 14px;
+  color: var(--text);
+}
+.rule-metrics {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 4px 20px;
+  font-size: 13px;
+  margin: 0 0 10px;
+}
+.rule-metrics dt {
+  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+  color: var(--muted-2);
+}
+.rule-metrics dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+.rule-id {
+  font-size: 11px;
+  color: var(--muted-2);
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+.rule-id code {
+  background: var(--surface-2);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+/* Disclosure (collapsible) sections — used for analyst-grade detail
+   that is hidden from director-level readers by default. */
+.disclosure {
+  margin-top: 16px;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+.disclosure > summary {
+  cursor: pointer;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  font-weight: 600;
+  list-style: none;
+  user-select: none;
+  padding: 4px 0;
+}
+.disclosure > summary::-webkit-details-marker { display: none; }
+.disclosure > summary::before {
+  content: "▸";
+  display: inline-block;
+  margin-right: 8px;
+  color: var(--muted-2);
+  font-size: 10px;
+  transition: transform 0.15s ease;
+}
+.disclosure[open] > summary::before { content: "▾"; }
+.disclosure > summary:hover { color: var(--text); }
+.disclosure-summary-stat {
+  margin-left: 8px;
+  color: var(--muted-2);
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 400;
+}
+.disclosure-body { padding-top: 12px; }
+
+/* Movement table — per-metric rows for executive_posture. */
+.movement-table .metric-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.movement-table .metric-name-label { font-weight: 500; }
+.movement-table .num { width: 100px; }
+.movement-row-investigate .metric-name-label { color: var(--escalate); font-weight: 600; }
+.movement-row-stable .metric-name-label { color: var(--muted); }
+
+/* Movers table — same data-table styling, dimension value as monospace. */
+.movers-table .mover-value {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 13px;
+}
+.movers-headline {
+  margin: 0 0 14px;
+  font-size: 14px;
+  color: var(--text);
+}
+
+/* Embedded scorecard rollup — compact host-level cross-reference. */
+.embedded-scorecards-table .entity {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 13px;
+}
+
+/* SOC triage — degraded-mode banner. Surfaced when the wrapper carried
+   the ranking index but no per-entity scorecards. */
+.degraded-banner {
+  margin: 4px 0 24px;
+  padding: 12px 16px;
+  background: var(--surface-2);
+  border-left: 3px solid var(--monitor);
+  border-radius: 0 6px 6px 0;
+}
+.degraded-banner-eyebrow {
+  display: block;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+.degraded-banner p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.5;
+}
+
+/* SOC triage — security evidence cards. One card per Assign / Watch
+   entity. Foregrounds the SIEM / bad-bot rules, then movement signals
+   below as supporting context. */
+.sec-evidence-section { margin-bottom: 48px; }
+.sec-evidence-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+}
+@media (min-width: 760px) {
+  .sec-evidence-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+.sec-evidence-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--observe);
+  border-radius: 8px;
+  padding: 18px 20px;
+}
+.sec-evidence-card.sec-evidence-escalate { border-left-color: var(--escalate); }
+.sec-evidence-card.sec-evidence-monitor { border-left-color: var(--monitor); }
+.sec-evidence-card.sec-evidence-observe { border-left-color: var(--observe); }
+.sec-evidence-head {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+.sec-evidence-title {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.sec-evidence-entity {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+  word-break: break-all;
+}
+.sec-evidence-rank {
+  font-size: 11px;
+  color: var(--muted-2);
+  font-variant-numeric: tabular-nums;
+}
+.sec-evidence-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.sec-evidence-score {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.sec-evidence-block { margin-top: 12px; }
+.sec-evidence-block:first-child { margin-top: 0; }
+.sec-evidence-block-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+.sec-evidence-rules {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.sec-evidence-rule {
+  background: var(--surface-2);
+  border-radius: 6px;
+  padding: 8px 12px;
+}
+.sec-evidence-rule-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.sec-evidence-rule-name {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text);
+}
+.sec-evidence-rule-domain {
+  font-size: 11px;
+  color: var(--muted-2);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.sec-evidence-rule-points {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--escalate);
+}
+.sec-evidence-rule-evidence {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.5;
+}
+
+/* Domain score matrix — entities × domains grid. Empty cells render as
+   muted dashes; non-zero cells render as tinted pills. */
+.domain-matrix .domain-matrix-col {
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-align: center;
+  white-space: nowrap;
+}
+.domain-matrix .domain-matrix-cell {
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  vertical-align: middle;
+}
+.domain-matrix .domain-matrix-empty {
+  color: var(--muted-2);
+}
+.domain-matrix .domain-matrix-pill {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+/* Method */
+.method {
+  display: grid;
+  grid-template-columns: 180px 1fr;
+  gap: 8px 24px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.method dt {
+  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+  color: var(--muted-2);
+  padding-top: 2px;
+}
+.method dd {
+  margin: 0;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12px;
+  color: var(--text);
+  word-break: break-word;
+}
+
+footer {
+  margin-top: 64px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--muted-2);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Print — board-packet / PDF output. Brief mode is the natural target. */
+@media print {
+  @page {
+    size: letter;
+    margin: 0.6in 0.5in;
+  }
+  html, body { background: white !important; }
+  main { max-width: none; padding: 0; }
+  .kpi, .narrative-slot, .landscape-grid, .data-table, .action {
+    background: white !important;
+    box-shadow: none !important;
+    border: 1px solid var(--border);
+  }
+  body { font-size: 11pt; line-height: 1.4; }
+  h1 { font-size: 18pt; }
+  h2 { font-size: 13pt; }
+  h3 { font-size: 11pt; }
+  .kicker, .section-eyebrow, .stats-block-label,
+  .purpose-label, .window-label, .kpi-label {
+    font-size: 8pt;
+  }
+  .dek { font-size: 11.5pt; }
+  .kpi-value { font-size: 22pt; }
+  .gauge-number { font-size: 36pt; }
+  /* Pull the footer's regenerated-at timestamp; the printed header has the date. */
+  footer { display: none; }
+  /* Prevent small cards/findings from splitting across pages.
+     Deliberately NOT applied to tables (.entities-table, .coverage-table,
+     .data-table) — gating those silently pushes oversized tables to a new
+     page and leaves a half-page gap above. */
+  .kpi, .finding, .action, .gauge-card, .narrative-slot {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  /* Section headings should stay with their first content row. */
+  section > h2 { break-after: avoid; page-break-after: avoid; }
+  /* Color-print friendliness: force browsers to keep our pill backgrounds. */
+  .pill, .domain-pill, .key-dot {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  /* Add the comparison window into a print-only header line for context. */
+  header.report-header { padding-bottom: 12pt; margin-bottom: 12pt; }
+  .purpose-strip { padding: 12pt 0; margin-bottom: 18pt; }
+  /* Expand collapsed disclosures for print output — analyst-grade detail
+     belongs in the printed packet even though it's hidden in the screen view. */
+  .disclosure > summary { display: none; }
+  .disclosure > *:not(summary) { display: revert !important; }
+  .disclosure { border-top: 0; padding-top: 0; margin-top: 12pt; }
+  /* Group-row host lists also expand in print so reviewers see all hostnames. */
+  .host-list > summary { font-weight: 500; }
+  .host-list-items { display: block !important; }
+}</style>
+</head>
+<body>
+<main>
+
+    <header class="report-header">
+      <div class="header-titles">
+        <div class="kicker">Bot Insights — security risk triage</div>
+        <h1>SOC Triage — www.example.com, ASN risk queue</h1>
+<p class="dek">Top entities ranked by mechanical risk indicators for the current window.</p>      </div>
+      <div class="window">
+        <div class="window-label">Comparison window</div>
+        <div>2026-04-07 00:00 → 2026-04-14 00:00 UTC</div>
+        <div class="window-vs">vs 2026-03-31 00:00 → 2026-04-07 00:00 UTC</div>
+      </div>
+    </header>
+
+  <section class="narrative-slot exec-summary">
+  <div class="section-eyebrow">Executive summary</div>
+  <h2>What this report says</h2>
+    <div class="prose">
+      <p><strong>1 of 2 ASN needs analyst attention — start with ASN 64500 (bad-bot share 65%, SIEM evidence present).</strong></p>
+        <p class="exec-body">SOC investigate ASN 64500 now; monitor / enrich ASN 64600.</p>
+        <p class="exec-recommendation">
+          <span class="exec-recommendation-label">Recommended action</span>
+          Enrich with SIEM action, policy, auth-failure, and blocked-request summaries for the same entity.
+        </p>
+        <p class="exec-caveat">Coverage is thin — 80% of rule evaluations had missing inputs. Real risk may be higher than the score implies.</p>
+    </div>
+</section>
+
+
+
+
+  <header class="verdict-strip" aria-label="Fleet triage">
+  <div class="verdict-pills">
+      <span class="pill pill-escalate triage-count">
+        <strong>1</strong>
+        <span class="triage-pill-label">Assign</span>
+      </span>
+      <span class="pill pill-monitor triage-count">
+        <strong>1</strong>
+        <span class="triage-pill-label">Watch</span>
+      </span>
+      <span class="pill pill-neutral triage-count pill-muted">
+        <strong>0</strong>
+        <span class="triage-pill-label">Insufficient data</span>
+      </span>
+      <span class="pill pill-observe triage-count pill-muted">
+        <strong>0</strong>
+        <span class="triage-pill-label">Close — expected</span>
+      </span>
+  </div>
+    <p class="verdict-rationale">1 ASN needs analyst attention; 1 to watch (out of 2).</p>
+</header>
+
+
+  <section class="sec-evidence-section">
+  <div class="section-eyebrow">Security evidence</div>
+  <h2>2 entities need analyst attention</h2>
+  <div class="sec-evidence-grid">
+      <article class="sec-evidence-card sec-evidence-monitor">
+        <header class="sec-evidence-head">
+          <div class="sec-evidence-title">
+            <span class="sec-evidence-entity">ASN 64500</span>
+<span class="sec-evidence-rank">#1</span>          </div>
+          <div class="sec-evidence-meta">
+            <span class="pill pill-monitor pill-sm">Assign</span>
+            <span class="sec-evidence-score">Score 58</span>
+              <span class="domain-pill">Security evidence</span>
+              <span class="pill pill-neutral pill-sm">Low confidence: 11 of 16 rules missing inputs</span>
+          </div>
+        </header>
+
+          <div class="sec-evidence-block">
+            <div class="sec-evidence-block-label">Security signals</div>
+            <ul class="sec-evidence-rules">
+                <li class="sec-evidence-rule">
+                  <div class="sec-evidence-rule-head">
+                    <span class="sec-evidence-rule-name">Bad Bot Share High</span>
+                      <span class="sec-evidence-rule-points">+14 pts</span>
+                  </div>
+                    <p class="sec-evidence-rule-evidence">Bad bot share is 65.00%.</p>
+                </li>
+                <li class="sec-evidence-rule">
+                  <div class="sec-evidence-rule-head">
+                    <span class="sec-evidence-rule-name">SIEM Auth Fail Present</span>
+                      <span class="sec-evidence-rule-points">+12 pts</span>
+                  </div>
+                    <p class="sec-evidence-rule-evidence">SIEM summary reports 200 auth failures.</p>
+                </li>
+                <li class="sec-evidence-rule">
+                  <div class="sec-evidence-rule-head">
+                    <span class="sec-evidence-rule-name">SIEM Blocked Present</span>
+                      <span class="sec-evidence-rule-points">+12 pts</span>
+                  </div>
+                    <p class="sec-evidence-rule-evidence">SIEM summary reports 1200 blocked requests.</p>
+                </li>
+            </ul>
+          </div>
+
+          <div class="sec-evidence-block">
+            <div class="sec-evidence-block-label">Supporting movement signals</div>
+            <ul class="sec-evidence-rules">
+                <li class="sec-evidence-rule">
+                  <div class="sec-evidence-rule-head">
+                    <span class="sec-evidence-rule-name">Volume Delta High</span>
+                    <span class="sec-evidence-rule-domain">Movement</span>
+                      <span class="sec-evidence-rule-points">+12 pts</span>
+                  </div>
+                    <p class="sec-evidence-rule-evidence">Request volume increased by 340000 (425.00%).</p>
+                </li>
+                <li class="sec-evidence-rule">
+                  <div class="sec-evidence-rule-head">
+                    <span class="sec-evidence-rule-name">Bot Share Delta High</span>
+                    <span class="sec-evidence-rule-domain">Movement</span>
+                      <span class="sec-evidence-rule-points">+8 pts</span>
+                  </div>
+                    <p class="sec-evidence-rule-evidence">Bot share increased by 44.1 percentage points.</p>
+                </li>
+            </ul>
+          </div>
+      </article>
+      <article class="sec-evidence-card sec-evidence-observe">
+        <header class="sec-evidence-head">
+          <div class="sec-evidence-title">
+            <span class="sec-evidence-entity">ASN 64600</span>
+<span class="sec-evidence-rank">#2</span>          </div>
+          <div class="sec-evidence-meta">
+            <span class="pill pill-observe pill-sm">Watch</span>
+            <span class="sec-evidence-score">Score 12</span>
+              <span class="domain-pill">Security evidence</span>
+              <span class="pill pill-neutral pill-sm">Low confidence: 13 of 14 rules missing inputs</span>
+          </div>
+        </header>
+
+          <div class="sec-evidence-block">
+            <div class="sec-evidence-block-label">Security signals</div>
+            <ul class="sec-evidence-rules">
+                <li class="sec-evidence-rule">
+                  <div class="sec-evidence-rule-head">
+                    <span class="sec-evidence-rule-name">SIEM Blocked Present</span>
+                      <span class="sec-evidence-rule-points">+12 pts</span>
+                  </div>
+                    <p class="sec-evidence-rule-evidence">SIEM summary reports 40 blocked requests.</p>
+                </li>
+            </ul>
+          </div>
+
+      </article>
+  </div>
+</section>
+
+
+  <section>
+  <div class="section-eyebrow">Triage queue</div>
+  <h2>2 ASNs, ordered by what to do</h2>
+  <table class="data-table queue-table">
+    <thead>
+      <tr>
+        <th>Verdict</th>
+        <th>ASN</th>
+        <th>Score</th>
+        <th>Δ</th>
+        <th>Primary domain</th>
+        <th>Top evidence</th>
+      </tr>
+    </thead>
+    <tbody>
+          <tr class="queue-state-divider">
+            <td colspan="6"><span class="pill pill-monitor">Assign</span></td>
+          </tr>
+        <tr>
+          <td><span class="pill pill-monitor pill-sm">Assign</span></td>
+          <td class="entity">ASN 64500</td>
+          <td class="score-cell">
+            <span class="score-num">58</span>
+            <svg viewBox="0 0 88 8" class="score-bar" role="img" aria-label="Score 58"><rect x="0" y="0" width="88" height="8" rx="2" fill="#f4f4f5" /><rect x="0" y="0" width="51.0" height="8" rx="2" fill="#F28E2B" /></svg>
+          </td>
+          <td>
+<span class="delta-flat">±0</span>
+          </td>
+          <td>
+            <span class="domain-pill primary-active">Security evidence</span>
+          </td>
+          <td class="evidence-cell">Bad bot share is 65.00%.</td>
+        </tr>
+          <tr class="queue-state-divider">
+            <td colspan="6"><span class="pill pill-observe">Watch</span></td>
+          </tr>
+        <tr>
+          <td><span class="pill pill-observe pill-sm">Watch</span></td>
+          <td class="entity">ASN 64600</td>
+          <td class="score-cell">
+            <span class="score-num">12</span>
+            <svg viewBox="0 0 88 8" class="score-bar" role="img" aria-label="Score 12"><rect x="0" y="0" width="88" height="8" rx="2" fill="#f4f4f5" /><rect x="0" y="0" width="10.6" height="8" rx="2" fill="#E15759" /></svg>
+          </td>
+          <td>
+<span class="delta-flat">±0</span>
+          </td>
+          <td>
+            <span class="domain-pill primary-active">Security evidence</span>
+          </td>
+          <td class="evidence-cell">SIEM summary reports 40 blocked requests.</td>
+        </tr>
+    </tbody>
+  </table>
+</section>
+
+
+  <section>
+  <div class="section-eyebrow">Domain score matrix</div>
+  <h2>How risk points distribute across domains</h2>
+  <table class="data-table domain-matrix">
+    <thead>
+      <tr>
+        <th>ASN</th>
+        <th class="num">Score</th>
+          <th class="domain-matrix-col">Cache busting</th>
+          <th class="domain-matrix-col">Crawler governance</th>
+          <th class="domain-matrix-col">Movement</th>
+          <th class="domain-matrix-col">Origin impact</th>
+          <th class="domain-matrix-col">Policy collateral</th>
+          <th class="domain-matrix-col">Security evidence</th>
+      </tr>
+    </thead>
+    <tbody>
+        <tr>
+          <td class="entity">ASN 64500</td>
+          <td class="num"><span class="score-num">58</span></td>
+              <td class="domain-matrix-cell domain-matrix-empty">—</td>
+              <td class="domain-matrix-cell domain-matrix-empty">—</td>
+              <td class="domain-matrix-cell">
+                <span class="pill pill-monitor pill-sm domain-matrix-pill">20</span>
+              </td>
+              <td class="domain-matrix-cell domain-matrix-empty">—</td>
+              <td class="domain-matrix-cell domain-matrix-empty">—</td>
+              <td class="domain-matrix-cell">
+                <span class="pill pill-escalate pill-sm domain-matrix-pill">38</span>
+              </td>
+        </tr>
+        <tr>
+          <td class="entity">ASN 64600</td>
+          <td class="num"><span class="score-num">12</span></td>
+              <td class="domain-matrix-cell domain-matrix-empty">—</td>
+              <td class="domain-matrix-cell domain-matrix-empty">—</td>
+              <td class="domain-matrix-cell domain-matrix-empty">—</td>
+              <td class="domain-matrix-cell domain-matrix-empty">—</td>
+              <td class="domain-matrix-cell domain-matrix-empty">—</td>
+              <td class="domain-matrix-cell">
+                <span class="pill pill-monitor pill-sm domain-matrix-pill">12</span>
+              </td>
+        </tr>
+    </tbody>
+  </table>
+</section>
+
+
+  <section>
+    <div class="section-eyebrow">Recommended next steps</div>
+    <h2>Investigations to queue from this report</h2>
+      <ol class="actions">
+          <li class="action">
+            <div class="action-step">Enrich with SIEM action, policy, auth-failure, and blocked-request summaries for the same entity.</div>
+            <div class="action-meta">
+                2 ASNs · ASN 64500, ASN 64600            </div>
+          </li>
+          <li class="action">
+            <div class="action-step">Review mover attribution for the same scope and confirm comparable current/baseline windows.</div>
+            <div class="action-meta">
+                1 ASN · ASN 64500            </div>
+          </li>
+      </ol>
+  </section>
+
+    <section>
+  <div class="section-eyebrow">Coverage</div>
+  <h2>Which rules could be evaluated</h2>
+  <details class="disclosure coverage-disclosure">
+    <summary>
+      Rule coverage by domain
+      <span class="disclosure-summary-stat">
+        — 5 domains evaluated,
+        80.00% of rule evaluations had missing inputs
+      </span>
+    </summary>
+    <div class="disclosure-body">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Domain</th>
+            <th class="num">Triggered</th>
+            <th class="num">Below threshold</th>
+            <th class="num">Inputs missing</th>
+            <th>Distribution</th>
+          </tr>
+        </thead>
+        <tbody>
+            <tr>
+              <td class="domain-name">Cache busting</td>
+              <td class="num">0</td>
+              <td class="num">0</td>
+              <td class="num">8</td>
+              <td><svg viewBox="0 0 360 14" class="coverage-bar" role="img" aria-label="Rule coverage"><rect x="0.0" y="0" width="360.0" height="14" fill="#F8C58A" /></svg></td>
+            </tr>
+            <tr>
+              <td class="domain-name">Crawler governance</td>
+              <td class="num">0</td>
+              <td class="num">0</td>
+              <td class="num">9</td>
+              <td><svg viewBox="0 0 360 14" class="coverage-bar" role="img" aria-label="Rule coverage"><rect x="0.0" y="0" width="360.0" height="14" fill="#F8C58A" /></svg></td>
+            </tr>
+            <tr>
+              <td class="domain-name">Movement</td>
+              <td class="num">2</td>
+              <td class="num">0</td>
+              <td class="num">2</td>
+              <td><svg viewBox="0 0 360 14" class="coverage-bar" role="img" aria-label="Rule coverage"><rect x="0.0" y="0" width="180.0" height="14" fill="#4E79A7" /><rect x="180.0" y="0" width="180.0" height="14" fill="#F8C58A" /></svg></td>
+            </tr>
+            <tr>
+              <td class="domain-name">Origin impact</td>
+              <td class="num">0</td>
+              <td class="num">0</td>
+              <td class="num">4</td>
+              <td><svg viewBox="0 0 360 14" class="coverage-bar" role="img" aria-label="Rule coverage"><rect x="0.0" y="0" width="360.0" height="14" fill="#F8C58A" /></svg></td>
+            </tr>
+            <tr>
+              <td class="domain-name">Security evidence</td>
+              <td class="num">4</td>
+              <td class="num">0</td>
+              <td class="num">1</td>
+              <td><svg viewBox="0 0 360 14" class="coverage-bar" role="img" aria-label="Rule coverage"><rect x="0.0" y="0" width="288.0" height="14" fill="#4E79A7" /><rect x="288.0" y="0" width="72.0" height="14" fill="#F8C58A" /></svg></td>
+            </tr>
+        </tbody>
+      </table>
+      <p class="muted" style="margin-top:12px;font-size:12px;">
+        Confidence:
+Medium · 2.
+        Reasons:
+Baseline window has enough rows, Current window has enough rows, Some feature inputs missing, Dimensions fit retained schema, Summary table used.
+      </p>
+    </div>
+  </details>
+</section>
+
+
+  <section>
+  <div class="section-eyebrow">Method &amp; caveats</div>
+    <h2>What this report is and isn't</h2>
+    <p class="prose">
+      Rule-based scorecard for  ·
+      , built from mechanical features
+      only, compared against
+      week over week.
+      It reports what was measured, not why. Missing feature inputs are
+      reported as such — they are not scored as safe.
+    </p>
+    <details class="disclosure method-disclosure">
+      <summary>Schema, source table, and constraints</summary>
+      <dl class="method">
+        <dt>Schema</dt><dd><code>bot_scorecard_artifacts.v1</code></dd>
+          <dt>Comparison</dt><dd>Week over week</dd>
+          <dt>Producer limit</dt><dd>5 (returned 2, truncated: false)</dd>
+        <dt>Tenant / database</dt><dd> · </dd>
+        <dt>Table</dt><dd><code>bi_summary_hour</code></dd>
+          <dt>Constraints</dt>
+          <dd>Rule-based scorecard; Mechanical features only; No causal claim; LLM may summarize structured evidence only</dd>
+          <dt>Confidence reasons</dt>
+          <dd>Baseline window has enough rows; Current window has enough rows; Some feature inputs missing; Dimensions fit retained schema; Summary table used</dd>
+      </dl>
+    </details>
+</section>
+
+
+  <details class="disclosure">
+    <summary>
+      <span>Orientation — what this report measures</span>
+    </summary>
+    <div class="disclosure-body">
+      <section class="purpose-strip" aria-label="Report orientation">
+  <div class="purpose-cell">
+    <div class="purpose-label">What this measures</div>
+    <p>A risk score for each ranked entity (typically ASN) on a 0–100 scale. Higher scores reflect more triggered security signals — bad-bot share, SIEM auth failures, SIEM blocked requests — plus movement-side context.</p>
+  </div>
+  <div class="purpose-cell">
+    <div class="purpose-label">How to read the score</div>
+    <p>Higher score = more triggered security/movement rules. Bands: escalate, monitor, observe.</p>
+    <ul class="purpose-key">
+      <li><span class="key-dot" style="background: #E15759"></span>escalate · 0–40</li>
+      <li><span class="key-dot" style="background: #F28E2B"></span>monitor · 40–70</li>
+      <li><span class="key-dot" style="background: #4E79A7"></span>observe · 70–100</li>
+    </ul>
+  </div>
+  <div class="purpose-cell">
+    <div class="purpose-label">What this can't say</div>
+    <p>Not a confirmed-malicious determination. Missing inputs are reported as missing — they are not scored as safe.</p>
+  </div>
+</section>
+
+    </div>
+  </details>
+
+  <footer>
+    Generated 2026-05-11 15:52 UTC · artifact bot_scorecard_artifacts.v1  </footer>
+</main>
+</body>
+</html>

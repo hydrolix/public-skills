@@ -1,0 +1,477 @@
+{
+  "artifacts": [
+    {
+      "artifact_id": "crawler-pack-1",
+      "index": {
+        "baseline_windows": [
+          {
+            "end": "2026-04-07T00:00:00Z",
+            "start": "2026-03-31T00:00:00Z"
+          }
+        ],
+        "comparison_type": "week_over_week",
+        "current_window": {
+          "end": "2026-04-14T00:00:00Z",
+          "start": "2026-04-07T00:00:00Z"
+        },
+        "interpretation_constraints": [
+          "rule_based_scorecard",
+          "mechanical_features_only",
+          "no_causal_claim",
+          "llm_may_summarize_structured_evidence_only"
+        ],
+        "producer_limit": 5,
+        "ranked_entities": [
+          {
+            "band": "high_review",
+            "confidence": "medium",
+            "entity": "ai_training",
+            "entity_type": "ai_category",
+            "primary_domain": "crawler_governance",
+            "rank": 1,
+            "score": 64
+          },
+          {
+            "band": "medium_review",
+            "confidence": "medium",
+            "entity": "search_crawler",
+            "entity_type": "ai_category",
+            "primary_domain": "crawler_governance",
+            "rank": 2,
+            "score": 50
+          }
+        ],
+        "result_row_count": 2,
+        "result_truncated": false,
+        "schema_version": "bot_scorecard_index.v1",
+        "scope": {
+          "request_host": "www.example.com"
+        },
+        "table_used": "bi_summary_hour",
+        "total_ranked_entities": 2
+      },
+      "producer_limit": 5,
+      "result_row_count": 2,
+      "result_truncated": false,
+      "schema_version": "bot_scorecard_artifacts.v1",
+      "scorecards": [
+        {
+          "band": "high_review",
+          "baseline_windows": [
+            {
+              "end": "2026-04-07T00:00:00Z",
+              "start": "2026-03-31T00:00:00Z"
+            }
+          ],
+          "comparison_type": "week_over_week",
+          "confidence": "medium",
+          "confidence_reasons": [
+            "summary_table_used",
+            "retained_dimensions_fit",
+            "current_count_sufficient",
+            "baseline_count_sufficient",
+            "siem_unavailable",
+            "feature_input_missing"
+          ],
+          "current_window": {
+            "end": "2026-04-14T00:00:00Z",
+            "start": "2026-04-07T00:00:00Z"
+          },
+          "domain_scores": {
+            "cache_busting": 0,
+            "crawler_governance": 52,
+            "movement": 12,
+            "origin_impact": 0,
+            "policy_collateral": 0,
+            "security_evidence": 0,
+            "signal_alignment": 0
+          },
+          "entity": "ai_training",
+          "entity_type": "ai_category",
+          "evidence_summary": [
+            "Governance surfaces have 80 failed requests.",
+            "Good bot traffic has 120 429 responses.",
+            "Good bot error rate is 6.5%.",
+            "Request volume increased by 31000 (344.444444%).",
+            "AI crawler metric increased by 344.444444%.",
+            "12 feature inputs were missing and were not scored as safe."
+          ],
+          "features": [
+            {
+              "baseline": 9000,
+              "current": 40000,
+              "domain": "crawler_governance",
+              "evidence": "AI crawler metric increased by 344.444444%.",
+              "name": "ai_crawler_growth_high",
+              "points": 10,
+              "supporting_metrics": {
+                "absolute_delta": 31000,
+                "pct_change": 344.444444
+              },
+              "threshold": 100
+            },
+            {
+              "current": 120,
+              "domain": "crawler_governance",
+              "evidence": "Good bot traffic has 120 429 responses.",
+              "name": "good_bot_429_present",
+              "points": 14,
+              "threshold": 0
+            },
+            {
+              "current": 6.5,
+              "domain": "crawler_governance",
+              "evidence": "Good bot error rate is 6.5%.",
+              "name": "good_bot_error_rate_high",
+              "points": 12,
+              "threshold": 5
+            },
+            {
+              "current": 80,
+              "domain": "crawler_governance",
+              "evidence": "Governance surfaces have 80 failed requests.",
+              "name": "policy_surface_failure_present",
+              "points": 16,
+              "threshold": 0
+            },
+            {
+              "baseline": 9000,
+              "current": 40000,
+              "domain": "movement",
+              "evidence": "Request volume increased by 31000 (344.444444%).",
+              "name": "volume_delta_high",
+              "points": 12,
+              "supporting_metrics": {
+                "absolute_delta": 31000,
+                "pct_change": 344.444444
+              },
+              "threshold": 100
+            }
+          ],
+          "granularity": "",
+          "interpretation_constraints": [
+            "rule_based_scorecard",
+            "mechanical_features_only",
+            "no_causal_claim",
+            "llm_may_summarize_structured_evidence_only"
+          ],
+          "not_evaluated_features": [
+            {
+              "domain": "cache_busting",
+              "missing_inputs": [
+                "baseline_cache_miss_pct",
+                "current_cache_miss_pct"
+              ],
+              "name": "cache_miss_delta_high",
+              "reason": "feature_input_missing"
+            },
+            {
+              "domain": "cache_busting",
+              "missing_inputs": [
+                "cache_miss_pct"
+              ],
+              "name": "cache_miss_rate_high",
+              "reason": "feature_input_missing"
+            },
+            {
+              "domain": "cache_busting",
+              "missing_inputs": [
+                "qs_diversity_ratio"
+              ],
+              "name": "querystring_diversity_high",
+              "reason": "feature_input_missing"
+            },
+            {
+              "domain": "cache_busting",
+              "missing_inputs": [
+                "cache_miss_pct",
+                "qs_diversity_ratio"
+              ],
+              "name": "querystring_diversity_with_high_miss_rate",
+              "reason": "feature_input_missing"
+            },
+            {
+              "domain": "crawler_governance",
+              "missing_inputs": [
+                "baseline_rate_5xx_pct",
+                "current_rate_5xx_pct"
+              ],
+              "name": "rate_5xx_delta_high",
+              "reason": "feature_input_missing"
+            },
+            {
+              "domain": "movement",
+              "missing_inputs": [
+                "baseline_bot_share_pct",
+                "current_bot_share_pct"
+              ],
+              "name": "bot_share_delta_high",
+              "reason": "feature_input_missing"
+            },
+            {
+              "domain": "movement",
+              "missing_inputs": [
+                "contribution_pct"
+              ],
+              "name": "contribution_to_total_delta_high",
+              "reason": "feature_input_missing"
+            },
+            {
+              "domain": "origin_impact",
+              "missing_inputs": [
+                "origin_cost_contribution_pct"
+              ],
+              "name": "origin_cost_contribution_high",
+              "reason": "feature_input_missing"
+            },
+            {
+              "domain": "origin_impact",
+              "missing_inputs": [
+                "baseline_origin_p95_ms",
+                "current_origin_p95_ms"
+              ],
+              "name": "origin_p95_delta_high",
+              "reason": "feature_input_missing"
+            },
+            {
+              "domain": "security_evidence",
+              "missing_inputs": [
+                "bad_bot_share_pct"
+              ],
+              "name": "bad_bot_share_high",
+              "reason": "feature_input_missing"
+            },
+            {
+              "domain": "security_evidence",
+              "missing_inputs": [
+                "siem_auth_fail_requests"
+              ],
+              "name": "siem_auth_fail_present",
+              "reason": "feature_input_missing"
+            },
+            {
+              "domain": "security_evidence",
+              "missing_inputs": [
+                "siem_blocked_requests"
+              ],
+              "name": "siem_blocked_present",
+              "reason": "feature_input_missing"
+            }
+          ],
+          "primary_domain": "crawler_governance",
+          "recommended_next_steps": [
+            "Review mover attribution for the same scope and confirm comparable current/baseline windows.",
+            "Check good crawler rate limits, 5xx exposure, robots.txt, llms.txt, and sitemap availability."
+          ],
+          "rowset_scope": {
+            "population": "ai_crawler"
+          },
+          "schema_version": "bot_entity_scorecard.v1",
+          "scope": {
+            "request_host": "www.example.com"
+          },
+          "score": 64,
+          "table_used": "bi_summary_hour"
+        },
+        {
+          "band": "medium_review",
+          "baseline_windows": [
+            {
+              "end": "2026-04-07T00:00:00Z",
+              "start": "2026-03-31T00:00:00Z"
+            }
+          ],
+          "comparison_type": "week_over_week",
+          "confidence": "medium",
+          "confidence_reasons": [
+            "summary_table_used",
+            "retained_dimensions_fit",
+            "current_count_sufficient",
+            "baseline_count_sufficient",
+            "siem_unavailable",
+            "feature_input_missing"
+          ],
+          "current_window": {
+            "end": "2026-04-14T00:00:00Z",
+            "start": "2026-04-07T00:00:00Z"
+          },
+          "domain_scores": {
+            "cache_busting": 0,
+            "crawler_governance": 50,
+            "movement": 0,
+            "origin_impact": 0,
+            "policy_collateral": 0,
+            "security_evidence": 0,
+            "signal_alignment": 0
+          },
+          "entity": "search_crawler",
+          "entity_type": "ai_category",
+          "evidence_summary": [
+            "Governance surfaces have 120 failed requests.",
+            "Good bot traffic has 7400 429 responses.",
+            "Good bot error rate is 8.2%.",
+            "429 rate increased by 6.3 percentage points.",
+            "11 feature inputs were missing and were not scored as safe."
+          ],
+          "features": [
+            {
+              "current": 7400,
+              "domain": "crawler_governance",
+              "evidence": "Good bot traffic has 7400 429 responses.",
+              "name": "good_bot_429_present",
+              "points": 14,
+              "threshold": 0
+            },
+            {
+              "current": 8.2,
+              "domain": "crawler_governance",
+              "evidence": "Good bot error rate is 8.2%.",
+              "name": "good_bot_error_rate_high",
+              "points": 12,
+              "threshold": 5
+            },
+            {
+              "current": 120,
+              "domain": "crawler_governance",
+              "evidence": "Governance surfaces have 120 failed requests.",
+              "name": "policy_surface_failure_present",
+              "points": 16,
+              "threshold": 0
+            },
+            {
+              "baseline": 0.5,
+              "current": 6.8,
+              "domain": "crawler_governance",
+              "evidence": "429 rate increased by 6.3 percentage points.",
+              "name": "rate_429_delta_high",
+              "points": 8,
+              "supporting_metrics": {
+                "absolute_delta_points": 6.3
+              },
+              "threshold": 5
+            }
+          ],
+          "granularity": "",
+          "interpretation_constraints": [
+            "rule_based_scorecard",
+            "mechanical_features_only",
+            "no_causal_claim",
+            "llm_may_summarize_structured_evidence_only"
+          ],
+          "not_evaluated_features": [
+            {
+              "domain": "cache_busting",
+              "missing_inputs": [
+                "baseline_cache_miss_pct",
+                "current_cache_miss_pct"
+              ],
+              "name": "cache_miss_delta_high",
+              "reason": "feature_input_missing"
+            },
+            {
+              "domain": "cache_busting",
+              "missing_inputs": [
+                "cache_miss_pct"
+              ],
+              "name": "cache_miss_rate_high",
+              "reason": "feature_input_missing"
+            },
+            {
+              "domain": "cache_busting",
+              "missing_inputs": [
+                "qs_diversity_ratio"
+              ],
+              "name": "querystring_diversity_high",
+              "reason": "feature_input_missing"
+            },
+            {
+              "domain": "cache_busting",
+              "missing_inputs": [
+                "cache_miss_pct",
+                "qs_diversity_ratio"
+              ],
+              "name": "querystring_diversity_with_high_miss_rate",
+              "reason": "feature_input_missing"
+            },
+            {
+              "domain": "movement",
+              "missing_inputs": [
+                "baseline_bot_share_pct",
+                "current_bot_share_pct"
+              ],
+              "name": "bot_share_delta_high",
+              "reason": "feature_input_missing"
+            },
+            {
+              "domain": "movement",
+              "missing_inputs": [
+                "contribution_pct"
+              ],
+              "name": "contribution_to_total_delta_high",
+              "reason": "feature_input_missing"
+            },
+            {
+              "domain": "origin_impact",
+              "missing_inputs": [
+                "origin_cost_contribution_pct"
+              ],
+              "name": "origin_cost_contribution_high",
+              "reason": "feature_input_missing"
+            },
+            {
+              "domain": "origin_impact",
+              "missing_inputs": [
+                "baseline_origin_p95_ms",
+                "current_origin_p95_ms"
+              ],
+              "name": "origin_p95_delta_high",
+              "reason": "feature_input_missing"
+            },
+            {
+              "domain": "security_evidence",
+              "missing_inputs": [
+                "bad_bot_share_pct"
+              ],
+              "name": "bad_bot_share_high",
+              "reason": "feature_input_missing"
+            },
+            {
+              "domain": "security_evidence",
+              "missing_inputs": [
+                "siem_auth_fail_requests"
+              ],
+              "name": "siem_auth_fail_present",
+              "reason": "feature_input_missing"
+            },
+            {
+              "domain": "security_evidence",
+              "missing_inputs": [
+                "siem_blocked_requests"
+              ],
+              "name": "siem_blocked_present",
+              "reason": "feature_input_missing"
+            }
+          ],
+          "primary_domain": "crawler_governance",
+          "recommended_next_steps": [
+            "Check good crawler rate limits, 5xx exposure, robots.txt, llms.txt, and sitemap availability."
+          ],
+          "rowset_scope": {
+            "population": "crawler"
+          },
+          "schema_version": "bot_entity_scorecard.v1",
+          "scope": {
+            "request_host": "www.example.com"
+          },
+          "score": 50,
+          "table_used": "bi_summary_hour"
+        }
+      ],
+      "total_ranked_entities": 2
+    }
+  ],
+  "report_type": "crawler_governance",
+  "schema_version": "bot_report_input.v1",
+  "scope_label": "www.example.com",
+  "title": "Crawler Governance - www.example.com"
+}

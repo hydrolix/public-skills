@@ -1,0 +1,205 @@
+{
+  "schema_version": "bot_report_input.v1",
+  "report_type": "scorecard_brief",
+  "title": "Bot Insights Scorecard Brief",
+  "scope_label": "demo/akamai request_host=www.example.com",
+  "analyst_notes": [
+    {
+      "note_id": "llm-interpretation",
+      "author_type": "llm",
+      "title": "Scorecard Interpretation",
+      "text": "The selected host is the top-ranked scorecard entity because cache-busting and movement rules crossed thresholds. Treat the finding as a prioritization cue: validate query-string behavior and cache policy before attributing cause or changing controls.",
+      "show_data_sources": false,
+      "data_sources": []
+    }
+  ],
+  "artifacts": [
+    {
+      "schema_version": "bot_entity_scorecard.v1",
+      "artifact_id": "scorecard-brief-selected",
+      "entity_type": "request_host",
+      "entity": "www.example.com",
+      "scope": {
+        "cluster": "demo",
+        "database": "akamai",
+        "entity_type": "request_host"
+      },
+      "comparison_type": "previous_window",
+      "granularity": "hour",
+      "table_used": "akamai.bi_summary_hour",
+      "current_window": {
+        "start": "2026-05-02T00:00:00Z",
+        "end": "2026-05-03T00:00:00Z"
+      },
+      "baseline_windows": [
+        {
+          "start": "2026-05-01T00:00:00Z",
+          "end": "2026-05-02T00:00:00Z"
+        }
+      ],
+      "score": 62,
+      "band": "high_review",
+      "primary_domain": "cache_busting",
+      "domain_scores": {
+        "movement": 20,
+        "origin_impact": 0,
+        "cache_busting": 42,
+        "crawler_governance": 0,
+        "security_evidence": 0,
+        "signal_alignment": 0,
+        "policy_collateral": 0
+      },
+      "features": [
+        {
+          "name": "querystring_diversity_high",
+          "domain": "cache_busting",
+          "points": 16,
+          "evidence": "Query-string diversity ratio is 0.82.",
+          "current": 0.82,
+          "threshold": 0.5
+        },
+        {
+          "name": "querystring_diversity_with_high_miss_rate",
+          "domain": "cache_busting",
+          "points": 18,
+          "evidence": "High query-string diversity coincides with 64% cache misses.",
+          "current": 0.82,
+          "threshold": 0.5,
+          "supporting_metrics": {
+            "cache_miss_pct": 64,
+            "cache_miss_threshold": 50
+          }
+        },
+        {
+          "name": "volume_delta_high",
+          "domain": "movement",
+          "points": 12,
+          "evidence": "Request volume increased by 180000 (150%).",
+          "current": 300000,
+          "baseline": 120000,
+          "threshold": 100,
+          "supporting_metrics": {
+            "absolute_delta": 180000,
+            "pct_change": 150
+          }
+        },
+        {
+          "name": "bot_share_delta_high",
+          "domain": "movement",
+          "points": 8,
+          "evidence": "Bot share increased by 18 percentage points.",
+          "current": 42,
+          "baseline": 24,
+          "threshold": 10,
+          "supporting_metrics": {
+            "absolute_delta_points": 18
+          }
+        },
+        {
+          "name": "cache_miss_delta_high",
+          "domain": "cache_busting",
+          "points": 8,
+          "evidence": "Cache miss rate increased by 22 percentage points.",
+          "current": 64,
+          "baseline": 42,
+          "threshold": 15,
+          "supporting_metrics": {
+            "absolute_delta_points": 22
+          }
+        }
+      ],
+      "not_evaluated_features": [
+        {
+          "name": "siem_blocked_present",
+          "domain": "security_evidence",
+          "missing_inputs": [
+            "siem_blocked_requests"
+          ],
+          "reason": "feature_input_missing"
+        },
+        {
+          "name": "origin_p95_delta_high",
+          "domain": "origin_impact",
+          "missing_inputs": [
+            "current_origin_p95_ms",
+            "baseline_origin_p95_ms"
+          ],
+          "reason": "feature_input_missing"
+        }
+      ],
+      "evidence_summary": [
+        "High query-string diversity coincides with 64% cache misses.",
+        "Query-string diversity ratio is 0.82.",
+        "Request volume increased by 180000 (150%).",
+        "2 feature inputs were missing and were not scored as safe."
+      ],
+      "recommended_next_steps": [
+        "Review mover attribution for the same scope and confirm comparable current/baseline windows.",
+        "Inspect query-string diversity, cache-key behavior, and cache miss concentration by host and path.",
+        "Regenerate aggregate rows with SIEM and origin-latency fields if security or origin-impact review is required."
+      ],
+      "confidence": "medium",
+      "confidence_reasons": [
+        "summary_table_used",
+        "retained_dimensions_fit",
+        "current_count_sufficient",
+        "baseline_count_sufficient",
+        "feature_input_missing"
+      ],
+      "interpretation_constraints": [
+        "rule_based_scorecard",
+        "mechanical_features_only",
+        "no_causal_claim",
+        "llm_may_summarize_structured_evidence_only"
+      ],
+      "rowset_scope": {
+        "population": "all_traffic",
+        "dimensions": [
+          "request_host"
+        ]
+      }
+    },
+    {
+      "schema_version": "bot_scorecard_index.v1",
+      "artifact_id": "scorecard-brief-index",
+      "scope": {
+        "cluster": "demo",
+        "database": "akamai",
+        "entity_type": "request_host"
+      },
+      "comparison_type": "previous_window",
+      "table_used": "akamai.bi_summary_hour",
+      "current_window": {
+        "start": "2026-05-02T00:00:00Z",
+        "end": "2026-05-03T00:00:00Z"
+      },
+      "baseline_windows": [
+        {
+          "start": "2026-05-01T00:00:00Z",
+          "end": "2026-05-02T00:00:00Z"
+        }
+      ],
+      "producer_limit": 20,
+      "result_row_count": 1,
+      "result_truncated": false,
+      "total_ranked_entities": 1,
+      "ranked_entities": [
+        {
+          "rank": 1,
+          "entity_type": "request_host",
+          "entity": "www.example.com",
+          "score": 62,
+          "band": "high_review",
+          "primary_domain": "cache_busting",
+          "confidence": "medium"
+        }
+      ],
+      "interpretation_constraints": [
+        "rule_based_scorecard",
+        "mechanical_features_only",
+        "no_causal_claim",
+        "llm_may_summarize_structured_evidence_only"
+      ]
+    }
+  ]
+}
