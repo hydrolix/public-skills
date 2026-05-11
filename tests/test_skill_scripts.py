@@ -598,22 +598,21 @@ class BotInsightsCaptureScriptTests(unittest.TestCase):
 class BotInsightsScriptTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        # M3.3 routes wrapper-mode rendering through the report_engine
-        # by default; tests in this class assert on legacy-renderer
-        # output markers (``## Movers``, ``Top Risky Entities``,
-        # ``Control Review Summary``, ``Before/After/Expected``,
-        # ``<h2>Analyst Notes</h2>``). Pin the test override to
-        # ``legacy`` so the legacy renderer stays exercised and the
-        # assertions document its surviving behavior until M4 deletes
-        # the legacy path. The pin affects runtime routing only —
-        # ``render_report.py``'s top-level imports of
-        # ``report_engine.humanize`` still load (and rely on
-        # ``skills/bot-insights/scripts`` being on ``sys.path``, which
-        # ``tests/test_report_engine.py`` patches during discovery).
-        # Engine-mode behavior is covered by the parity gates
-        # (``test_html_parity.py`` / ``test_markdown_parity.py``) and
-        # the per-template snapshot tests in
-        # ``test_report_engine.py``.
+        # M3.3 routed wrapper-mode rendering through the report_engine
+        # by default. The wrapper-mode regression tests in this class
+        # assert on legacy-renderer output markers (``## Movers``,
+        # ``Top Risky Entities``, ``Control Review Summary``,
+        # ``Before/After/Expected``, ``<h2>Analyst Notes</h2>``,
+        # legacy HTML chart titles, legacy markdown section names).
+        # Pin the test override to ``legacy`` so the legacy renderer
+        # stays exercised and the assertions document its surviving
+        # behavior until a follow-up PR rewrites them against engine
+        # output (see plan.md M4.5 trailer — ~28 tests). The pin
+        # affects runtime routing only — ``render_report.py``'s
+        # top-level imports of ``report_engine.humanize`` still load
+        # (relying on ``skills/bot-insights/scripts`` being on
+        # ``sys.path``, which ``tests/test_report_engine.py`` patches
+        # during discovery).
         cls._prev_render_path = os.environ.get("BOT_INSIGHTS_RENDER_PATH")
         os.environ["BOT_INSIGHTS_RENDER_PATH"] = "legacy"
         cls.compare_delta = load_module(

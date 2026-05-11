@@ -560,13 +560,18 @@ Consequences carried through the rest of M4:
   inputs.
 - The wrapper-only deletion list narrows to: the
   `_render_executive_posture_via_engine` backwards-compat shim
-  (M2.3 left it as a name-only fallback; no caller depends on it),
-  the `BOT_INSIGHTS_RENDER_PATH` test override and its parity-gate
-  consumers (`tests/test_html_parity.py`,
-  `tests/test_markdown_parity.py`), and any `BotInsightsScriptTests`
-  legacy-output assertions whose intent is *engine* coverage (the
-  rest become pinned legacy-mode regression tests with a documented
-  end-of-life at the eventual Path A retirement).
+  (M2.3 left it as a name-only fallback; no caller depends on it)
+  and the parity-gate consumers (`tests/test_html_parity.py`,
+  `tests/test_markdown_parity.py`).
+- The `BOT_INSIGHTS_RENDER_PATH` env override **survives** as test
+  infrastructure for the ~28 wrapper-mode legacy regression tests
+  in `BotInsightsScriptTests` (legacy markdown sections, legacy
+  HTML chart titles, ``<h2>Analyst Notes</h2>``, etc.). The override
+  itself is a few lines; the legacy code it gates is preserved for
+  raw-mode in any case under Path B, so the override costs nothing
+  extra. Rewriting those 28 tests against engine output is a
+  separate, mechanically-mostly-trivial PR — out of scope for this
+  M4. The class-level ``setUpClass`` pin documents this carve-out.
 - M4.5 semantic-test carry-forward
   (`tests/test_report_semantics.py` + `tests/test_report_class_audit.py`)
   lands **before** the parity retirement so the engine path stays

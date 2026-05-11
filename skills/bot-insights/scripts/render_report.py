@@ -4219,21 +4219,18 @@ def render(
     selected = validate_report_artifacts(report_type, artifacts, ctx)
     scan_metadata_warnings(artifacts, ctx)
     validate_analyst_notes(notes, artifacts)
-    # Test-only override (M2.1 parity gate; removed in M4 when legacy
-    # is deleted). ``BOT_INSIGHTS_RENDER_PATH`` can force one or the
-    # other path so the parity harness can render the same wrapper
-    # twice — once legacy, once engine — and diff the result. Values:
-    # ``auto`` (default — engine for every wrapper-mode report type;
-    # legacy reachable only for raw-artifact inputs); ``legacy``
-    # (skip the engine call entirely); ``engine`` (force engine and
-    # raise on a wrapper that the engine cannot service).
-    #
-    # M2.3 expanded HTML engine routing from the original four-report
-    # allowlist (executive_posture, soc_triage, crawler_governance,
-    # edge_ops_impact) to all seven wrapper-mode report types
-    # (also: scorecard_brief, scorecard_entity_review, control_review).
-    # M3.3 extends the same routing to Markdown by threading
-    # ``args.format`` through ``_render_via_engine``.
+    # Wrapper inputs route through the report_engine by default. The
+    # legacy renderer for wrappers stays reachable via the
+    # ``BOT_INSIGHTS_RENDER_PATH=legacy`` test override; M4.5 retired
+    # the parity gates that previously consumed the override but the
+    # mechanism survives as test infrastructure for the wrapper-mode
+    # legacy regression tests in ``tests/test_skill_scripts.py``
+    # (``BotInsightsScriptTests``). Removing the override would
+    # require rewriting ~28 tests against engine output, deferred to
+    # a follow-up PR (see plan.md M4.5 trailer). Plan v3 M4.1
+    # confirmed Path B (raw-mode preserved) which the
+    # raw-artifact short-circuit at the top of ``_render_via_engine``
+    # also depends on.
     render_path = os.environ.get("BOT_INSIGHTS_RENDER_PATH", "auto").lower()
     if render_path != "legacy":
         engine_output = _render_via_engine(
@@ -4248,16 +4245,13 @@ def render(
             return engine_output, ctx.warnings
         # ``None`` here means the raw-artifact short-circuit fired:
         # the input is not a ``bot_report_input.v1`` wrapper. M3.3
-        # tightened the engine bridge so wrapper inputs always either
-        # return a rendered string or raise ``ReportError`` (engine
-        # dep missing, registry miss, or assembly failure) — they
-        # never produce ``None``. Fall through to the legacy
-        # raw-mode renderer for the raw-artifact case.
+        # tightened the engine bridge so wrapper inputs always
+        # either return a rendered string or raise ``ReportError``.
         if render_path == "engine":
             raise ReportError(
                 f"BOT_INSIGHTS_RENDER_PATH=engine but engine returned "
-                f"None for report_type {report_type!r} — input is not a "
-                "wrapper or engine deps unavailable."
+                f"None for report_type {report_type!r} — input is not "
+                "a wrapper or engine deps unavailable."
             )
     if args.format == "html":
         return (
