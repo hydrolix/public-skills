@@ -582,6 +582,31 @@ Consequences carried through the rest of M4:
   `markdown_to_simple_html()` regex builder, and the inline
   `<style>` heredoc. This M4 leaves the wiring intact.
 
+## M4.3 / M4.4 audit notes
+
+**M4.3 file size:** `render_report.py` post-M4 = 4287 lines. The
+plan v3 1500-line target assumed Path A; under Path B the legacy
+`html_*` / `md_*` / `render_html` / `render_markdown` /
+`markdown_to_simple_html` / inline-`<style>` surface stays
+reachable for raw-mode (and the carved-out wrapper-mode legacy
+regression tests). `load_report_input` + `resolve_options` together
+are well under half the residual file (~150 lines combined), so no
+`wrapper_loader.py` split.
+
+**M4.4 dead CSS:** zero `fleet-*` selectors remain in
+`_styles.css` (M2.3 already cleaned them up); the corrected
+`awk | grep -q -r` primitive run against the broader stylesheet
+produces a candidate list of ~12 selectors that are emitted only by
+the inline `<style>` heredoc itself, not by any template or by
+``charts.py``-generated SVG (e.g. `gauge-card`, `gauge-caption`,
+`finding:last-child`, `sec-evidence-block:first-child`). Deleting
+them would change the inline `<style>` content embedded in every
+rendered HTML snapshot, requiring a snapshot refresh across
+~14 fixtures. The behavioral impact is zero; the snapshot churn is
+the only signal. Deferred to a follow-up "CSS pruning + snapshot
+refresh" PR explicitly scoped as cosmetic so the diff is
+self-contained.
+
 ## Changes from v2 (round-2 codex review tightening)
 
 1. **Parser decision named:** stdlib `html.parser` with a small

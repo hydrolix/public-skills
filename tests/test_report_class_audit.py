@@ -196,13 +196,23 @@ def test_engine_render_carries_universal_scaffolding(wrapper: Path):
     Missing one usually means the base template's ``extends`` chain
     is broken or a wrapper block silently dropped the title.
     """
-    html, stderr, rc = _render_html(wrapper)
-    if rc != 0:
-        pytest.skip(
-            f"{wrapper.name} did not render via the engine "
-            f"(rc={rc}); class audit applies only to successful "
-            f"renders. stderr tail: {stderr.splitlines()[-2:]}"
+    if wrapper.name in _EXPECTED_RENDER_FAILURES:
+        # Front-end rejects this fixture; rc-parity asserted by
+        # tests/test_report_semantics.py:test_*_renderability. The
+        # class audit has no rendered output to inspect.
+        _, _, rc = _render_html(wrapper)
+        assert rc != 0, (
+            f"{wrapper.name} is in _EXPECTED_RENDER_FAILURES but "
+            f"rendered successfully; remove it from the list or fix "
+            f"the fixture"
         )
+        return
+    html, stderr, rc = _render_html(wrapper)
+    assert rc == 0, (
+        f"{wrapper.name} engine render failed (rc={rc}) and is not "
+        f"in _EXPECTED_RENDER_FAILURES; stderr tail: "
+        f"{stderr.splitlines()[-3:] if stderr else '<empty>'}"
+    )
     root = html_tree.parse(html)
     classes = html_tree.class_set(root)
     missing = _UNIVERSAL_CLASSES - classes
@@ -212,48 +222,79 @@ def test_engine_render_carries_universal_scaffolding(wrapper: Path):
     )
 
 
+# Per-fixture allowlist of classes that may legitimately be missing
+# from the rendered HTML. Documents the reason inline so a future
+# fixture rename / new degraded mode forces a deliberate update
+# rather than silently passing.
+_FIXTURE_EXEMPT_CLASSES: dict[str, frozenset[str]] = {
+    # No top mover available, so the movers table isn't rendered.
+    "executive_posture_no_movers.json": frozenset({"movers-table"}),
+    "executive_posture_thin_coverage.json": frozenset({"movers-table"}),
+    # Index-only inputs route into the report's degraded-mode branch,
+    # which suppresses per-entity evidence and the domain matrix.
+    "soc_triage_index_only.json": frozenset(
+        {"domain-matrix", "sec-evidence-section"}
+    ),
+    # No top-path candidates available, so the path-candidates table
+    # isn't rendered.
+    "edge_ops_impact_single_entity_no_paths.json": frozenset(
+        {"path-candidates-table"}
+    ),
+}
+
+
+# Wrappers the front-end (``load_report_input`` /
+# ``validate_report_artifacts``) rejects with ``ReportError`` before
+# reaching the engine renderer. Documented here as expected-failure
+# so the class audit asserts on rc explicitly rather than skipping
+# silently and letting an unrelated render regression hide.
+_EXPECTED_RENDER_FAILURES: frozenset[str] = frozenset({
+    "crawler_governance_index_only.json",
+    "edge_ops_impact_index_only.json",
+    "scorecard_brief_acme_malicious_notes.json",
+})
+
+
 @pytest.mark.skipif(not _WRAPPERS, reason="no wrapper fixtures found")
 @pytest.mark.parametrize("wrapper", _WRAPPERS, ids=_ids(_WRAPPERS))
 def test_engine_render_carries_per_type_scaffolding(wrapper: Path):
     """Engine renders for each ``report_type`` must carry the
-    type-specific scaffolding classes defined in ``_PER_TYPE_CLASSES``.
-    Adding/removing a section in a template surfaces here without
-    needing a snapshot refresh.
+    type-specific scaffolding classes defined in ``_PER_TYPE_CLASSES``,
+    minus any fixture-specific exemptions in
+    ``_FIXTURE_EXEMPT_CLASSES``. Adding/removing a section in a
+    template surfaces here as a hard failure (no advisory warnings)
+    so a regression cannot pass CI silently.
     """
     rt = _wrapper_report_type(wrapper)
     expected = _PER_TYPE_CLASSES.get(rt)
     if expected is None:
         pytest.skip(f"{wrapper.name} carries report_type {rt!r}; no matrix entry")
-    html, stderr, rc = _render_html(wrapper)
-    if rc != 0:
-        pytest.skip(
-            f"{wrapper.name} did not render via the engine "
-            f"(rc={rc}); class audit applies only to successful "
-            f"renders. stderr tail: {stderr.splitlines()[-2:]}"
+    if wrapper.name in _EXPECTED_RENDER_FAILURES:
+        # Front-end rejects this fixture; renderability is asserted
+        # by tests/test_report_semantics.py:test_*_renderability with
+        # an error-message fragment match. Class audit doesn't apply
+        # because there's no rendered output to inspect.
+        html, stderr, rc = _render_html(wrapper)
+        assert rc != 0, (
+            f"{wrapper.name} is in _EXPECTED_RENDER_FAILURES but "
+            f"rendered successfully; remove it from the list or fix "
+            f"the fixture"
         )
+        return
+    html, stderr, rc = _render_html(wrapper)
+    assert rc == 0, (
+        f"{wrapper.name} engine render failed (rc={rc}) and is not "
+        f"in _EXPECTED_RENDER_FAILURES; stderr tail: "
+        f"{stderr.splitlines()[-3:] if stderr else '<empty>'}"
+    )
     root = html_tree.parse(html)
     classes = html_tree.class_set(root)
-    missing = expected - classes
-    # Some fixtures legitimately omit sections (e.g., an index-only
-    # SOC fixture has no per-entity sec-evidence-section). Only fail
-    # when the universal subset is missing — type-specific gaps
-    # become advisory until M4.5 hardens them with per-fixture
-    # exemption lists if that turns out to be needed.
-    universal = expected & frozenset({"exec-summary", "narrative-slot"})
-    universal_missing = universal - classes
-    assert not universal_missing, (
-        f"{wrapper.name} engine render is missing per-type universal "
-        f"scaffolding classes: {sorted(universal_missing)}"
+    exempt = _FIXTURE_EXEMPT_CLASSES.get(wrapper.name, frozenset())
+    required = expected - exempt
+    missing = required - classes
+    assert not missing, (
+        f"{wrapper.name} ({rt}) engine render is missing required "
+        f"scaffolding classes: {sorted(missing)}. If the omission is "
+        f"intentional, add the class names to "
+        f"_FIXTURE_EXEMPT_CLASSES[{wrapper.name!r}] with a reason."
     )
-    if missing:
-        # Surface as an advisory pytest warning rather than a hard
-        # failure — keeps the gate honest while letting legitimately
-        # degraded fixtures (e.g., index-only ranking) coexist.
-        import warnings
-        warnings.warn(
-            f"{wrapper.name} ({rt}) missing per-type scaffolding "
-            f"classes {sorted(missing)}; review whether the fixture "
-            f"legitimately omits these sections or the template "
-            f"regressed",
-            stacklevel=1,
-        )

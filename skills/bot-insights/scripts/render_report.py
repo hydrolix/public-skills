@@ -4175,22 +4175,6 @@ def _render_via_engine(
     return template.render(**template_ctx)
 
 
-def _render_executive_posture_via_engine(
-    value: Any,
-    artifacts: list[dict[str, Any]],
-    notes: list[dict[str, Any]],
-    ctx: ReportContext,
-) -> str | None:
-    """Backwards-compat shim — kept so any external caller still works."""
-    return _render_via_engine(
-        report_type="executive_posture",
-        value=value,
-        artifacts=artifacts,
-        notes=notes,
-        ctx=ctx,
-    )
-
-
 def render(
     value: Any,
     args: argparse.Namespace,
