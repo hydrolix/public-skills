@@ -1,63 +1,16 @@
-# bot-insights — TrafficPeak Demo
+# bot-insights — TrafficPeak Akamai Summary Shape
 
-Use this reference when the user asks about the live `demo.trafficpeak.live`
-Akamai project or the Grafana with-SIEM dashboards under
-`dashboards.trafficpeak.live/dashboards/f/with-siem`.
-
-This page was checked on 2026-05-08 against the live `akamai` project on
-`demo.trafficpeak.live` and the live Grafana folder
-`dashboards.trafficpeak.live/dashboards/f/with-siem/?orgId=116`.
-
-Grafana access is configured in
-`~/.config/hydrolix/grafana/dashboards.trafficpeak.live.env`. Use `op run` with
-that env file to resolve the 1Password-backed `GRAFANA_TOKEN`; do not print or
-copy the token into notes, scripts, or examples.
+Use this reference whenever the user is targeting a TrafficPeak Akamai
+deployment or needs the concrete TrafficPeak summary table shape. This page is
+limited to table routing, query conventions, and script-input normalization.
 
 ## Contents
 
-- [Dashboard Set](#dashboard-set)
 - [Live Table Routing](#live-table-routing)
 - [Posture Summary Shape](#posture-summary-shape)
 - [SIEM Policy Summary Shape](#siem-policy-summary-shape)
-- [Dashboard Query Conventions](#dashboard-query-conventions)
-- [Grafana API Checks](#grafana-api-checks)
+- [Query Conventions](#query-conventions)
 - [Normalizing Script Input](#normalizing-script-input)
-
-## Dashboard Set
-
-The with-SIEM folder is represented by these dashboard views:
-
-- Bot Insights - Overview and Alignment:
-  `8854ea18a998d9e474f95713-with-siem-copy`
-- Bot Insights - Multi-Domain Triage:
-  `hdx-bot-insights-triage-with-siem-copy`
-- Bot Insights - SOC What Changed:
-  `a2c0be784d2b2220f7d2f121-with-siem-copy`
-- Bot Insights - What Changed + Investigation:
-  `289c9eb636bc56f5fffeab9d-with-siem-copy`
-- Bot Insights - SEO Governance:
-  `hdx-bot-insights-seo-gov-with-siem-copy`
-- Bot Insights - Edge/Ops:
-  `hdx-bot-insights-edge-ops-with-siem-copy`
-
-All six live dashboards are tagged `akamai`, `bot-insights-cdn-1.1.9`, and
-`with-siem`.
-
-Common panel themes:
-
-- posture scan: automation share, traffic composition, collection count, data
-  lag
-- what changed: request volume, 429 rate, 5xx rate, cache miss rate, origin
-  TaT/TTFB, top ASN/path/category movers, newly seen entities
-- multi-domain triage: bot-like share, crawler file status, AI-labeled share,
-  reliability, origin latency, cache efficiency, AI source/ASN routing
-- SEO governance: crawler file success, good-bot health, AI source
-  composition, AI targeting paths, good-bot 429 watch
-- Edge/Ops: cache efficiency, origin latency, endpoint origin cost,
-  query-string churn, cache thrash, ASN concentration risk
-- SIEM enrichment: threats blocked, auth failures, SIEM evidence by host or
-  ASN/host, blocked/error mix by policy, SIEM policy deltas, auth failures by
-  policy, and AI crawler SIEM enrichment
 
 ## Live Table Routing
 
@@ -85,14 +38,14 @@ and keep those queries explicitly time-bounded. Treat request-level surfaces
 have verified their presence on the target cluster — when absent, apply the
 deployment-availability rule (SKILL.md).
 
-Most live panels use a constant `${timestamp}` variable with value
-`reqTimeSec`. When translating dashboard SQL into standalone SQL, replace
-`${timestamp}` with `reqTimeSec` for posture summaries and keep `timestamp` for
-SIEM policy summaries.
+Most panels use a constant `${timestamp}` variable with value `reqTimeSec`.
+When translating dashboard SQL into standalone SQL, replace `${timestamp}` with
+`reqTimeSec` for posture summaries and keep `timestamp` for SIEM policy
+summaries.
 
 ## Posture Summary Shape
 
-Live `akamai.bi_summary_hour` exposes source-style dimensions:
+`akamai.bi_summary_hour` exposes source-style dimensions:
 
 - `reqTimeSec`
 - `reqHost`
@@ -145,7 +98,7 @@ LIMIT 20
 
 ## SIEM Policy Summary Shape
 
-Live `akamai.bi_siem_policy_summary_hour` exposes these dimensions:
+`akamai.bi_siem_policy_summary_hour` exposes these dimensions:
 
 - `timestamp`
 - `host`, plus alias `reqHost`
@@ -170,8 +123,8 @@ Important metric aliases:
 - `avg_botScore`
 - `uniq_clientIp`
 
-Dashboard SQL uses the camelCase field names above. Normalize output to
-snake_case only after querying, when preparing deterministic script input.
+SQL uses the camelCase field names above. Normalize output to snake_case only
+after querying, when preparing deterministic script input.
 
 Example SIEM policy query:
 
@@ -192,13 +145,12 @@ ORDER BY requests DESC
 LIMIT 50
 ```
 
-## Dashboard Query Conventions
+## Query Conventions
 
 - Time filter: `reqTimeSec` for posture summaries, `timestamp` for SIEM policy
-  summaries. In live Grafana JSON, posture panels often reference `${timestamp}`
-  and that variable currently resolves to `reqTimeSec`.
-- Current-versus-baseline panels shift the comparison equal-duration window
-  forward with `reqTimeSec + INTERVAL window_seconds SECOND AS time`.
+  summaries.
+- Current-versus-baseline comparisons shift the equal-duration comparison
+  window forward with `reqTimeSec + INTERVAL window_seconds SECOND AS time`.
 - Standard delta formula remains
   `(current - baseline) / greatest(baseline, 1) * 100`.
 - Bot-like traffic is usually `trafficCohort IN ('Bot', 'AI')`.
@@ -212,37 +164,12 @@ LIMIT 50
 - Reliability panels use numeric `statusCode` comparisons on posture summaries
   and numeric `status`/`statusCode` comparisons on SIEM policy summaries.
 - Endpoint panels use `requestPathPattern`, not raw `request_path`.
-- Live SIEM panels use these groupings:
-  - `SIEM Evidence by Host`: `host`
-  - `SIEM Evidence by ASN / Host`: `asn`, `host`, `policyId`
-  - `Blocked/Error Mix by Policy`: `policyId`, `actionClass`, `botType`
-  - `SIEM Policy Deltas`: `policyId`, `actionClass`, `botType`
-  - `Auth Failures by Policy`: `policyId`, `botType`, `asn`, `host`
-  - `AI Crawler SIEM Enrichment`: `botType`, `actionClass`
-
-## Grafana API Checks
-
-Use the configured env file with `op run`:
-
-```sh
-op run --env-file ~/.config/hydrolix/grafana/dashboards.trafficpeak.live.env -- \
-  sh -c 'curl -fsS -H "Authorization: Bearer $GRAFANA_TOKEN" "$GRAFANA_URL/api/folders/with-siem"'
-```
-
-Search the folder:
-
-```sh
-op run --env-file ~/.config/hydrolix/grafana/dashboards.trafficpeak.live.env -- \
-  sh -c 'curl -fsS -G -H "Authorization: Bearer $GRAFANA_TOKEN" \
-    --data-urlencode "folderUIDs=with-siem" \
-    --data-urlencode "type=dash-db" \
-    --data-urlencode "orgId=116" \
-    "$GRAFANA_URL/api/search"'
-```
+- SIEM groupings commonly include `host`, `asn`, `policyId`, `actionClass`,
+  and `botType`.
 
 ## Normalizing Script Input
 
-The deterministic scripts expect stable public JSON names. After querying live
+The deterministic scripts expect stable public JSON names. After querying
 TrafficPeak tables, normalize output before passing rows to scripts:
 
 - `reqHost` or `host` -> `request_host`

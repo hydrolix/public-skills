@@ -46,9 +46,9 @@ top-N volume.
 | Family | Granularity | Availability |
 |---|---|---|
 | `bi_summary_*` | minute / hour / day | Every Bot Insights cluster |
-| `bi_siem_policy_summary_*` | minute / hour / day | SIEM-enabled clusters only (e.g. `demo.trafficpeak.live`) |
+| `bi_siem_policy_summary_*` | minute / hour / day | SIEM-enabled clusters only |
 
-For the `demo.trafficpeak.live` Akamai project, qualify as
+For TrafficPeak Akamai deployments, qualify as
 `akamai.bi_summary_*` and `akamai.bi_siem_policy_summary_*`. Confirm SIEM
 data exists for the target cluster before composing SIEM-only queries; SOC
 reports fall back to posture summaries when SIEM is absent.
@@ -74,7 +74,7 @@ Do not read every reference at startup. Pick the smallest relevant file:
 
 - Table shape, fields, personas → [references/data-model.md](references/data-model.md)
 - Summary inventory, retained dimensions, selection → [references/summary-tables.md](references/summary-tables.md)
-- Live TrafficPeak demo cluster + Akamai project → [references/trafficpeak-demo.md](references/trafficpeak-demo.md)
+- TrafficPeak Akamai summary shape → [references/trafficpeak-demo.md](references/trafficpeak-demo.md)
 - QoQ/MoM/WoW/YoY, seasonal, control-review baselines → [references/baseline-comparison.md](references/baseline-comparison.md)
 - Protected-population collateral, displacement → [references/policy-collateral-analysis.md](references/policy-collateral-analysis.md)
 - Full column inventory, flags, suppressed fields → [references/schema.md](references/schema.md)
@@ -95,7 +95,6 @@ Do not read every reference at startup. Pick the smallest relevant file:
 
 | User intent | Load | Deterministic output |
 |---|---|---|
-| Reproduce live TrafficPeak demo dashboards | `trafficpeak-demo.md` | Summary-first SQL on `akamai.bi_*` |
 | What changed over a baseline? | `baseline-comparison.md` | `bot_posture_movement.v1` |
 | Which entity drove movement? | `baseline-comparison.md` (+ `advanced-attribution.md` for aggregate-delta) | `bot_mover_attribution.v1` / `bot_attribution_report.v1` |
 | Did a mitigation work? | `baseline-comparison.md` | `bot_control_review.v1` |
